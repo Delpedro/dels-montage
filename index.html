@@ -7,52 +7,24 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0e0e0e;
-    --bg2: #161616;
-    --bg3: #1e1e1e;
-    --border: #2a2a2a;
-    --border2: #333;
-    --text: #f0f0f0;
-    --muted: #666;
-    --muted2: #888;
-    --accent: #e85d2f;
-    --accent2: #f07040;
-    --green: #4caf7d;
-    --blue: #4a9eff;
-    --amber: #f0a050;
-    --red: #e05555;
+    --bg: #0e0e0e; --bg2: #161616; --bg3: #1e1e1e;
+    --border: #2a2a2a; --border2: #333;
+    --text: #f0f0f0; --muted: #666; --muted2: #888;
+    --accent: #e85d2f; --green: #4caf7d; --blue: #4a9eff; --amber: #f0a050; --red: #e05555;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; }
-  
+
   /* LOGIN */
-  #login-screen {
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 2rem; background: var(--bg);
-  }
-  .login-card {
-    width: 100%; max-width: 380px;
-  }
-  .login-title {
-    font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px;
-    color: var(--text); line-height: 1; margin-bottom: 4px;
-  }
-  .login-sub { font-size: 13px; color: var(--muted); margin-bottom: 2.5rem; letter-spacing: 0.5px; }
+  #login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+  .login-card { width: 100%; max-width: 380px; }
+  .login-title { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; line-height: 1; margin-bottom: 4px; }
+  .login-sub { font-size: 13px; color: var(--muted); margin-bottom: 2.5rem; }
   .form-group { margin-bottom: 1rem; }
   .form-group label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px; }
-  .form-group input {
-    width: 100%; background: var(--bg2); border: 1px solid var(--border2);
-    border-radius: 8px; padding: 14px 16px; color: var(--text);
-    font-size: 15px; font-family: 'DM Sans', sans-serif; outline: none;
-    transition: border-color 0.2s;
-  }
+  .form-group input { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; padding: 14px 16px; color: var(--text); font-size: 15px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.2s; }
   .form-group input:focus { border-color: var(--accent); }
-  .btn-primary {
-    width: 100%; background: var(--accent); border: none; border-radius: 8px;
-    padding: 14px; color: #fff; font-size: 15px; font-weight: 600;
-    font-family: 'DM Sans', sans-serif; cursor: pointer; margin-top: 0.5rem;
-    transition: background 0.2s, transform 0.1s;
-  }
+  .btn-primary { width: 100%; background: var(--accent); border: none; border-radius: 8px; padding: 14px; color: #fff; font-size: 15px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; margin-top: 0.5rem; transition: background 0.2s, transform 0.1s; }
   .btn-primary:active { transform: scale(0.98); background: #d14d20; }
   .login-error { font-size: 13px; color: var(--red); margin-top: 0.75rem; text-align: center; display: none; }
 
@@ -60,118 +32,81 @@
   #app { display: none; min-height: 100vh; padding-bottom: 80px; }
 
   /* TOP BAR */
-  .topbar {
-    position: sticky; top: 0; z-index: 100;
-    background: var(--bg); border-bottom: 1px solid var(--border);
-    padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between;
-  }
-  .topbar-title { font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 1px; color: var(--accent); }
-  .topbar-date { font-size: 12px; color: var(--muted); }
+  .topbar { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); padding: 0.75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
+  .topbar-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1px; color: var(--accent); }
+  .topbar-date { font-size: 11px; color: var(--muted); }
   .logout-btn { font-size: 12px; color: var(--muted); background: none; border: none; cursor: pointer; padding: 4px 8px; }
-  .logout-btn:hover { color: var(--text); }
 
   /* BOTTOM NAV */
-  .bottom-nav {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
-    background: var(--bg2); border-top: 1px solid var(--border);
-    display: flex; height: 70px;
-  }
-  .nav-item {
-    flex: 1; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 4px; background: none; border: none;
-    color: var(--muted); cursor: pointer; transition: color 0.2s; font-family: 'DM Sans', sans-serif;
-  }
+  .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; background: var(--bg2); border-top: 1px solid var(--border); display: flex; height: 65px; }
+  .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; background: none; border: none; color: var(--muted); cursor: pointer; transition: color 0.2s; font-family: 'DM Sans', sans-serif; }
   .nav-item.active { color: var(--accent); }
-  .nav-item svg { width: 22px; height: 22px; }
-  .nav-label { font-size: 10px; letter-spacing: 0.3px; }
+  .nav-item svg { width: 20px; height: 20px; }
+  .nav-label { font-size: 10px; }
 
   /* PAGES */
-  .page { display: none; padding: 1.25rem; }
+  .page { display: none; padding: 1rem; }
   .page.active { display: block; }
 
-  /* SECTION HEADERS */
-  .section-title {
-    font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px;
-    color: var(--text); margin-bottom: 1rem;
-  }
-  .section-sub { font-size: 13px; color: var(--muted); margin-top: -0.75rem; margin-bottom: 1rem; }
+  /* HEADERS */
+  .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 1px; margin-bottom: 0.75rem; }
+  .section-sub { font-size: 13px; color: var(--muted); margin-top: -0.5rem; margin-bottom: 0.75rem; }
 
   /* CARDS */
-  .card {
-    background: var(--bg2); border: 1px solid var(--border);
-    border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem;
-  }
-  .card-title { font-size: 13px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1rem; }
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 0.875rem; }
+  .card-title { font-size: 12px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.875rem; }
 
   /* STAT GRID */
-  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 1rem; }
-  .stat-card { background: var(--bg3); border-radius: 10px; padding: 1rem; }
-  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
-  .stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 1px; line-height: 1; }
-  .stat-unit { font-size: 13px; color: var(--muted); margin-left: 3px; font-family: 'DM Sans', sans-serif; }
-  .stat-green { color: var(--green); }
-  .stat-blue { color: var(--blue); }
-  .stat-amber { color: var(--amber); }
-  .stat-accent { color: var(--accent); }
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
+  .stat-card { background: var(--bg3); border-radius: 10px; padding: 0.875rem; }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px; line-height: 1; }
+  .stat-unit { font-size: 12px; color: var(--muted); margin-left: 2px; font-family: 'DM Sans', sans-serif; }
+  .stat-green { color: var(--green); } .stat-blue { color: var(--blue); } .stat-amber { color: var(--amber); } .stat-accent { color: var(--accent); }
 
-  /* FORM ELEMENTS */
-  .field-group { margin-bottom: 1rem; }
-  .field-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px; }
-  .field-input {
-    width: 100%; background: var(--bg3); border: 1px solid var(--border2);
-    border-radius: 8px; padding: 12px 14px; color: var(--text);
-    font-size: 15px; font-family: 'DM Sans', sans-serif; outline: none;
-    transition: border-color 0.2s;
-  }
+  /* FORM */
+  .field-group { margin-bottom: 0.875rem; }
+  .field-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 5px; }
+  .field-input { width: 100%; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; padding: 11px 13px; color: var(--text); font-size: 15px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.2s; }
   .field-input:focus { border-color: var(--accent); }
-  textarea.field-input { resize: vertical; min-height: 80px; }
-  select.field-input { appearance: none; cursor: pointer; }
+  textarea.field-input { resize: vertical; min-height: 70px; }
 
-  /* ENERGY PICKER */
-  .energy-picker { display: flex; gap: 8px; }
-  .energy-btn {
-    flex: 1; padding: 10px 0; background: var(--bg3); border: 1px solid var(--border2);
-    border-radius: 8px; color: var(--muted); font-size: 18px; cursor: pointer;
-    transition: all 0.15s; font-family: 'DM Sans', sans-serif;
-  }
-  .energy-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); color: var(--accent); }
+  /* ENERGY */
+  .energy-picker { display: flex; gap: 6px; }
+  .energy-btn { flex: 1; padding: 9px 0; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; font-size: 18px; cursor: pointer; transition: all 0.15s; }
+  .energy-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); }
 
   /* SESSION PICKER */
-  .session-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 1rem; }
-  .session-btn {
-    background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px;
-    padding: 1rem; text-align: left; cursor: pointer; transition: all 0.15s;
-  }
-  .session-btn:hover { border-color: var(--border2); }
+  .session-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
+  .session-btn { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 0.875rem; text-align: left; cursor: pointer; transition: all 0.15s; }
   .session-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.1); }
-  .session-day { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .session-day { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
   .session-name { font-size: 14px; font-weight: 600; color: var(--text); }
   .session-focus { font-size: 11px; color: var(--muted2); margin-top: 2px; }
 
-  /* EXERCISE LOGGER */
-  .exercise-block { background: var(--bg3); border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; }
-  .ex-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
-  .ex-name-display { font-size: 14px; font-weight: 600; color: var(--text); }
-  .ex-prev { font-size: 11px; color: var(--muted); }
-  .sets-table { width: 100%; }
-  .sets-table th { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 0 6px 6px 0; text-align: left; }
-  .set-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
-  .set-num { font-size: 12px; color: var(--muted); width: 20px; flex-shrink: 0; font-family: 'DM Mono', monospace; }
-  .set-input {
-    flex: 1; background: var(--bg2); border: 1px solid var(--border2);
-    border-radius: 6px; padding: 8px 10px; color: var(--text);
-    font-size: 14px; font-family: 'DM Mono', monospace; outline: none;
-    text-align: center; transition: border-color 0.2s;
-  }
+  /* EXERCISE BLOCK - MOBILE FIRST */
+  .exercise-block { background: var(--bg3); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
+  .ex-top { margin-bottom: 8px; }
+  .ex-name-display { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.3; margin-bottom: 4px; }
+  .ex-pills { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 4px; }
+  .ex-note-text { font-size: 11px; color: var(--muted); }
+  .ex-prev { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+
+  /* SET ROWS - PROPER MOBILE LAYOUT */
+  .set-row { display: grid; grid-template-columns: 18px 1fr 1fr auto; gap: 6px; margin-bottom: 6px; align-items: center; }
+  .set-num { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; text-align: center; }
+  .set-input { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--text); font-size: 14px; font-family: 'DM Mono', monospace; outline: none; text-align: center; transition: border-color 0.2s; min-width: 0; }
   .set-input:focus { border-color: var(--accent); }
-  .set-input::placeholder { color: var(--border2); }
-  .prev-badge {
-    font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace;
-    background: var(--bg2); border-radius: 4px; padding: 2px 6px; white-space: nowrap;
-  }
+  .set-input::placeholder { color: var(--border2); font-size: 12px; }
+  .prev-badge { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; background: var(--bg2); border-radius: 4px; padding: 2px 5px; white-space: nowrap; min-width: 52px; text-align: center; }
+
+  /* VARIATION TOGGLE (UAT #2) */
+  .variation-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
+  .var-btn { flex: 1; padding: 7px 8px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all 0.15s; text-align: center; font-family: 'DM Sans', sans-serif; }
+  .var-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); color: var(--accent); font-weight: 600; }
 
   /* PILLS */
-  .pill { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 20px; margin-right: 4px; }
+  .pill { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
   .pill-sets { background: rgba(74,158,255,0.15); color: var(--blue); }
   .pill-reps { background: rgba(76,175,125,0.15); color: var(--green); }
   .pill-rest { background: rgba(255,255,255,0.05); color: var(--muted2); }
@@ -181,52 +116,34 @@
   .btn-full { width: 100%; }
   .btn-save { background: var(--accent); color: #fff; }
   .btn-save:active { background: #d14d20; transform: scale(0.98); }
-  .btn-secondary { background: var(--bg3); border: 1px solid var(--border2); color: var(--text); }
-  .btn-secondary:active { transform: scale(0.98); }
 
-  /* WEEK OVERVIEW */
-  .week-strip { display: flex; gap: 6px; margin-bottom: 1rem; }
-  .week-day {
-    flex: 1; background: var(--bg3); border-radius: 8px; padding: 8px 4px;
-    text-align: center; border: 1px solid var(--border);
-  }
+  /* WEEK STRIP */
+  .week-strip { display: flex; gap: 5px; margin-bottom: 0.875rem; }
+  .week-day { flex: 1; background: var(--bg3); border-radius: 8px; padding: 7px 3px; text-align: center; border: 1px solid var(--border); }
   .week-day.done { border-color: var(--green); background: rgba(76,175,125,0.1); }
   .week-day.today { border-color: var(--accent); background: rgba(232,93,47,0.1); }
-  .week-day.rest { opacity: 0.4; }
+  .week-day.rest { opacity: 0.35; }
   .wd-name { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
-  .wd-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border2); margin: 0 auto; }
+  .wd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border2); margin: 0 auto; }
   .week-day.done .wd-dot { background: var(--green); }
   .week-day.today .wd-dot { background: var(--accent); }
 
-  /* HISTORY LIST */
-  .history-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; }
-  .history-date { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-  .history-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
-  .history-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* HISTORY */
+  .history-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
+  .history-date { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .history-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+  .history-stats { display: flex; gap: 6px; flex-wrap: wrap; }
 
   /* TOAST */
-  .toast {
-    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
-    background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px;
-    padding: 10px 20px; font-size: 13px; color: var(--text); z-index: 999;
-    opacity: 0; transition: opacity 0.3s; pointer-events: none; white-space: nowrap;
-  }
+  .toast { position: fixed; bottom: 85px; left: 50%; transform: translateX(-50%); background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; padding: 10px 18px; font-size: 13px; color: var(--text); z-index: 999; opacity: 0; transition: opacity 0.3s; pointer-events: none; white-space: nowrap; }
   .toast.show { opacity: 1; }
   .toast.success { border-color: var(--green); color: var(--green); }
   .toast.error { border-color: var(--red); color: var(--red); }
 
-  /* DIVIDER */
-  .divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
-
-  /* LOADING */
-  .loading { text-align: center; color: var(--muted); font-size: 13px; padding: 2rem; }
-
-  /* TREND CHART */
-  .chart-wrap { position: relative; height: 160px; margin-bottom: 0.5rem; }
-
-  /* EMPTY STATE */
-  .empty { text-align: center; padding: 2rem 1rem; color: var(--muted); font-size: 13px; }
-  .empty-icon { font-size: 32px; margin-bottom: 0.5rem; }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 0.875rem 0; }
+  .loading { text-align: center; color: var(--muted); font-size: 13px; padding: 1.5rem; }
+  .chart-wrap { position: relative; height: 150px; margin-bottom: 0.5rem; }
+  .empty { text-align: center; padding: 1.5rem 1rem; color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -251,7 +168,6 @@
 
 <!-- APP -->
 <div id="app">
-  <!-- TOP BAR -->
   <div class="topbar">
     <div>
       <div class="topbar-title">DEL'S MONTAGE</div>
@@ -260,32 +176,28 @@
     <button class="logout-btn" onclick="handleLogout()">logout</button>
   </div>
 
-  <!-- TODAY PAGE -->
+  <!-- TODAY -->
   <div class="page active" id="page-today">
     <div class="section-title">Today</div>
-
-    <!-- Week strip -->
     <div class="week-strip" id="week-strip"></div>
-
-    <!-- Daily log card -->
     <div class="card">
       <div class="card-title">Daily Check-in</div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
         <div class="field-group">
           <label class="field-label">Weight (kg)</label>
           <input type="number" step="0.1" class="field-input" id="log-weight" placeholder="82.0" />
         </div>
         <div class="field-group">
-          <label class="field-label">Steps</label>
-          <input type="number" class="field-input" id="log-steps" placeholder="6000" />
+          <label class="field-label">Fasting (hrs)</label>
+          <input type="number" step="0.5" class="field-input" id="log-fasting" placeholder="16" />
         </div>
         <div class="field-group">
           <label class="field-label">Calories</label>
           <input type="number" class="field-input" id="log-cals" placeholder="2000" />
         </div>
         <div class="field-group">
-          <label class="field-label">Fasting (hrs)</label>
-          <input type="number" step="0.5" class="field-input" id="log-fasting" placeholder="16" />
+          <label class="field-label">Steps</label>
+          <input type="number" class="field-input" id="log-steps" placeholder="6000" />
         </div>
       </div>
       <div class="field-group">
@@ -306,40 +218,36 @@
     </div>
   </div>
 
-  <!-- WORKOUT PAGE -->
+  <!-- WORKOUT -->
   <div class="page" id="page-workout">
     <div class="section-title">Log Workout</div>
-
-    <!-- Session picker -->
-    <div id="session-picker-wrap">
-      <div class="section-sub">What are we doing today?</div>
-      <div class="session-grid" id="session-grid"></div>
-      <div id="conditioning-form" style="display:none;">
-        <div class="card">
-          <div class="card-title">Saturday Conditioning</div>
-          <div class="field-group">
-            <label class="field-label">Activity</label>
-            <input type="text" class="field-input" id="cond-activity" placeholder="e.g. Les Mills, HIIT circuits, Stepper..." />
-          </div>
-          <div class="field-group">
-            <label class="field-label">Duration (mins)</label>
-            <input type="number" class="field-input" id="cond-duration" placeholder="30" />
-          </div>
-          <div class="field-group">
-            <label class="field-label">Notes</label>
-            <textarea class="field-input" id="cond-notes" placeholder="How was it..."></textarea>
-          </div>
-          <button class="btn btn-save btn-full" onclick="saveConditioning()">Save Session</button>
+    <div class="section-sub">What are we doing today?</div>
+    <div class="session-grid" id="session-grid"></div>
+    <div id="conditioning-form" style="display:none;">
+      <div class="card">
+        <div class="card-title">Saturday Conditioning</div>
+        <div class="field-group">
+          <label class="field-label">Activity</label>
+          <input type="text" class="field-input" id="cond-activity" placeholder="e.g. Les Mills, HIIT circuits, Stepper..." />
         </div>
+        <div class="field-group">
+          <label class="field-label">Duration (mins)</label>
+          <input type="number" class="field-input" id="cond-duration" placeholder="30" />
+        </div>
+        <div class="field-group">
+          <label class="field-label">Notes</label>
+          <textarea class="field-input" id="cond-notes" placeholder="How was it..."></textarea>
+        </div>
+        <button class="btn btn-save btn-full" onclick="saveConditioning()">Save Session</button>
       </div>
-      <div id="workout-logger" style="display:none;"></div>
     </div>
+    <div id="workout-logger" style="display:none;"></div>
   </div>
 
-  <!-- STATS PAGE -->
+  <!-- STATS -->
   <div class="page" id="page-stats">
     <div class="section-title">Stats</div>
-    <div class="stat-grid" id="stats-grid">
+    <div class="stat-grid">
       <div class="stat-card"><div class="stat-label">Current Weight</div><div class="stat-value stat-accent" id="stat-weight">--<span class="stat-unit">kg</span></div></div>
       <div class="stat-card"><div class="stat-label">Sessions This Week</div><div class="stat-value stat-green" id="stat-sessions">--</div></div>
       <div class="stat-card"><div class="stat-label">Avg Fasting</div><div class="stat-value stat-blue" id="stat-fasting">--<span class="stat-unit">hrs</span></div></div>
@@ -347,9 +255,7 @@
     </div>
     <div class="card">
       <div class="card-title">Weight Trend (last 14 days)</div>
-      <div class="chart-wrap">
-        <canvas id="weight-chart" role="img" aria-label="Weight trend over last 14 days"></canvas>
-      </div>
+      <div class="chart-wrap"><canvas id="weight-chart" role="img" aria-label="Weight trend over last 14 days"></canvas></div>
     </div>
     <div class="card">
       <div class="card-title">Recent Workouts</div>
@@ -357,13 +263,12 @@
     </div>
   </div>
 
-  <!-- HISTORY PAGE -->
+  <!-- HISTORY -->
   <div class="page" id="page-history">
     <div class="section-title">History</div>
     <div id="history-list"><div class="loading">Loading...</div></div>
   </div>
 
-  <!-- BOTTOM NAV -->
   <nav class="bottom-nav">
     <button class="nav-item active" onclick="showPage('today')" id="nav-today">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -388,16 +293,14 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
-// ─── CONFIG ───────────────────────────────────────────────
 const SUPABASE_URL = 'https://mltikqmwwlgyzogrgemr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_2BQBFSox7bL1X2TlSlbOYA_hn8FcPmy';
 
-// ─── PROGRAMME ────────────────────────────────────────────
 const SESSIONS = [
   {
     id: 'upper-a', day: 'Monday', name: 'Upper A', focus: 'Push focus',
     exercises: [
-      { name: 'Smith Machine Incline Press', sets: 3, reps: '6–10', rest: '180s' },
+      { name: 'Smith Machine Incline Press', sets: 3, reps: '6–10', rest: '180s', note: 'Start lighter than you think' },
       { name: 'Machine Chest Press', sets: 3, reps: '8–12', rest: '90s' },
       { name: 'Machine Shoulder Press', sets: 3, reps: '8–12', rest: '90s' },
       { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', note: 'DB or machine' },
@@ -408,7 +311,7 @@ const SESSIONS = [
   {
     id: 'lower-a', day: 'Tuesday', name: 'Lower A', focus: 'Quad focus + core',
     exercises: [
-      { name: 'Hack Squat / Leg Press', sets: 3, reps: '8–12', rest: '180s', note: 'Alternate each session' },
+      { name: 'Hack Squat / Leg Press', sets: 3, reps: '8–12', rest: '180s', variations: ['Hack Squat', 'Leg Press'] },
       { name: 'Leg Extension', sets: 3, reps: '10–12', rest: '60s' },
       { name: 'Lying Leg Curl', sets: 3, reps: '8–12', rest: '75s' },
       { name: 'Walking Lunge', sets: 3, reps: '12 each', rest: '75s', note: 'BW or light DBs' },
@@ -443,13 +346,14 @@ const SESSIONS = [
   { id: 'conditioning', day: 'Saturday', name: 'Conditioning', focus: 'Wild card' }
 ];
 
-// ─── STATE ────────────────────────────────────────────────
 let selectedEnergy = 0;
 let selectedSession = null;
 let previousSets = {};
+let selectedVariations = {};
 let weightChart = null;
+let currentPage = 'today';
 
-// ─── SUPABASE HELPERS ─────────────────────────────────────
+// ─── SUPABASE ─────────────────────────────────────────────
 async function sb(path, method = 'GET', body = null) {
   const opts = {
     method,
@@ -480,7 +384,7 @@ async function handleLogin() {
   const users = await sb(`app_user?email=eq.${encodeURIComponent(email)}&password_hash=eq.${hash}&select=id`);
   if (users && users.length > 0) {
     sessionStorage.setItem('del_auth', '1');
-    sessionStorage.setItem('del_email', email);
+    sessionStorage.setItem('del_page', 'today');
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     initApp();
@@ -499,22 +403,24 @@ document.getElementById('login-password').addEventListener('keydown', e => {
   if (e.key === 'Enter') handleLogin();
 });
 
-// Check session on load
+// FIX #4 - restore page on refresh
 window.addEventListener('load', () => {
   if (sessionStorage.getItem('del_auth')) {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
-    initApp();
+    const savedPage = sessionStorage.getItem('del_page') || 'today';
+    initApp(savedPage);
   }
 });
 
-// ─── APP INIT ─────────────────────────────────────────────
-function initApp() {
+// ─── INIT ─────────────────────────────────────────────────
+function initApp(page = 'today') {
   const now = new Date();
   document.getElementById('topbar-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   buildWeekStrip();
   buildSessionGrid();
   loadTodayLog();
+  showPage(page);
 }
 
 function todayStr() {
@@ -524,34 +430,25 @@ function todayStr() {
 // ─── WEEK STRIP ───────────────────────────────────────────
 async function buildWeekStrip() {
   const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const programme = ['rest','upper-a','lower-a','rest','upper-b','lower-b','conditioning'];
   const today = new Date();
   const dow = today.getDay();
   const strip = document.getElementById('week-strip');
   strip.innerHTML = '';
-
-  // Get this week's workout dates
   const weekDates = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() - dow + i);
     weekDates.push(d.toISOString().split('T')[0]);
   }
-
-  // Check which days have logs
-  const start = weekDates[0];
-  const end = weekDates[6];
-  const workouts = await sb(`workouts?date=gte.${start}&date=lte.${end}&select=date`);
+  const workouts = await sb(`workouts?date=gte.${weekDates[0]}&date=lte.${weekDates[6]}&select=date`);
   const doneDates = new Set((workouts || []).map(w => w.date));
-
+  const restDays = [0, 3]; // Sun, Wed
   weekDates.forEach((date, i) => {
     const div = document.createElement('div');
     div.className = 'week-day';
-    const isToday = i === dow;
-    const isRest = programme[i] === 'rest';
-    if (isToday) div.classList.add('today');
+    if (i === dow) div.classList.add('today');
     else if (doneDates.has(date)) div.classList.add('done');
-    else if (isRest) div.classList.add('rest');
+    else if (restDays.includes(i)) div.classList.add('rest');
     div.innerHTML = `<div class="wd-name">${days[i]}</div><div class="wd-dot"></div>`;
     strip.appendChild(div);
   });
@@ -564,23 +461,23 @@ function buildSessionGrid() {
   SESSIONS.forEach(s => {
     const btn = document.createElement('div');
     btn.className = 'session-btn';
+    btn.id = `session-btn-${s.id}`;
     btn.innerHTML = `<div class="session-day">${s.day}</div><div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>`;
-    btn.onclick = () => selectSession(s);
+    btn.onclick = () => selectSession(s, btn);
     grid.appendChild(btn);
   });
 }
 
-async function selectSession(session) {
+async function selectSession(session, btn) {
   selectedSession = session;
+  selectedVariations = {};
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
-  event.currentTarget.classList.add('selected');
-
+  btn.classList.add('selected');
   if (session.id === 'conditioning') {
     document.getElementById('conditioning-form').style.display = 'block';
     document.getElementById('workout-logger').style.display = 'none';
     return;
   }
-
   document.getElementById('conditioning-form').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'block';
   await buildWorkoutLogger(session);
@@ -590,79 +487,91 @@ async function selectSession(session) {
 async function buildWorkoutLogger(session) {
   const logger = document.getElementById('workout-logger');
   logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
-
-  // Fetch previous sets for this session type
   const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=1&select=id,date`);
   previousSets = {};
   if (prevWorkouts && prevWorkouts.length > 0) {
-    const prevSets = await sb(`workout_sets?workout_id=eq.${prevWorkouts[0].id}&select=exercise,set_number,weight,reps&order=set_number.asc`);
+    const prevSets = await sb(`workout_sets?workout_id=eq.${prevWorkouts[0].id}&select=exercise,set_number,weight,reps,variation&order=set_number.asc`);
     (prevSets || []).forEach(s => {
       if (!previousSets[s.exercise]) previousSets[s.exercise] = [];
-      previousSets[s.exercise].push({ weight: s.weight, reps: s.reps });
+      previousSets[s.exercise].push({ weight: s.weight, reps: s.reps, variation: s.variation });
     });
   }
 
   let html = '';
   session.exercises.forEach(ex => {
     const prev = previousSets[ex.name] || [];
+    const prevVariation = prev[0]?.variation || '';
     const prevText = prev.length > 0
       ? prev.map(s => `${s.weight}×${s.reps}`).join(' / ')
       : 'No previous data';
 
     html += `<div class="exercise-block">
-      <div class="ex-header">
-        <div>
-          <div class="ex-name-display">${ex.name}</div>
-          ${ex.note ? `<div class="ex-prev" style="margin-top:2px;">${ex.note}</div>` : ''}
-        </div>
-        <div style="text-align:right;">
+      <div class="ex-top">
+        <div class="ex-name-display">${ex.name}</div>
+        <div class="ex-pills">
           <span class="pill pill-sets">${ex.sets} sets</span>
           <span class="pill pill-reps">${ex.reps}</span>
           <span class="pill pill-rest">${ex.rest}</span>
         </div>
-      </div>
-      <div class="ex-prev" style="margin-bottom:10px;">Previous: ${prevText}</div>`;
+        ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
+      </div>`;
 
+    // FIX #2 - variation toggle for exercises with options
+    if (ex.variations) {
+      const defaultVar = prevVariation || ex.variations[0];
+      selectedVariations[ex.name] = defaultVar;
+      html += `<div class="variation-toggle">`;
+      ex.variations.forEach(v => {
+        const isSelected = v === defaultVar ? 'selected' : '';
+        html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${ex.name}', '${v}', this)">${v}</button>`;
+      });
+      html += `</div>`;
+      if (prevVariation) {
+        html += `<div class="ex-prev">Previous (${prevVariation}): ${prevText}</div>`;
+      } else {
+        html += `<div class="ex-prev">Previous: ${prevText}</div>`;
+      }
+    } else {
+      html += `<div class="ex-prev">Previous: ${prevText}</div>`;
+    }
+
+    // Set rows
     for (let i = 1; i <= ex.sets; i++) {
       const prevSet = prev[i-1];
-      const prevHint = prevSet ? `${prevSet.weight}×${prevSet.reps}` : '';
+      const prevHint = prevSet ? `${prevSet.weight}×${prevSet.reps}` : '—';
       html += `<div class="set-row">
         <div class="set-num">${i}</div>
-        <input type="number" step="0.5" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" style="flex:1.2;" />
-        <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" style="flex:1;" />
-        ${prevHint ? `<div class="prev-badge">${prevHint}</div>` : ''}
+        <input type="number" step="0.5" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" />
+        <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" />
+        <div class="prev-badge">${prevHint}</div>
       </div>`;
     }
     html += `</div>`;
   });
 
-  html += `<div class="field-group" style="margin-top:1rem;">
+  html += `<div class="field-group" style="margin-top:0.875rem;">
     <label class="field-label">Session Notes</label>
     <textarea class="field-input" id="workout-notes" placeholder="How did it go..."></textarea>
   </div>
-  <button class="btn btn-save btn-full" onclick="saveWorkout()">Save Workout</button>`;
+  <button class="btn btn-save btn-full" onclick="saveWorkout()" style="margin-bottom:1rem;">Save Workout</button>`;
 
   logger.innerHTML = html;
+}
+
+function selectVariation(exName, variation, btn) {
+  selectedVariations[exName] = variation;
+  btn.parentElement.querySelectorAll('.var-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
 }
 
 // ─── SAVE WORKOUT ─────────────────────────────────────────
 async function saveWorkout() {
   if (!selectedSession) return;
   const notes = document.getElementById('workout-notes')?.value || '';
-
-  // Create workout record
-  const wRes = await sb('workouts', 'POST', {
-    date: todayStr(),
-    session_type: selectedSession.id,
-    notes
-  });
-
-  // Get the workout ID
+  await sb('workouts', 'POST', { date: todayStr(), session_type: selectedSession.id, notes });
   const workouts = await sb(`workouts?date=eq.${todayStr()}&session_type=eq.${selectedSession.id}&order=created_at.desc&limit=1&select=id`);
-  if (!workouts || workouts.length === 0) { showToast('Error saving workout', 'error'); return; }
+  if (!workouts || workouts.length === 0) { showToast('Error saving', 'error'); return; }
   const workoutId = workouts[0].id;
-
-  // Save sets
   const sets = [];
   selectedSession.exercises.forEach(ex => {
     for (let i = 1; i <= ex.sets; i++) {
@@ -674,16 +583,13 @@ async function saveWorkout() {
           exercise: ex.name,
           set_number: i,
           weight: parseFloat(wEl.value) || null,
-          reps: parseInt(rEl.value) || null
+          reps: parseInt(rEl.value) || null,
+          variation: selectedVariations[ex.name] || null
         });
       }
     }
   });
-
-  if (sets.length > 0) {
-    await sb('workout_sets', 'POST', sets);
-  }
-
+  if (sets.length > 0) await sb('workout_sets', 'POST', sets);
   showToast('Workout saved!', 'success');
   buildWeekStrip();
   document.getElementById('workout-logger').style.display = 'none';
@@ -702,9 +608,7 @@ async function saveConditioning() {
     notes: document.getElementById('cond-notes').value || null
   });
   showToast('Conditioning logged!', 'success');
-  document.getElementById('cond-activity').value = '';
-  document.getElementById('cond-duration').value = '';
-  document.getElementById('cond-notes').value = '';
+  ['cond-activity','cond-duration','cond-notes'].forEach(id => document.getElementById(id).value = '');
 }
 
 // ─── DAILY LOG ────────────────────────────────────────────
@@ -721,6 +625,7 @@ async function loadTodayLog() {
   }
 }
 
+// FIX #1 - upsert so you can edit throughout the day
 async function saveDailyLog() {
   const data = {
     date: todayStr(),
@@ -731,8 +636,6 @@ async function saveDailyLog() {
     energy: selectedEnergy || null,
     notes: document.getElementById('log-notes').value || null
   };
-
-  // Upsert
   const existing = await sb(`daily_logs?date=eq.${todayStr()}&select=id`);
   if (existing && existing.length > 0) {
     await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${todayStr()}`, {
@@ -753,42 +656,27 @@ function setEnergy(val) {
   });
 }
 
-// ─── STATS PAGE ───────────────────────────────────────────
+// ─── STATS ────────────────────────────────────────────────
 async function loadStats() {
-  // Latest weight
   const latest = await sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`);
   if (latest && latest[0]?.weight_kg) {
     document.getElementById('stat-weight').innerHTML = `${latest[0].weight_kg}<span class="stat-unit">kg</span>`;
   }
-
-  // Sessions this week
   const dow = new Date().getDay();
   const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - dow);
   const sessions = await sb(`workouts?date=gte.${weekStart.toISOString().split('T')[0]}&select=id`);
   document.getElementById('stat-sessions').textContent = (sessions || []).length;
-
-  // Avg fasting & steps (last 7 days)
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const logs = await sb(`daily_logs?date=gte.${weekAgo.toISOString().split('T')[0]}&select=fasting_hours,steps`);
   if (logs && logs.length > 0) {
-    const fastingVals = logs.filter(l => l.fasting_hours).map(l => l.fasting_hours);
-    const stepsVals = logs.filter(l => l.steps).map(l => l.steps);
-    if (fastingVals.length) {
-      const avg = (fastingVals.reduce((a,b) => a+b, 0) / fastingVals.length).toFixed(1);
-      document.getElementById('stat-fasting').innerHTML = `${avg}<span class="stat-unit">hrs</span>`;
-    }
-    if (stepsVals.length) {
-      const avg = Math.round(stepsVals.reduce((a,b) => a+b, 0) / stepsVals.length);
-      document.getElementById('stat-steps').textContent = avg.toLocaleString();
-    }
+    const fv = logs.filter(l => l.fasting_hours).map(l => l.fasting_hours);
+    const sv = logs.filter(l => l.steps).map(l => l.steps);
+    if (fv.length) document.getElementById('stat-fasting').innerHTML = `${(fv.reduce((a,b)=>a+b,0)/fv.length).toFixed(1)}<span class="stat-unit">hrs</span>`;
+    if (sv.length) document.getElementById('stat-steps').textContent = Math.round(sv.reduce((a,b)=>a+b,0)/sv.length).toLocaleString();
   }
-
-  // Weight chart
   const fourteenAgo = new Date(); fourteenAgo.setDate(fourteenAgo.getDate() - 14);
   const weightLogs = await sb(`daily_logs?date=gte.${fourteenAgo.toISOString().split('T')[0]}&order=date.asc&select=date,weight_kg`);
   buildWeightChart(weightLogs || []);
-
-  // Recent workouts
   const recent = await sb(`workouts?order=date.desc&limit=5&select=date,session_type,notes`);
   const rw = document.getElementById('recent-workouts');
   if (!recent || recent.length === 0) { rw.innerHTML = '<div class="empty">No workouts logged yet</div>'; return; }
@@ -797,7 +685,7 @@ async function loadStats() {
     return `<div class="history-item">
       <div class="history-date">${new Date(w.date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'short'})}</div>
       <div class="history-title">${s ? s.name : w.session_type}</div>
-      ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;">${w.notes}</div>` : ''}
+      ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:3px;">${w.notes}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -806,39 +694,32 @@ function buildWeightChart(data) {
   const ctx = document.getElementById('weight-chart');
   if (weightChart) { weightChart.destroy(); weightChart = null; }
   if (data.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No weight data yet</div>'; return; }
-  const labels = data.map(d => new Date(d.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
-  const values = data.map(d => d.weight_kg);
   weightChart = new Chart(ctx, {
     type: 'line',
     data: {
-      labels,
+      labels: data.map(d => new Date(d.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'})),
       datasets: [{
-        data: values,
-        borderColor: '#e85d2f',
-        backgroundColor: 'rgba(232,93,47,0.1)',
-        borderWidth: 2,
-        pointBackgroundColor: '#e85d2f',
-        pointRadius: 4,
-        fill: true,
-        tension: 0.3
+        data: data.map(d => d.weight_kg),
+        borderColor: '#e85d2f', backgroundColor: 'rgba(232,93,47,0.1)',
+        borderWidth: 2, pointBackgroundColor: '#e85d2f', pointRadius: 4, fill: true, tension: 0.3
       }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { color: '#666', font: { size: 10 } }, grid: { color: '#222' } },
-        y: { ticks: { color: '#666', font: { size: 10 }, callback: v => v + 'kg' }, grid: { color: '#222' } }
+        x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#222' } },
+        y: { ticks: { color: '#666', font: { size: 10 }, callback: v => v+'kg' }, grid: { color: '#222' } }
       }
     }
   });
 }
 
-// ─── HISTORY PAGE ─────────────────────────────────────────
+// ─── HISTORY ─────────────────────────────────────────────
 async function loadHistory() {
   const logs = await sb(`daily_logs?order=date.desc&limit=30&select=*`);
   const list = document.getElementById('history-list');
-  if (!logs || logs.length === 0) { list.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>No logs yet — start tracking today</div>'; return; }
+  if (!logs || logs.length === 0) { list.innerHTML = '<div class="empty">No logs yet — start tracking today</div>'; return; }
   list.innerHTML = logs.map(l => `
     <div class="history-item">
       <div class="history-date">${new Date(l.date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long'})}</div>
@@ -849,17 +730,19 @@ async function loadHistory() {
         ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
         ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
       </div>
-      ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;">${l.notes}</div>` : ''}
+      ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${l.notes}</div>` : ''}
     </div>
   `).join('');
 }
 
-// ─── NAV ──────────────────────────────────────────────────
+// ─── NAV - FIX #4 persist page on refresh ─────────────────
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`page-${name}`).classList.add('active');
   document.getElementById(`nav-${name}`).classList.add('active');
+  currentPage = name;
+  sessionStorage.setItem('del_page', name);
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
 }
