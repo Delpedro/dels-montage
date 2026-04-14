@@ -334,6 +334,22 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- EDIT WORKOUT MODAL -->
+<div id="edit-workout-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
+  <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+      <div style="font-family:'Bebas Neue',sans-serif; font-size:20px;" id="edit-workout-title">Edit Workout</div>
+      <button onclick="closeEditWorkout()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;">✕</button>
+    </div>
+    <div id="edit-workout-sets"></div>
+    <div class="field-group" style="margin-top:0.875rem;">
+      <label class="field-label">Session Notes</label>
+      <textarea class="field-input" id="edit-workout-notes" placeholder="How did it go..."></textarea>
+    </div>
+    <button class="btn btn-save btn-full" onclick="saveEditWorkout()">Save Changes</button>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
 const SUPABASE_URL = 'https://mltikqmwwlgyzogrgemr.supabase.co';
@@ -878,12 +894,13 @@ async function loadHistory() {
 
     ws.forEach(w => {
       const s = SESSIONS.find(s => s.id === w.session_type);
-      html += `<div class="history-item" style="margin-bottom:6px;">
+      html += `<div class="history-item" style="margin-bottom:6px;cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="pill" style="background:rgba(232,93,47,0.15);color:var(--accent);">workout</span>
           <span style="font-size:14px;font-weight:600;">${s ? s.name : w.session_type}</span>
         </div>
         ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${w.notes}</div>` : ''}
+        <div style="font-size:11px;color:var(--accent);margin-top:6px;">tap to edit</div>
       </div>`;
     });
 
@@ -950,6 +967,79 @@ async function saveEditLog() {
   });
   showToast('Updated!', 'success');
   closeEditLog();
+  loadHistory();
+}
+// ─── EDIT WORKOUT MODAL ───────────────────────────────────
+let editingWorkoutId = null;
+
+async function openEditWorkout(workoutId, sessionType, notes) {
+  editingWorkoutId = workoutId;
+  const s = SESSIONS.find(s => s.id === sessionType);
+  document.getElementById('edit-workout-title').textContent = s ? s.name : sessionType;
+  document.getElementById('edit-workout-notes').value = notes || '';
+
+  const sets = await sb(`workout_sets?workout_id=eq.${workoutId}&order=set_number.asc&select=*`);
+  const setsByExercise = {};
+  (sets || []).forEach(s => {
+    if (!setsByExercise[s.exercise]) setsByExercise[s.exercise] = [];
+    setsByExercise[s.exercise].push(s);
+  });
+
+  let html = '';
+  if (s) {
+    s.exercises.forEach(ex => {
+      const exSets = setsByExercise[ex.name] || [];
+      html += `<div class="exercise-block" style="margin-bottom:0.75rem;">
+        <div class="ex-name-display" style="margin-bottom:8px;">${ex.name}</div>`;
+      for (let i = 1; i <= ex.sets; i++) {
+        const existing = exSets[i-1];
+        html += `<div class="set-row">
+          <div class="set-num">${i}</div>
+          <input type="text" class="set-input" id="ew-${ex.name}-${i}" placeholder="kg" value="${existing?.weight || ''}" />
+          <input type="number" class="set-input" id="er-${ex.name}-${i}" placeholder="reps" value="${existing?.reps || ''}" />
+          <div class="prev-badge">${existing ? `${existing.weight}×${existing.reps}` : '—'}</div>
+        </div>`;
+      }
+      html += `</div>`;
+    });
+  }
+  document.getElementById('edit-workout-sets').innerHTML = html;
+  document.getElementById('edit-workout-modal').style.display = 'block';
+}
+
+function closeEditWorkout() {
+  document.getElementById('edit-workout-modal').style.display = 'none';
+  editingWorkoutId = null;
+}
+
+async function saveEditWorkout() {
+  if (!editingWorkoutId) return;
+  const notes = document.getElementById('edit-workout-notes').value || null;
+  await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${editingWorkoutId}`, {
+    method: 'PATCH',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes })
+  });
+
+  const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=set_number.asc`);
+  const s = SESSIONS.find(s => s.exercises?.some(e => document.getElementById(`ew-${e.name}-1`)));
+
+  for (const set of (existingSets || [])) {
+    const wEl = document.getElementById(`ew-${set.exercise}-${set.set_number}`);
+    const rEl = document.getElementById(`er-${set.exercise}-${set.set_number}`);
+    if (wEl && rEl) {
+      await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?id=eq.${set.id}`, {
+        method: 'PATCH',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weight: wEl.value || null,
+          reps: parseInt(rEl.value) || null
+        })
+      });
+    }
+  }
+  showToast('Workout updated!', 'success');
+  closeEditWorkout();
   loadHistory();
 }
 // ─── TOAST ────────────────────────────────────────────────
