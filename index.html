@@ -197,7 +197,7 @@
       </div>
       <div class="landing-stat">
         <div class="landing-stat-value stat-amber" id="home-steps">--</div>
-        <div class="landing-stat-label">steps today</div>
+        <div class="landing-stat-label">avg steps</div>
       </div>
     </div>
     <div class="week-strip" id="home-week-strip"></div>
@@ -570,14 +570,16 @@ async function loadHomePage() {
     document.getElementById('home-weight').textContent = latest[0].weight_kg;
   }
   document.getElementById('home-sessions').textContent = (weekWorkouts || []).length;
-  if (todayLog && todayLog[0]?.steps) {
-    document.getElementById('home-steps').textContent = todayLog[0].steps.toLocaleString();
-  } else {
-    document.getElementById('home-steps').textContent = '--';
-  }
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+  const weekLogs = await sb(`daily_logs?date=gte.${weekAgo.toISOString().split('T')[0]}&select=steps`);
+  const stepsArr = (weekLogs || []).filter(l => l.steps).map(l => l.steps);
+  const avgSteps = stepsArr.length ? Math.round(stepsArr.reduce((a,b)=>a+b,0)/stepsArr.length) : null;
+  document.getElementById('home-steps').textContent = avgSteps ? avgSteps.toLocaleString() : '--';
 
   // Week strip
-  buildWeekStrip('home-week-strip');
+  if (!document.getElementById('home-week-strip').hasChildNodes()) {
+    buildWeekStrip('home-week-strip');
+  }
 }
 
 function getWeekStart() {
