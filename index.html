@@ -52,7 +52,6 @@
   .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
   .stat-card { background: var(--bg3); border-radius: 10px; padding: 0.875rem; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s; }
   .stat-card.active { border-color: var(--accent); }
-  .stat-card:hover { border-color: var(--border2); }
   .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
   .stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px; line-height: 1; }
   .stat-unit { font-size: 12px; color: var(--muted); margin-left: 2px; font-family: 'DM Sans', sans-serif; }
@@ -104,6 +103,8 @@
   .btn-full { width: 100%; }
   .btn-save { background: var(--accent); color: #fff; }
   .btn-save:active { background: #d14d20; transform: scale(0.98); }
+  .btn-outline { background: transparent; border: 1px solid var(--border2); color: var(--text); }
+  .btn-outline:active { background: var(--bg3); }
 
   .week-strip { display: flex; gap: 5px; margin-bottom: 0.875rem; }
   .week-day { flex: 1; background: var(--bg3); border-radius: 8px; padding: 7px 3px; text-align: center; border: 1px solid var(--border); }
@@ -125,11 +126,28 @@
   .toast.success { border-color: var(--green); color: var(--green); }
   .toast.error { border-color: var(--red); color: var(--red); }
 
-  .divider { border: none; border-top: 1px solid var(--border); margin: 0.875rem 0; }
   .loading { text-align: center; color: var(--muted); font-size: 13px; padding: 1.5rem; }
   .chart-wrap { position: relative; height: 150px; margin-bottom: 0.5rem; }
-  .empty { text-align: center; padding: 1.5rem 1rem; color: var(--muted); font-size: 13px; }
   .chart-title { font-size: 12px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.875rem; }
+  .empty { text-align: center; padding: 1.5rem 1rem; color: var(--muted); font-size: 13px; }
+
+  /* LANDING PAGE */
+  .landing-greeting { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 1px; margin-bottom: 2px; }
+  .landing-date { font-size: 13px; color: var(--muted); margin-bottom: 1.25rem; }
+  .quote-card { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
+  .quote-text { font-size: 14px; color: var(--text); line-height: 1.5; font-style: italic; }
+  .quote-author { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .landing-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 1.25rem; }
+  .landing-stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; text-align: center; }
+  .landing-stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 24px; line-height: 1; }
+  .landing-stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
+  .landing-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1.25rem; }
+  .landing-btn { background: var(--bg2); border: 1px solid var(--border2); border-radius: 12px; padding: 1.25rem 1rem; text-align: center; cursor: pointer; transition: all 0.15s; }
+  .landing-btn:active { background: var(--bg3); border-color: var(--accent); }
+  .landing-btn-icon { font-size: 28px; margin-bottom: 6px; }
+  .landing-btn-label { font-size: 13px; font-weight: 600; color: var(--text); }
+  .landing-btn-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .landing-btn.primary { border-color: var(--accent); background: rgba(232,93,47,0.08); }
 </style>
 </head>
 <body>
@@ -153,18 +171,54 @@
 
 <div id="app">
   <div class="topbar">
-    <div onclick="showPage('today')" style="cursor:pointer;">
+    <div onclick="showPage('home')" style="cursor:pointer;">
       <div class="topbar-title">DEL'S MONTAGE</div>
       <div class="topbar-date" id="topbar-date"></div>
     </div>
     <button class="logout-btn" onclick="handleLogout()">logout</button>
   </div>
 
-  <div class="page active" id="page-today">
-    <div class="section-title">Today</div>
-    <div class="week-strip" id="week-strip"></div>
+  <!-- HOME / LANDING -->
+  <div class="page active" id="page-home">
+    <div class="landing-greeting" id="landing-greeting">Good morning, Del</div>
+    <div class="landing-date" id="landing-date"></div>
+    <div class="quote-card">
+      <div class="quote-text" id="quote-text">Loading...</div>
+      <div class="quote-author" id="quote-author"></div>
+    </div>
+    <div class="landing-stats">
+      <div class="landing-stat">
+        <div class="landing-stat-value stat-accent" id="home-weight">--</div>
+        <div class="landing-stat-label">kg</div>
+      </div>
+      <div class="landing-stat">
+        <div class="landing-stat-value stat-green" id="home-sessions">--</div>
+        <div class="landing-stat-label">sessions</div>
+      </div>
+      <div class="landing-stat">
+        <div class="landing-stat-value stat-amber" id="home-steps">--</div>
+        <div class="landing-stat-label">steps today</div>
+      </div>
+    </div>
+    <div class="week-strip" id="home-week-strip"></div>
+    <div class="landing-actions">
+      <div class="landing-btn primary" onclick="showPage('today')">
+        <div class="landing-btn-icon">📋</div>
+        <div class="landing-btn-label">Daily Check-in</div>
+        <div class="landing-btn-sub">Log today's stats</div>
+      </div>
+      <div class="landing-btn" onclick="showPage('workout')">
+        <div class="landing-btn-icon">💪</div>
+        <div class="landing-btn-label">Log Workout</div>
+        <div class="landing-btn-sub">Track your session</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TODAY -->
+  <div class="page" id="page-today">
+    <div class="section-title">Daily Check-in</div>
     <div class="card">
-      <div class="card-title">Daily Check-in</div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
         <div class="field-group">
           <label class="field-label">Weight (kg)</label>
@@ -201,6 +255,7 @@
     </div>
   </div>
 
+  <!-- WORKOUT -->
   <div class="page" id="page-workout">
     <div class="section-title">Log Workout</div>
     <div class="section-sub">What are we doing today?</div>
@@ -226,6 +281,7 @@
     <div id="workout-logger" style="display:none;"></div>
   </div>
 
+  <!-- STATS -->
   <div class="page" id="page-stats">
     <div class="section-title">Stats</div>
     <div class="stat-grid">
@@ -256,15 +312,16 @@
     </div>
   </div>
 
+  <!-- HISTORY -->
   <div class="page" id="page-history">
     <div class="section-title">History</div>
     <div id="history-list"><div class="loading">Loading...</div></div>
   </div>
 
   <nav class="bottom-nav">
-    <button class="nav-item active" onclick="showPage('today')" id="nav-today">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      <span class="nav-label">Today</span>
+    <button class="nav-item active" onclick="showPage('home')" id="nav-home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span class="nav-label">Home</span>
     </button>
     <button class="nav-item" onclick="showPage('workout')" id="nav-workout">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4v6a6 6 0 0 0 12 0V4"/><line x1="6" y1="20" x2="18" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg>
@@ -405,7 +462,7 @@ let editSelectedVariations = {};
 let mainChart = null;
 let currentChartType = 'weight';
 let statsData = {};
-let currentPage = 'today';
+let currentPage = 'home';
 
 // ─── SUPABASE ─────────────────────────────────────────────
 async function sb(path, method = 'GET', body = null) {
@@ -438,7 +495,7 @@ async function handleLogin() {
   const users = await sb(`app_user?email=eq.${encodeURIComponent(email)}&password_hash=eq.${hash}&select=id`);
   if (users && users.length > 0) {
     sessionStorage.setItem('del_auth', '1');
-    sessionStorage.setItem('del_page', 'today');
+    sessionStorage.setItem('del_page', 'home');
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     initApp();
@@ -461,16 +518,15 @@ window.addEventListener('load', () => {
   if (sessionStorage.getItem('del_auth')) {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
-    const savedPage = sessionStorage.getItem('del_page') || 'today';
+    const savedPage = sessionStorage.getItem('del_page') || 'home';
     initApp(savedPage);
   }
 });
 
 // ─── INIT ─────────────────────────────────────────────────
-function initApp(page = 'today') {
+function initApp(page = 'home') {
   const now = new Date();
   document.getElementById('topbar-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-  buildWeekStrip();
   buildSessionGrid();
   loadTodayLog();
   showPage(page);
@@ -480,12 +536,63 @@ function todayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning, Del';
+  if (h < 17) return 'Good afternoon, Del';
+  return 'Good evening, Del';
+}
+
+// ─── LANDING PAGE ─────────────────────────────────────────
+async function loadHomePage() {
+  // Greeting
+  document.getElementById('landing-greeting').textContent = getGreeting();
+  document.getElementById('landing-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  // Random quote
+  try {
+    const quotes = await sb(`quotes?select=quote,author`);
+    if (quotes && quotes.length > 0) {
+      const q = quotes[Math.floor(Math.random() * quotes.length)];
+      document.getElementById('quote-text').textContent = `"${q.quote}"`;
+      document.getElementById('quote-author').textContent = q.author ? `— ${q.author}` : '';
+    }
+  } catch(e) {}
+
+  // Quick stats
+  const [latest, todayLog, weekWorkouts] = await Promise.all([
+    sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),
+    sb(`daily_logs?date=eq.${todayStr()}&select=steps`),
+    sb(`workouts?date=gte.${getWeekStart()}&select=id`)
+  ]);
+
+  if (latest && latest[0]?.weight_kg) {
+    document.getElementById('home-weight').textContent = latest[0].weight_kg;
+  }
+  document.getElementById('home-sessions').textContent = (weekWorkouts || []).length;
+  if (todayLog && todayLog[0]?.steps) {
+    document.getElementById('home-steps').textContent = todayLog[0].steps.toLocaleString();
+  } else {
+    document.getElementById('home-steps').textContent = '--';
+  }
+
+  // Week strip
+  buildWeekStrip('home-week-strip');
+}
+
+function getWeekStart() {
+  const d = new Date();
+  d.setDate(d.getDate() - d.getDay());
+  return d.toISOString().split('T')[0];
+}
+
 // ─── WEEK STRIP ───────────────────────────────────────────
-async function buildWeekStrip() {
+async function buildWeekStrip(containerId = 'home-week-strip') {
   const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const today = new Date();
   const dow = today.getDay();
-  const strip = document.getElementById('week-strip');
+  const strip = document.getElementById(containerId);
+  if (!strip) return;
   strip.innerHTML = '';
   const weekDates = [];
   for (let i = 0; i < 7; i++) {
@@ -740,7 +847,6 @@ async function saveWorkout() {
   if (sets.length > 0) await sb('workout_sets', 'POST', sets);
   showToast('Workout saved!', 'success');
   localStorage.removeItem('workout_draft');
-  buildWeekStrip();
   buildSessionGrid();
   document.getElementById('workout-logger').style.display = 'none';
   document.getElementById('conditioning-form').style.display = 'none';
@@ -825,18 +931,13 @@ async function loadStats() {
     sb(`workouts?order=date.desc&limit=5&select=date,session_type,notes`)
   ]);
 
-  // Current weight
   if (latest && latest[0]?.weight_kg) {
     document.getElementById('stat-weight').innerHTML = `${latest[0].weight_kg}<span class="stat-unit">kg</span>`;
   }
 
-  // Sessions this week
-  const dow = new Date().getDay();
-  const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - dow);
-  const weekSessions = (allWorkouts || []).filter(w => w.date >= weekStart.toISOString().split('T')[0]);
+  const weekSessions = (allWorkouts || []).filter(w => w.date >= getWeekStart());
   document.getElementById('stat-sessions').textContent = weekSessions.length;
 
-  // Avg fasting & steps
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const weekAgoStr = weekAgo.toISOString().split('T')[0];
   const recentWeekLogs = (recentLogs || []).filter(l => l.date >= weekAgoStr);
@@ -845,7 +946,6 @@ async function loadStats() {
   if (fv.length) document.getElementById('stat-fasting').innerHTML = `${(fv.reduce((a,b)=>a+b,0)/fv.length).toFixed(1)}<span class="stat-unit">hrs</span>`;
   if (sv.length) document.getElementById('stat-steps').textContent = Math.round(sv.reduce((a,b)=>a+b,0)/sv.length).toLocaleString();
 
-  // Store data for chart switching
   statsData = {
     weight: weightLogs || [],
     fasting: recentLogs || [],
@@ -853,10 +953,8 @@ async function loadStats() {
     sessions: allWorkouts || []
   };
 
-  // Build chart
   switchChart(currentChartType);
 
-  // Recent workouts
   const rw = document.getElementById('recent-workouts');
   if (!recent || recent.length === 0) { rw.innerHTML = '<div class="empty">No workouts logged yet</div>'; return; }
   rw.innerHTML = recent.map(w => {
@@ -872,61 +970,49 @@ async function loadStats() {
 // ─── CHART SWITCHER ───────────────────────────────────────
 function switchChart(type) {
   currentChartType = type;
-
-  // Update active tile
   document.querySelectorAll('.stat-card').forEach(t => t.classList.remove('active'));
-  document.getElementById(`tile-${type === 'weight' ? 'weight' : type === 'sessions' ? 'sessions' : type === 'fasting' ? 'fasting' : 'steps'}`).classList.add('active');
+  document.getElementById(`tile-${type}`).classList.add('active');
 
-  const ctx = document.getElementById('main-chart');
   if (mainChart) { mainChart.destroy(); mainChart = null; }
 
-  let labels = [], data = [], color = '#e85d2f', label = '', yCallback = v => v, chartType = 'line';
+  const wrap = document.querySelector('.chart-wrap');
+  if (!wrap) return;
+  if (!wrap.querySelector('canvas')) {
+    wrap.innerHTML = '<canvas id="main-chart" role="img"></canvas>';
+  }
+
+  let labels = [], data = [], color = '#e85d2f', chartType = 'line', yCallback = v => v;
 
   if (type === 'weight') {
     const d = statsData.weight || [];
+    if (d.length === 0) { wrap.innerHTML = '<div class="empty">No weight data yet</div>'; document.getElementById('chart-title').textContent = 'Weight Trend (last 14 days)'; return; }
     labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
     data = d.map(x => x.weight_kg);
-    color = '#e85d2f';
-    label = 'Weight (kg)';
-    yCallback = v => v + 'kg';
+    color = '#e85d2f'; yCallback = v => v + 'kg';
     document.getElementById('chart-title').textContent = 'Weight Trend (last 14 days)';
-    if (d.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No weight data yet</div>'; return; }
   } else if (type === 'sessions') {
     const d = statsData.sessions || [];
-    // Group by week
+    if (d.length === 0) { wrap.innerHTML = '<div class="empty">No session data yet</div>'; document.getElementById('chart-title').textContent = 'Sessions (last 14 days)'; return; }
     const byDate = {};
     d.forEach(w => { byDate[w.date] = (byDate[w.date] || 0) + 1; });
     labels = Object.keys(byDate).map(x => new Date(x).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
     data = Object.values(byDate);
-    color = '#4caf7d';
-    label = 'Sessions';
-    chartType = 'bar';
+    color = '#4caf7d'; chartType = 'bar';
     document.getElementById('chart-title').textContent = 'Sessions (last 14 days)';
-    if (d.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No session data yet</div>'; return; }
   } else if (type === 'fasting') {
     const d = (statsData.fasting || []).filter(x => x.fasting_hours);
+    if (d.length === 0) { wrap.innerHTML = '<div class="empty">No fasting data yet</div>'; document.getElementById('chart-title').textContent = 'Fasting Hours (last 14 days)'; return; }
     labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
     data = d.map(x => x.fasting_hours);
-    color = '#4a9eff';
-    label = 'Fasting (hrs)';
-    yCallback = v => v + 'h';
+    color = '#4a9eff'; yCallback = v => v + 'h';
     document.getElementById('chart-title').textContent = 'Fasting Hours (last 14 days)';
-    if (d.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No fasting data yet</div>'; return; }
   } else if (type === 'steps') {
     const d = (statsData.steps || []).filter(x => x.steps);
+    if (d.length === 0) { wrap.innerHTML = '<div class="empty">No steps data yet</div>'; document.getElementById('chart-title').textContent = 'Steps (last 14 days)'; return; }
     labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
     data = d.map(x => x.steps);
-    color = '#f0a050';
-    label = 'Steps';
-    yCallback = v => v >= 1000 ? (v/1000).toFixed(1) + 'k' : v;
+    color = '#f0a050'; yCallback = v => v >= 1000 ? (v/1000).toFixed(1) + 'k' : v;
     document.getElementById('chart-title').textContent = 'Steps (last 14 days)';
-    if (d.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No steps data yet</div>'; return; }
-  }
-
-  // Restore canvas if it was replaced with empty div
-  const wrap = document.querySelector('.chart-wrap');
-  if (!wrap.querySelector('canvas')) {
-    wrap.innerHTML = '<canvas id="main-chart" role="img"></canvas>';
   }
 
   mainChart = new Chart(document.getElementById('main-chart'), {
@@ -1023,11 +1109,13 @@ function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`page-${name}`).classList.add('active');
-  document.getElementById(`nav-${name}`).classList.add('active');
+  document.getElementById(`nav-${name}`)?.classList.add('active');
   currentPage = name;
   sessionStorage.setItem('del_page', name);
+  if (name === 'home') loadHomePage();
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
+  if (name === 'today') loadTodayLog();
 }
 
 // ─── EDIT CHECK-IN MODAL ──────────────────────────────────
@@ -1216,7 +1304,6 @@ async function deleteWorkout(workoutId) {
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
   });
   showToast('Workout deleted', 'success');
-  buildWeekStrip();
   buildSessionGrid();
   loadHistory();
 }
