@@ -930,7 +930,7 @@ async function loadHistory() {
           ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
         </div>
         ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${l.notes}</div>` : ''}
-        <div style="font-size:11px;color:var(--accent);margin-top:6px;">tap to edit</div>
+        <div style="font-size:11px;color:var(--blue);margin-top:6px;">tap to edit</div>
       </div>`;
     }
     ws.forEach(w => {
@@ -942,7 +942,7 @@ async function loadHistory() {
         </div>
         ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${w.notes}</div>` : ''}
         <div style="display:flex;justify-content:space-between;margin-top:6px;">
-          <span style="font-size:11px;color:var(--muted);">tap to edit</span>
+          <span style="font-size:11px;color:var(--blue);">tap to edit</span>
           <span style="font-size:11px;color:var(--red);cursor:pointer;" onclick="event.stopPropagation();deleteWorkout('${w.id}')">delete</span>
         </div>
       </div>`;
