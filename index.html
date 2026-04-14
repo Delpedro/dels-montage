@@ -654,6 +654,14 @@ function selectVariation(exName, variation, btn) {
   selectedVariations[exName] = variation;
   btn.parentElement.querySelectorAll('.var-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
+  // Update weight display fields for variation exercises
+  const ex = selectedSession?.exercises.find(e => e.name === exName);
+  if (ex?.variations) {
+    for (let i = 1; i <= ex.sets; i++) {
+      const wEl = document.getElementById(`w-${exName}-${i}`);
+      if (wEl && wEl.tagName === 'DIV') wEl.textContent = variation;
+    }
+  }
 }
 
 // ─── SAVE WORKOUT ─────────────────────────────────────────
