@@ -656,6 +656,13 @@ async function saveConditioning() {
 
 // ─── DAILY LOG ────────────────────────────────────────────
 async function loadTodayLog() {
+  document.getElementById('log-weight').value = '';
+  document.getElementById('log-steps').value = '';
+  document.getElementById('log-cals').value = '';
+  document.getElementById('log-fasting').value = '';
+  document.getElementById('log-notes').value = '';
+  setEnergy(0);
+
   const logs = await sb(`daily_logs?date=eq.${todayStr()}&select=*`);
   if (logs && logs.length > 0) {
     const l = logs[0];
