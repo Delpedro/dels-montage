@@ -33,7 +33,7 @@
 
   /* TOP BAR */
   .topbar { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); padding: 0.75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
-  .topbar-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1px; color: var(--accent); }
+  .topbar-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1px; color: var(--accent); cursor: pointer; }
   .topbar-date { font-size: 11px; color: var(--muted); }
   .logout-btn { font-size: 12px; color: var(--muted); background: none; border: none; cursor: pointer; padding: 4px 8px; }
 
@@ -80,11 +80,12 @@
   .session-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
   .session-btn { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 0.875rem; text-align: left; cursor: pointer; transition: all 0.15s; }
   .session-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.1); }
+  .session-btn.done { border-color: var(--green); background: rgba(76,175,125,0.08); }
   .session-day { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
   .session-name { font-size: 14px; font-weight: 600; color: var(--text); }
   .session-focus { font-size: 11px; color: var(--muted2); margin-top: 2px; }
 
-  /* EXERCISE BLOCK - MOBILE FIRST */
+  /* EXERCISE BLOCK */
   .exercise-block { background: var(--bg3); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
   .ex-top { margin-bottom: 8px; }
   .ex-name-display { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.3; margin-bottom: 4px; }
@@ -92,15 +93,16 @@
   .ex-note-text { font-size: 11px; color: var(--muted); }
   .ex-prev { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
 
-  /* SET ROWS - PROPER MOBILE LAYOUT */
+  /* SET ROWS */
   .set-row { display: grid; grid-template-columns: 18px 1fr 1fr auto; gap: 6px; margin-bottom: 6px; align-items: center; }
   .set-num { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; text-align: center; }
   .set-input { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--text); font-size: 14px; font-family: 'DM Mono', monospace; outline: none; text-align: center; transition: border-color 0.2s; min-width: 0; }
   .set-input:focus { border-color: var(--accent); }
   .set-input::placeholder { color: var(--border2); font-size: 12px; }
+  .set-label { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--muted); font-size: 12px; font-family: 'DM Mono', monospace; text-align: center; min-width: 0; display: flex; align-items: center; justify-content: center; }
   .prev-badge { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; background: var(--bg2); border-radius: 4px; padding: 2px 5px; white-space: nowrap; min-width: 52px; text-align: center; }
 
-  /* VARIATION TOGGLE (UAT #2) */
+  /* VARIATION TOGGLE */
   .variation-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
   .var-btn { flex: 1; padding: 7px 8px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all 0.15s; text-align: center; font-family: 'DM Sans', sans-serif; }
   .var-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); color: var(--accent); font-weight: 600; }
@@ -169,7 +171,7 @@
 <!-- APP -->
 <div id="app">
   <div class="topbar">
-    <div>
+    <div onclick="showPage('today')" style="cursor:pointer;">
       <div class="topbar-title">DEL'S MONTAGE</div>
       <div class="topbar-date" id="topbar-date"></div>
     </div>
@@ -289,7 +291,7 @@
   </nav>
 </div>
 
-<!-- EDIT LOG MODAL -->
+<!-- EDIT CHECK-IN MODAL -->
 <div id="edit-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
   <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -332,8 +334,6 @@
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
-
 <!-- EDIT WORKOUT MODAL -->
 <div id="edit-workout-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
   <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
@@ -349,6 +349,8 @@
     <button class="btn btn-save btn-full" onclick="saveEditWorkout()">Save Changes</button>
   </div>
 </div>
+
+<div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
@@ -409,6 +411,7 @@ let selectedEnergy = 0;
 let selectedSession = null;
 let previousSets = {};
 let selectedVariations = {};
+let editSelectedVariations = {};
 let weightChart = null;
 let currentPage = 'today';
 
@@ -462,7 +465,6 @@ document.getElementById('login-password').addEventListener('keydown', e => {
   if (e.key === 'Enter') handleLogin();
 });
 
-// FIX #4 - restore page on refresh
 window.addEventListener('load', () => {
   if (sessionStorage.getItem('del_auth')) {
     document.getElementById('login-screen').style.display = 'none';
@@ -501,7 +503,7 @@ async function buildWeekStrip() {
   }
   const workouts = await sb(`workouts?date=gte.${weekDates[0]}&date=lte.${weekDates[6]}&select=date`);
   const doneDates = new Set((workouts || []).map(w => w.date));
-  const restDays = [0, 3]; // Sun, Wed
+  const restDays = [0, 3];
   weekDates.forEach((date, i) => {
     const div = document.createElement('div');
     div.className = 'week-day';
@@ -514,20 +516,26 @@ async function buildWeekStrip() {
 }
 
 // ─── SESSION GRID ─────────────────────────────────────────
-function buildSessionGrid() {
+async function buildSessionGrid() {
   const grid = document.getElementById('session-grid');
   grid.innerHTML = '';
+  const todayWorkouts = await sb(`workouts?date=eq.${todayStr()}&select=session_type`);
+  const doneTodaySessions = new Set((todayWorkouts || []).map(w => w.session_type));
   SESSIONS.forEach(s => {
     const btn = document.createElement('div');
     btn.className = 'session-btn';
     btn.id = `session-btn-${s.id}`;
-    btn.innerHTML = `<div class="session-day">${s.day}</div><div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>`;
+    if (doneTodaySessions.has(s.id)) btn.classList.add('done');
+    btn.innerHTML = `<div class="session-day">${s.day}</div><div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>${doneTodaySessions.has(s.id) ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
     btn.onclick = () => selectSession(s, btn);
     grid.appendChild(btn);
   });
 }
 
 async function selectSession(session, btn) {
+  if (btn.classList.contains('done')) {
+    if (!confirm(`You already logged ${session.name} today. Log again?`)) return;
+  }
   selectedSession = session;
   selectedVariations = {};
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
@@ -546,6 +554,7 @@ async function selectSession(session, btn) {
 async function buildWorkoutLogger(session) {
   const logger = document.getElementById('workout-logger');
   logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
+
   const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=1&select=id,date`);
   previousSets = {};
   if (prevWorkouts && prevWorkouts.length > 0) {
@@ -560,8 +569,17 @@ async function buildWorkoutLogger(session) {
   session.exercises.forEach(ex => {
     const prev = previousSets[ex.name] || [];
     const prevVariation = prev[0]?.variation || '';
-    const prevText = prev.length > 0
-      ? prev.map(s => `${s.weight}×${s.reps}`).join(' / ')
+    const defaultVar = (ex.variations) ? (prevVariation || ex.variations[0]) : null;
+
+    // Filter prev by variation for non-band variation exercises
+    let filteredPrev = prev;
+    if (ex.variations && !ex.band && defaultVar) {
+      filteredPrev = prev.filter(p => p.variation === defaultVar);
+      if (filteredPrev.length === 0) filteredPrev = prev;
+    }
+
+    const prevText = filteredPrev.length > 0
+      ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
       : 'No previous data';
 
     html += `<div class="exercise-block">
@@ -574,9 +592,9 @@ async function buildWorkoutLogger(session) {
         </div>
         ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
       </div>`;
-// FIX #2 - variation toggle for exercises with options
+
+    // Variation toggle
     if (ex.variations) {
-      const defaultVar = prevVariation || ex.variations[0];
       selectedVariations[ex.name] = defaultVar;
       html += `<div class="variation-toggle">`;
       ex.variations.forEach(v => {
@@ -584,40 +602,33 @@ async function buildWorkoutLogger(session) {
         html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${ex.name}', '${v}', this)">${v}</button>`;
       });
       html += `</div>`;
-      if (prevVariation) {
-        html += `<div class="ex-prev">Previous (${prevVariation}): ${prevText}</div>`;
-      } else {
-        html += `<div class="ex-prev">Previous: ${prevText}</div>`;
+      if (!ex.band) {
+        html += `<div class="ex-prev" id="prev-${ex.name}">Previous (${defaultVar}): ${prevText}</div>`;
       }
     } else {
       html += `<div class="ex-prev">Previous: ${prevText}</div>`;
     }
 
- for (let i = 1; i <= ex.sets; i++) {
-      const prevSet = prev[i-1];
+    for (let i = 1; i <= ex.sets; i++) {
+      const prevSet = filteredPrev[i-1];
       const prevHint = prevSet ? `${prevSet.weight}×${prevSet.reps}` : '—';
+      const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
+
+      let weightCol = '';
       if (ex.bodyweight) {
-        html += `<div class="set-row">
-          <div class="set-num">${i}</div>
-          <input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="BW" value="BW" readonly style="color:var(--muted);text-align:center;" />
-          <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
-          <div class="prev-badge">${prevHint}</div>
-        </div>`;
+        weightCol = `<div class="set-label" id="w-${ex.name}-${i}">BW</div>`;
       } else if (ex.variations && ex.band) {
-        html += `<div class="set-row">
-          <div class="set-num">${i}</div>
-          <div class="set-input" id="w-${ex.name}-${i}" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">${selectedVariations[ex.name] || ex.variations[0]}</div>
-          <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
-          <div class="prev-badge">${prevHint}</div>
-        </div>`;
+        weightCol = `<div class="set-label" id="w-${ex.name}-${i}">${defaultVar}</div>`;
       } else {
-        html += `<div class="set-row">
-          <div class="set-num">${i}</div>
-          <input type="text" step="0.5" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${session.id}')" />
-          <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
-          <div class="prev-badge">${prevHint}</div>
-        </div>`;
+        weightCol = `<input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${session.id}')" />`;
       }
+
+      html += `<div class="set-row">
+        <div class="set-num">${i}</div>
+        ${weightCol}
+        <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="${repPlaceholder}" inputmode="numeric" oninput="saveDraft('${session.id}')" />
+        <div class="prev-badge" id="badge-${ex.name}-${i}">${prevHint}</div>
+      </div>`;
     }
     html += `</div>`;
   });
@@ -634,11 +645,14 @@ async function buildWorkoutLogger(session) {
 
 // ─── DRAFT AUTO-SAVE ─────────────────────────────────────
 function saveDraft(sessionId) {
+  if (!selectedSession) return;
   const draft = { sessionId, sets: {}, notes: document.getElementById('workout-notes')?.value || '' };
   selectedSession.exercises.forEach(ex => {
     for (let i = 1; i <= ex.sets; i++) {
-      const w = document.getElementById(`w-${ex.name}-${i}`)?.value;
-      const r = document.getElementById(`r-${ex.name}-${i}`)?.value;
+      const wEl = document.getElementById(`w-${ex.name}-${i}`);
+      const rEl = document.getElementById(`r-${ex.name}-${i}`);
+      const w = wEl && wEl.tagName === 'INPUT' ? wEl.value : null;
+      const r = rEl ? rEl.value : null;
       if (w || r) draft.sets[`${ex.name}-${i}`] = { w, r };
     }
   });
@@ -657,7 +671,7 @@ function restoreDraft(session) {
         if (draft.sets[key]) {
           const wEl = document.getElementById(`w-${ex.name}-${i}`);
           const rEl = document.getElementById(`r-${ex.name}-${i}`);
-          if (wEl && draft.sets[key].w) wEl.value = draft.sets[key].w;
+          if (wEl && wEl.tagName === 'INPUT' && draft.sets[key].w) wEl.value = draft.sets[key].w;
           if (rEl && draft.sets[key].r) rEl.value = draft.sets[key].r;
         }
       }
@@ -670,12 +684,47 @@ function selectVariation(exName, variation, btn) {
   selectedVariations[exName] = variation;
   btn.parentElement.querySelectorAll('.var-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
-  // Update weight display fields for variation exercises
+
   const ex = selectedSession?.exercises.find(e => e.name === exName);
-  if (ex?.variations) {
+  if (!ex) return;
+
+  if (ex.band) {
+    // Update band label in set rows
     for (let i = 1; i <= ex.sets; i++) {
       const wEl = document.getElementById(`w-${exName}-${i}`);
-      if (wEl && wEl.tagName === 'DIV') wEl.textContent = variation;
+      if (wEl) wEl.textContent = variation;
+    }
+  } else {
+    // Update prev data filtered by variation
+    const filteredPrev = (previousSets[exName] || []).filter(p => p.variation === variation);
+    const prevText = filteredPrev.length > 0
+      ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
+      : 'No previous data';
+    const prevEl = document.getElementById(`prev-${exName}`);
+    if (prevEl) prevEl.textContent = `Previous (${variation}): ${prevText}`;
+    // Update prev badges per set
+    filteredPrev.forEach((set, idx) => {
+      const badge = document.getElementById(`badge-${exName}-${idx+1}`);
+      if (badge) badge.textContent = `${set.weight}×${set.reps}`;
+    });
+    // Clear badges for sets beyond filtered prev
+    for (let i = filteredPrev.length + 1; i <= ex.sets; i++) {
+      const badge = document.getElementById(`badge-${exName}-${i}`);
+      if (badge) badge.textContent = '—';
+    }
+  }
+}
+
+function selectEditVariation(exName, variation, btn) {
+  editSelectedVariations[exName] = variation;
+  btn.parentElement.querySelectorAll('.var-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  const s = SESSIONS.find(s => s.id === editingSessionType);
+  const ex = s?.exercises.find(e => e.name === exName);
+  if (ex?.band) {
+    for (let i = 1; i <= ex.sets; i++) {
+      const wEl = document.getElementById(`ew-${exName}-${i}`);
+      if (wEl) wEl.textContent = variation;
     }
   }
 }
@@ -693,13 +742,15 @@ async function saveWorkout() {
     for (let i = 1; i <= ex.sets; i++) {
       const wEl = document.getElementById(`w-${ex.name}-${i}`);
       const rEl = document.getElementById(`r-${ex.name}-${i}`);
-      if (wEl && rEl && (wEl.value || rEl.value)) {
+      const wVal = wEl ? (wEl.tagName === 'DIV' ? wEl.textContent : wEl.value) : '';
+      const rVal = rEl ? rEl.value : '';
+      if (wVal || rVal) {
         sets.push({
           workout_id: workoutId,
           exercise: ex.name,
           set_number: i,
-          weight: wEl.value || null,
-          reps: parseInt(rEl.value) || null,
+          weight: wVal || null,
+          reps: parseInt(rVal) || null,
           variation: selectedVariations[ex.name] || null
         });
       }
@@ -709,7 +760,9 @@ async function saveWorkout() {
   showToast('Workout saved!', 'success');
   localStorage.removeItem('workout_draft');
   buildWeekStrip();
+  buildSessionGrid();
   document.getElementById('workout-logger').style.display = 'none';
+  document.getElementById('conditioning-form').style.display = 'none';
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   selectedSession = null;
 }
@@ -736,7 +789,6 @@ async function loadTodayLog() {
   document.getElementById('log-fasting').value = '';
   document.getElementById('log-notes').value = '';
   setEnergy(0);
-
   const logs = await sb(`daily_logs?date=eq.${todayStr()}&select=*`);
   if (logs && logs.length > 0) {
     const l = logs[0];
@@ -749,7 +801,6 @@ async function loadTodayLog() {
   }
 }
 
-// FIX #1 - upsert so you can edit throughout the day
 async function saveDailyLog() {
   const data = {
     date: todayStr(),
@@ -843,30 +894,23 @@ function buildWeightChart(data) {
 async function loadHistory() {
   const list = document.getElementById('history-list');
   list.innerHTML = '<div class="loading">Loading...</div>';
-
   const [logs, workouts] = await Promise.all([
     sb(`daily_logs?order=date.desc&limit=30&select=*`),
     sb(`workouts?order=date.desc&limit=30&select=id,date,session_type,notes`)
   ]);
-
   if ((!logs || logs.length === 0) && (!workouts || workouts.length === 0)) {
     list.innerHTML = '<div class="empty">No logs yet — start tracking today</div>';
     return;
   }
-
-  // Group workouts by date
   const workoutsByDate = {};
   (workouts || []).forEach(w => {
     if (!workoutsByDate[w.date]) workoutsByDate[w.date] = [];
     workoutsByDate[w.date].push(w);
   });
-
-  // Get all unique dates
   const allDates = [...new Set([
     ...(logs || []).map(l => l.date),
     ...(workouts || []).map(w => w.date)
   ])].sort((a, b) => b.localeCompare(a));
-
   const logsByDate = {};
   (logs || []).forEach(l => logsByDate[l.date] = l);
 
@@ -874,10 +918,8 @@ async function loadHistory() {
     const l = logsByDate[date];
     const ws = workoutsByDate[date] || [];
     const dateStr = new Date(date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long'});
-
     let html = `<div style="margin-bottom:1rem;">`;
     html += `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">${dateStr}</div>`;
-
     if (l) {
       html += `<div class="history-item" style="cursor:pointer;margin-bottom:6px;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
         <div class="history-stats">
@@ -891,7 +933,6 @@ async function loadHistory() {
         <div style="font-size:11px;color:var(--accent);margin-top:6px;">tap to edit</div>
       </div>`;
     }
-
     ws.forEach(w => {
       const s = SESSIONS.find(s => s.id === w.session_type);
       html += `<div class="history-item" style="margin-bottom:6px;cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
@@ -906,13 +947,12 @@ async function loadHistory() {
         </div>
       </div>`;
     });
-
     html += `</div>`;
     return html;
   }).join('');
 }
 
-// ─── NAV - FIX #4 persist page on refresh ─────────────────
+// ─── NAV ─────────────────────────────────────────────────
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -924,7 +964,7 @@ function showPage(name) {
   if (name === 'history') loadHistory();
 }
 
-// ─── EDIT LOG MODAL ───────────────────────────────────────
+// ─── EDIT CHECK-IN MODAL ──────────────────────────────────
 let editingLogDate = null;
 let editingEnergy = 0;
 
@@ -972,6 +1012,7 @@ async function saveEditLog() {
   closeEditLog();
   loadHistory();
 }
+
 // ─── EDIT WORKOUT MODAL ───────────────────────────────────
 let editingWorkoutId = null;
 let editingSessionType = null;
@@ -979,30 +1020,58 @@ let editingSessionType = null;
 async function openEditWorkout(workoutId, sessionType, notes) {
   editingWorkoutId = workoutId;
   editingSessionType = sessionType;
+  editSelectedVariations = {};
   const s = SESSIONS.find(s => s.id === sessionType);
   document.getElementById('edit-workout-title').textContent = s ? s.name : sessionType;
   document.getElementById('edit-workout-notes').value = notes || '';
 
   const sets = await sb(`workout_sets?workout_id=eq.${workoutId}&order=set_number.asc&select=*`);
   const setsByExercise = {};
-  (sets || []).forEach(s => {
-    if (!setsByExercise[s.exercise]) setsByExercise[s.exercise] = [];
-    setsByExercise[s.exercise].push(s);
+  (sets || []).forEach(set => {
+    if (!setsByExercise[set.exercise]) setsByExercise[set.exercise] = [];
+    setsByExercise[set.exercise].push(set);
   });
 
   let html = '';
   if (s) {
     s.exercises.forEach(ex => {
       const exSets = setsByExercise[ex.name] || [];
+      const currentVariation = exSets[0]?.variation || (ex.variations ? ex.variations[0] : null);
+      if (currentVariation) editSelectedVariations[ex.name] = currentVariation;
+
       html += `<div class="exercise-block" style="margin-bottom:0.75rem;">
         <div class="ex-name-display" style="margin-bottom:8px;">${ex.name}</div>`;
+
+      if (ex.variations) {
+        const defaultVar = currentVariation || ex.variations[0];
+        html += `<div class="variation-toggle">`;
+        ex.variations.forEach(v => {
+          const isSel = v === defaultVar ? 'selected' : '';
+          html += `<button class="var-btn ${isSel}" onclick="selectEditVariation('${ex.name}', '${v}', this)">${v}</button>`;
+        });
+        html += `</div>`;
+      }
+
       for (let i = 1; i <= ex.sets; i++) {
-        const existing = exSets[i-1];
+        const existing = exSets.find(s => s.set_number === i);
+        const prevHint = existing ? `${existing.weight}×${existing.reps}` : '—';
+        const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
+
+        let weightCol = '';
+        if (ex.bodyweight) {
+          weightCol = `<div class="set-label" id="ew-${ex.name}-${i}">BW</div>`;
+        } else if (ex.variations && ex.band) {
+          const bandLabel = currentVariation || ex.variations[0];
+          weightCol = `<div class="set-label" id="ew-${ex.name}-${i}">${bandLabel}</div>`;
+        } else {
+          weightCol = `<input type="text" class="set-input" id="ew-${ex.name}-${i}" placeholder="kg" value="${existing?.weight || ''}" />`;
+        }
+
         html += `<div class="set-row">
           <div class="set-num">${i}</div>
-          <input type="text" class="set-input" id="ew-${ex.name}-${i}" placeholder="kg" value="${existing?.weight || ''}" />
-          <input type="number" class="set-input" id="er-${ex.name}-${i}" placeholder="reps" value="${existing?.reps || ''}" />
-          <div class="prev-badge">${existing ? `${existing.weight}×${existing.reps}` : '—'}</div>
+          ${weightCol}
+          <input type="number" class="set-input" id="er-${ex.name}-${i}" placeholder="${repPlaceholder}" value="${existing?.reps || ''}" />
+          <div class="prev-badge">${prevHint}</div>
         </div>`;
       }
       html += `</div>`;
@@ -1020,27 +1089,48 @@ function closeEditWorkout() {
 async function saveEditWorkout() {
   if (!editingWorkoutId) return;
   const notes = document.getElementById('edit-workout-notes').value || null;
+
   await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${editingWorkoutId}`, {
     method: 'PATCH',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ notes })
   });
 
-  const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=set_number.asc`);
   const s = SESSIONS.find(s => s.id === editingSessionType);
+  if (!s) { showToast('Workout updated!', 'success'); closeEditWorkout(); loadHistory(); return; }
 
-  for (const set of (existingSets || [])) {
-    const wEl = document.getElementById(`ew-${set.exercise}-${set.set_number}`);
-    const rEl = document.getElementById(`er-${set.exercise}-${set.set_number}`);
-    if (wEl && rEl) {
-      await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?id=eq.${set.id}`, {
-        method: 'PATCH',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          weight: wEl.value || null,
-          reps: parseInt(rEl.value) || null
-        })
-      });
+  const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=exercise.asc,set_number.asc`);
+
+  for (const ex of s.exercises) {
+    for (let i = 1; i <= ex.sets; i++) {
+      const wEl = document.getElementById(`ew-${ex.name}-${i}`);
+      const rEl = document.getElementById(`er-${ex.name}-${i}`);
+      if (!wEl || !rEl) continue;
+
+      const wVal = wEl.tagName === 'DIV' ? wEl.textContent : wEl.value;
+      const rVal = rEl.value;
+      const existingSet = (existingSets || []).find(es => es.exercise === ex.name && es.set_number === i);
+
+      if (existingSet) {
+        await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?id=eq.${existingSet.id}`, {
+          method: 'PATCH',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            weight: wVal || null,
+            reps: parseInt(rVal) || null,
+            variation: editSelectedVariations[ex.name] || null
+          })
+        });
+      } else if (wVal || rVal) {
+        await sb('workout_sets', 'POST', {
+          workout_id: editingWorkoutId,
+          exercise: ex.name,
+          set_number: i,
+          weight: wVal || null,
+          reps: parseInt(rVal) || null,
+          variation: editSelectedVariations[ex.name] || null
+        });
+      }
     }
   }
   showToast('Workout updated!', 'success');
@@ -1048,6 +1138,7 @@ async function saveEditWorkout() {
   loadHistory();
 }
 
+// ─── DELETE WORKOUT ───────────────────────────────────────
 async function deleteWorkout(workoutId) {
   if (!confirm('Delete this workout?')) return;
   await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?workout_id=eq.${workoutId}`, {
@@ -1059,8 +1150,11 @@ async function deleteWorkout(workoutId) {
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
   });
   showToast('Workout deleted', 'success');
+  buildWeekStrip();
+  buildSessionGrid();
   loadHistory();
 }
+
 // ─── TOAST ────────────────────────────────────────────────
 function showToast(msg, type = '') {
   const t = document.getElementById('toast');
