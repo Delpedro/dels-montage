@@ -382,7 +382,7 @@ const SESSIONS = [
       { name: 'Leg Curl', sets: 3, reps: '10–12', rest: '60s' },
       { name: 'Hip Thrust Machine', sets: 3, reps: '10–15', rest: '75s', note: 'If available' },
       { name: 'Seated Calf Raise', sets: 3, reps: '8–12', rest: '60s' },
-      { name: 'Dead Bug', sets: 3, reps: '10 each', rest: '45s', note: 'Core — hernia safe' },
+      { name: 'Dead Bug', sets: 3, reps: '10 each', rest: '45s', note: 'Core — hernia safe', bodyweight: true },
       { name: 'Cable Woodchop', sets: 3, reps: '12 each', rest: '45s', note: 'Core — hernia safe' },
     ]
   },
@@ -577,15 +577,31 @@ async function buildWorkoutLogger(session) {
       html += `<div class="ex-prev">Previous: ${prevText}</div>`;
     }
 
-    for (let i = 1; i <= ex.sets; i++) {
+ for (let i = 1; i <= ex.sets; i++) {
       const prevSet = prev[i-1];
       const prevHint = prevSet ? `${prevSet.weight}×${prevSet.reps}` : '—';
-      html += `<div class="set-row">
-        <div class="set-num">${i}</div>
-        <input type="number" step="0.5" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${session.id}')" />
-        <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
-        <div class="prev-badge">${prevHint}</div>
-      </div>`;
+      if (ex.bodyweight) {
+        html += `<div class="set-row">
+          <div class="set-num">${i}</div>
+          <input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="BW" value="BW" readonly style="color:var(--muted);text-align:center;" />
+          <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
+          <div class="prev-badge">${prevHint}</div>
+        </div>`;
+      } else if (ex.variations) {
+        html += `<div class="set-row">
+          <div class="set-num">${i}</div>
+          <div class="set-input" id="w-${ex.name}-${i}" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">${selectedVariations[ex.name] || ex.variations[0]}</div>
+          <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
+          <div class="prev-badge">${prevHint}</div>
+        </div>`;
+      } else {
+        html += `<div class="set-row">
+          <div class="set-num">${i}</div>
+          <input type="text" step="0.5" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${session.id}')" />
+          <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
+          <div class="prev-badge">${prevHint}</div>
+        </div>`;
+      }
     }
     html += `</div>`;
   });
@@ -658,7 +674,7 @@ async function saveWorkout() {
           workout_id: workoutId,
           exercise: ex.name,
           set_number: i,
-          weight: parseFloat(wEl.value) || null,
+          weight: wEl.value || null,
           reps: parseInt(rEl.value) || null,
           variation: selectedVariations[ex.name] || null
         });
