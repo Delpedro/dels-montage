@@ -15,7 +15,6 @@
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; }
 
-  /* LOGIN */
   #login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
   .login-card { width: 100%; max-width: 380px; }
   .login-title { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; line-height: 1; margin-bottom: 4px; }
@@ -28,55 +27,47 @@
   .btn-primary:active { transform: scale(0.98); background: #d14d20; }
   .login-error { font-size: 13px; color: var(--red); margin-top: 0.75rem; text-align: center; display: none; }
 
-  /* APP SHELL */
   #app { display: none; min-height: 100vh; padding-bottom: 80px; }
 
-  /* TOP BAR */
   .topbar { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); padding: 0.75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
   .topbar-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1px; color: var(--accent); cursor: pointer; }
   .topbar-date { font-size: 11px; color: var(--muted); }
   .logout-btn { font-size: 12px; color: var(--muted); background: none; border: none; cursor: pointer; padding: 4px 8px; }
 
-  /* BOTTOM NAV */
   .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; background: var(--bg2); border-top: 1px solid var(--border); display: flex; height: 65px; }
   .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; background: none; border: none; color: var(--muted); cursor: pointer; transition: color 0.2s; font-family: 'DM Sans', sans-serif; }
   .nav-item.active { color: var(--accent); }
   .nav-item svg { width: 20px; height: 20px; }
   .nav-label { font-size: 10px; }
 
-  /* PAGES */
   .page { display: none; padding: 1rem; }
   .page.active { display: block; }
 
-  /* HEADERS */
   .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 1px; margin-bottom: 0.75rem; }
   .section-sub { font-size: 13px; color: var(--muted); margin-top: -0.5rem; margin-bottom: 0.75rem; }
 
-  /* CARDS */
   .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 0.875rem; }
   .card-title { font-size: 12px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.875rem; }
 
-  /* STAT GRID */
   .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
-  .stat-card { background: var(--bg3); border-radius: 10px; padding: 0.875rem; }
+  .stat-card { background: var(--bg3); border-radius: 10px; padding: 0.875rem; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s; }
+  .stat-card.active { border-color: var(--accent); }
+  .stat-card:hover { border-color: var(--border2); }
   .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
   .stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px; line-height: 1; }
   .stat-unit { font-size: 12px; color: var(--muted); margin-left: 2px; font-family: 'DM Sans', sans-serif; }
   .stat-green { color: var(--green); } .stat-blue { color: var(--blue); } .stat-amber { color: var(--amber); } .stat-accent { color: var(--accent); }
 
-  /* FORM */
   .field-group { margin-bottom: 0.875rem; }
   .field-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 5px; }
   .field-input { width: 100%; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; padding: 11px 13px; color: var(--text); font-size: 15px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.2s; }
   .field-input:focus { border-color: var(--accent); }
   textarea.field-input { resize: vertical; min-height: 70px; }
 
-  /* ENERGY */
   .energy-picker { display: flex; gap: 6px; }
   .energy-btn { flex: 1; padding: 9px 0; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; font-size: 18px; cursor: pointer; transition: all 0.15s; }
   .energy-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); }
 
-  /* SESSION PICKER */
   .session-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
   .session-btn { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 0.875rem; text-align: left; cursor: pointer; transition: all 0.15s; }
   .session-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.1); }
@@ -85,7 +76,6 @@
   .session-name { font-size: 14px; font-weight: 600; color: var(--text); }
   .session-focus { font-size: 11px; color: var(--muted2); margin-top: 2px; }
 
-  /* EXERCISE BLOCK */
   .exercise-block { background: var(--bg3); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
   .ex-top { margin-bottom: 8px; }
   .ex-name-display { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.3; margin-bottom: 4px; }
@@ -93,7 +83,6 @@
   .ex-note-text { font-size: 11px; color: var(--muted); }
   .ex-prev { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
 
-  /* SET ROWS */
   .set-row { display: grid; grid-template-columns: 18px 1fr 1fr auto; gap: 6px; margin-bottom: 6px; align-items: center; }
   .set-num { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; text-align: center; }
   .set-input { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--text); font-size: 14px; font-family: 'DM Mono', monospace; outline: none; text-align: center; transition: border-color 0.2s; min-width: 0; }
@@ -102,24 +91,20 @@
   .set-label { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--muted); font-size: 12px; font-family: 'DM Mono', monospace; text-align: center; min-width: 0; display: flex; align-items: center; justify-content: center; }
   .prev-badge { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; background: var(--bg2); border-radius: 4px; padding: 2px 5px; white-space: nowrap; min-width: 52px; text-align: center; }
 
-  /* VARIATION TOGGLE */
   .variation-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
   .var-btn { flex: 1; padding: 7px 8px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all 0.15s; text-align: center; font-family: 'DM Sans', sans-serif; }
   .var-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); color: var(--accent); font-weight: 600; }
 
-  /* PILLS */
   .pill { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
   .pill-sets { background: rgba(74,158,255,0.15); color: var(--blue); }
   .pill-reps { background: rgba(76,175,125,0.15); color: var(--green); }
   .pill-rest { background: rgba(255,255,255,0.05); color: var(--muted2); }
 
-  /* BUTTONS */
   .btn { border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; border: none; }
   .btn-full { width: 100%; }
   .btn-save { background: var(--accent); color: #fff; }
   .btn-save:active { background: #d14d20; transform: scale(0.98); }
 
-  /* WEEK STRIP */
   .week-strip { display: flex; gap: 5px; margin-bottom: 0.875rem; }
   .week-day { flex: 1; background: var(--bg3); border-radius: 8px; padding: 7px 3px; text-align: center; border: 1px solid var(--border); }
   .week-day.done { border-color: var(--green); background: rgba(76,175,125,0.1); }
@@ -130,13 +115,11 @@
   .week-day.done .wd-dot { background: var(--green); }
   .week-day.today .wd-dot { background: var(--accent); }
 
-  /* HISTORY */
   .history-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
   .history-date { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
   .history-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
   .history-stats { display: flex; gap: 6px; flex-wrap: wrap; }
 
-  /* TOAST */
   .toast { position: fixed; bottom: 85px; left: 50%; transform: translateX(-50%); background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; padding: 10px 18px; font-size: 13px; color: var(--text); z-index: 999; opacity: 0; transition: opacity 0.3s; pointer-events: none; white-space: nowrap; }
   .toast.show { opacity: 1; }
   .toast.success { border-color: var(--green); color: var(--green); }
@@ -146,11 +129,11 @@
   .loading { text-align: center; color: var(--muted); font-size: 13px; padding: 1.5rem; }
   .chart-wrap { position: relative; height: 150px; margin-bottom: 0.5rem; }
   .empty { text-align: center; padding: 1.5rem 1rem; color: var(--muted); font-size: 13px; }
+  .chart-title { font-size: 12px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.875rem; }
 </style>
 </head>
 <body>
 
-<!-- LOGIN -->
 <div id="login-screen">
   <div class="login-card">
     <div class="login-title">DEL'S<br>MONTAGE</div>
@@ -168,7 +151,6 @@
   </div>
 </div>
 
-<!-- APP -->
 <div id="app">
   <div class="topbar">
     <div onclick="showPage('today')" style="cursor:pointer;">
@@ -178,7 +160,6 @@
     <button class="logout-btn" onclick="handleLogout()">logout</button>
   </div>
 
-  <!-- TODAY -->
   <div class="page active" id="page-today">
     <div class="section-title">Today</div>
     <div class="week-strip" id="week-strip"></div>
@@ -220,7 +201,6 @@
     </div>
   </div>
 
-  <!-- WORKOUT -->
   <div class="page" id="page-workout">
     <div class="section-title">Log Workout</div>
     <div class="section-sub">What are we doing today?</div>
@@ -246,18 +226,29 @@
     <div id="workout-logger" style="display:none;"></div>
   </div>
 
-  <!-- STATS -->
   <div class="page" id="page-stats">
     <div class="section-title">Stats</div>
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-label">Current Weight</div><div class="stat-value stat-accent" id="stat-weight">--<span class="stat-unit">kg</span></div></div>
-      <div class="stat-card"><div class="stat-label">Sessions This Week</div><div class="stat-value stat-green" id="stat-sessions">--</div></div>
-      <div class="stat-card"><div class="stat-label">Avg Fasting</div><div class="stat-value stat-blue" id="stat-fasting">--<span class="stat-unit">hrs</span></div></div>
-      <div class="stat-card"><div class="stat-label">Avg Steps</div><div class="stat-value stat-amber" id="stat-steps">--</div></div>
+      <div class="stat-card active" id="tile-weight" onclick="switchChart('weight')">
+        <div class="stat-label">Current Weight</div>
+        <div class="stat-value stat-accent" id="stat-weight">--<span class="stat-unit">kg</span></div>
+      </div>
+      <div class="stat-card" id="tile-sessions" onclick="switchChart('sessions')">
+        <div class="stat-label">Sessions This Week</div>
+        <div class="stat-value stat-green" id="stat-sessions">--</div>
+      </div>
+      <div class="stat-card" id="tile-fasting" onclick="switchChart('fasting')">
+        <div class="stat-label">Avg Fasting</div>
+        <div class="stat-value stat-blue" id="stat-fasting">--<span class="stat-unit">hrs</span></div>
+      </div>
+      <div class="stat-card" id="tile-steps" onclick="switchChart('steps')">
+        <div class="stat-label">Avg Steps</div>
+        <div class="stat-value stat-amber" id="stat-steps">--</div>
+      </div>
     </div>
     <div class="card">
-      <div class="card-title">Weight Trend (last 14 days)</div>
-      <div class="chart-wrap"><canvas id="weight-chart" role="img" aria-label="Weight trend over last 14 days"></canvas></div>
+      <div class="chart-title" id="chart-title">Weight Trend (last 14 days)</div>
+      <div class="chart-wrap"><canvas id="main-chart" role="img"></canvas></div>
     </div>
     <div class="card">
       <div class="card-title">Recent Workouts</div>
@@ -265,7 +256,6 @@
     </div>
   </div>
 
-  <!-- HISTORY -->
   <div class="page" id="page-history">
     <div class="section-title">History</div>
     <div id="history-list"><div class="loading">Loading...</div></div>
@@ -412,7 +402,9 @@ let selectedSession = null;
 let previousSets = {};
 let selectedVariations = {};
 let editSelectedVariations = {};
-let weightChart = null;
+let mainChart = null;
+let currentChartType = 'weight';
+let statsData = {};
 let currentPage = 'today';
 
 // ─── SUPABASE ─────────────────────────────────────────────
@@ -569,9 +561,8 @@ async function buildWorkoutLogger(session) {
   session.exercises.forEach(ex => {
     const prev = previousSets[ex.name] || [];
     const prevVariation = prev[0]?.variation || '';
-    const defaultVar = (ex.variations) ? (prevVariation || ex.variations[0]) : null;
+    const defaultVar = ex.variations ? (prevVariation || ex.variations[0]) : null;
 
-    // Filter prev by variation for non-band variation exercises
     let filteredPrev = prev;
     if (ex.variations && !ex.band && defaultVar) {
       filteredPrev = prev.filter(p => p.variation === defaultVar);
@@ -593,7 +584,6 @@ async function buildWorkoutLogger(session) {
         ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
       </div>`;
 
-    // Variation toggle
     if (ex.variations) {
       selectedVariations[ex.name] = defaultVar;
       html += `<div class="variation-toggle">`;
@@ -684,33 +674,24 @@ function selectVariation(exName, variation, btn) {
   selectedVariations[exName] = variation;
   btn.parentElement.querySelectorAll('.var-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
-
   const ex = selectedSession?.exercises.find(e => e.name === exName);
   if (!ex) return;
-
   if (ex.band) {
-    // Update band label in set rows
     for (let i = 1; i <= ex.sets; i++) {
       const wEl = document.getElementById(`w-${exName}-${i}`);
       if (wEl) wEl.textContent = variation;
     }
   } else {
-    // Update prev data filtered by variation
     const filteredPrev = (previousSets[exName] || []).filter(p => p.variation === variation);
     const prevText = filteredPrev.length > 0
       ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
       : 'No previous data';
     const prevEl = document.getElementById(`prev-${exName}`);
     if (prevEl) prevEl.textContent = `Previous (${variation}): ${prevText}`;
-    // Update prev badges per set
-    filteredPrev.forEach((set, idx) => {
-      const badge = document.getElementById(`badge-${exName}-${idx+1}`);
-      if (badge) badge.textContent = `${set.weight}×${set.reps}`;
-    });
-    // Clear badges for sets beyond filtered prev
-    for (let i = filteredPrev.length + 1; i <= ex.sets; i++) {
+    for (let i = 1; i <= ex.sets; i++) {
       const badge = document.getElementById(`badge-${exName}-${i}`);
-      if (badge) badge.textContent = '—';
+      const set = filteredPrev[i-1];
+      if (badge) badge.textContent = set ? `${set.weight}×${set.reps}` : '—';
     }
   }
 }
@@ -833,26 +814,49 @@ function setEnergy(val) {
 
 // ─── STATS ────────────────────────────────────────────────
 async function loadStats() {
-  const latest = await sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`);
+  const fourteenAgo = new Date(); fourteenAgo.setDate(fourteenAgo.getDate() - 14);
+  const fourteenAgoStr = fourteenAgo.toISOString().split('T')[0];
+
+  const [latest, weightLogs, recentLogs, allWorkouts, recent] = await Promise.all([
+    sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),
+    sb(`daily_logs?date=gte.${fourteenAgoStr}&order=date.asc&select=date,weight_kg`),
+    sb(`daily_logs?date=gte.${fourteenAgoStr}&order=date.asc&select=date,fasting_hours,steps`),
+    sb(`workouts?date=gte.${fourteenAgoStr}&order=date.asc&select=date,session_type`),
+    sb(`workouts?order=date.desc&limit=5&select=date,session_type,notes`)
+  ]);
+
+  // Current weight
   if (latest && latest[0]?.weight_kg) {
     document.getElementById('stat-weight').innerHTML = `${latest[0].weight_kg}<span class="stat-unit">kg</span>`;
   }
+
+  // Sessions this week
   const dow = new Date().getDay();
   const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - dow);
-  const sessions = await sb(`workouts?date=gte.${weekStart.toISOString().split('T')[0]}&select=id`);
-  document.getElementById('stat-sessions').textContent = (sessions || []).length;
+  const weekSessions = (allWorkouts || []).filter(w => w.date >= weekStart.toISOString().split('T')[0]);
+  document.getElementById('stat-sessions').textContent = weekSessions.length;
+
+  // Avg fasting & steps
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  const logs = await sb(`daily_logs?date=gte.${weekAgo.toISOString().split('T')[0]}&select=fasting_hours,steps`);
-  if (logs && logs.length > 0) {
-    const fv = logs.filter(l => l.fasting_hours).map(l => l.fasting_hours);
-    const sv = logs.filter(l => l.steps).map(l => l.steps);
-    if (fv.length) document.getElementById('stat-fasting').innerHTML = `${(fv.reduce((a,b)=>a+b,0)/fv.length).toFixed(1)}<span class="stat-unit">hrs</span>`;
-    if (sv.length) document.getElementById('stat-steps').textContent = Math.round(sv.reduce((a,b)=>a+b,0)/sv.length).toLocaleString();
-  }
-  const fourteenAgo = new Date(); fourteenAgo.setDate(fourteenAgo.getDate() - 14);
-  const weightLogs = await sb(`daily_logs?date=gte.${fourteenAgo.toISOString().split('T')[0]}&order=date.asc&select=date,weight_kg`);
-  buildWeightChart(weightLogs || []);
-  const recent = await sb(`workouts?order=date.desc&limit=5&select=date,session_type,notes`);
+  const weekAgoStr = weekAgo.toISOString().split('T')[0];
+  const recentWeekLogs = (recentLogs || []).filter(l => l.date >= weekAgoStr);
+  const fv = recentWeekLogs.filter(l => l.fasting_hours).map(l => l.fasting_hours);
+  const sv = recentWeekLogs.filter(l => l.steps).map(l => l.steps);
+  if (fv.length) document.getElementById('stat-fasting').innerHTML = `${(fv.reduce((a,b)=>a+b,0)/fv.length).toFixed(1)}<span class="stat-unit">hrs</span>`;
+  if (sv.length) document.getElementById('stat-steps').textContent = Math.round(sv.reduce((a,b)=>a+b,0)/sv.length).toLocaleString();
+
+  // Store data for chart switching
+  statsData = {
+    weight: weightLogs || [],
+    fasting: recentLogs || [],
+    steps: recentLogs || [],
+    sessions: allWorkouts || []
+  };
+
+  // Build chart
+  switchChart(currentChartType);
+
+  // Recent workouts
   const rw = document.getElementById('recent-workouts');
   if (!recent || recent.length === 0) { rw.innerHTML = '<div class="empty">No workouts logged yet</div>'; return; }
   rw.innerHTML = recent.map(w => {
@@ -865,18 +869,80 @@ async function loadStats() {
   }).join('');
 }
 
-function buildWeightChart(data) {
-  const ctx = document.getElementById('weight-chart');
-  if (weightChart) { weightChart.destroy(); weightChart = null; }
-  if (data.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No weight data yet</div>'; return; }
-  weightChart = new Chart(ctx, {
-    type: 'line',
+// ─── CHART SWITCHER ───────────────────────────────────────
+function switchChart(type) {
+  currentChartType = type;
+
+  // Update active tile
+  document.querySelectorAll('.stat-card').forEach(t => t.classList.remove('active'));
+  document.getElementById(`tile-${type === 'weight' ? 'weight' : type === 'sessions' ? 'sessions' : type === 'fasting' ? 'fasting' : 'steps'}`).classList.add('active');
+
+  const ctx = document.getElementById('main-chart');
+  if (mainChart) { mainChart.destroy(); mainChart = null; }
+
+  let labels = [], data = [], color = '#e85d2f', label = '', yCallback = v => v, chartType = 'line';
+
+  if (type === 'weight') {
+    const d = statsData.weight || [];
+    labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
+    data = d.map(x => x.weight_kg);
+    color = '#e85d2f';
+    label = 'Weight (kg)';
+    yCallback = v => v + 'kg';
+    document.getElementById('chart-title').textContent = 'Weight Trend (last 14 days)';
+    if (d.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No weight data yet</div>'; return; }
+  } else if (type === 'sessions') {
+    const d = statsData.sessions || [];
+    // Group by week
+    const byDate = {};
+    d.forEach(w => { byDate[w.date] = (byDate[w.date] || 0) + 1; });
+    labels = Object.keys(byDate).map(x => new Date(x).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
+    data = Object.values(byDate);
+    color = '#4caf7d';
+    label = 'Sessions';
+    chartType = 'bar';
+    document.getElementById('chart-title').textContent = 'Sessions (last 14 days)';
+    if (d.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No session data yet</div>'; return; }
+  } else if (type === 'fasting') {
+    const d = (statsData.fasting || []).filter(x => x.fasting_hours);
+    labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
+    data = d.map(x => x.fasting_hours);
+    color = '#4a9eff';
+    label = 'Fasting (hrs)';
+    yCallback = v => v + 'h';
+    document.getElementById('chart-title').textContent = 'Fasting Hours (last 14 days)';
+    if (d.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No fasting data yet</div>'; return; }
+  } else if (type === 'steps') {
+    const d = (statsData.steps || []).filter(x => x.steps);
+    labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
+    data = d.map(x => x.steps);
+    color = '#f0a050';
+    label = 'Steps';
+    yCallback = v => v >= 1000 ? (v/1000).toFixed(1) + 'k' : v;
+    document.getElementById('chart-title').textContent = 'Steps (last 14 days)';
+    if (d.length === 0) { ctx.parentElement.innerHTML = '<div class="empty">No steps data yet</div>'; return; }
+  }
+
+  // Restore canvas if it was replaced with empty div
+  const wrap = document.querySelector('.chart-wrap');
+  if (!wrap.querySelector('canvas')) {
+    wrap.innerHTML = '<canvas id="main-chart" role="img"></canvas>';
+  }
+
+  mainChart = new Chart(document.getElementById('main-chart'), {
+    type: chartType,
     data: {
-      labels: data.map(d => new Date(d.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'})),
+      labels,
       datasets: [{
-        data: data.map(d => d.weight_kg),
-        borderColor: '#e85d2f', backgroundColor: 'rgba(232,93,47,0.1)',
-        borderWidth: 2, pointBackgroundColor: '#e85d2f', pointRadius: 4, fill: true, tension: 0.3
+        data,
+        borderColor: color,
+        backgroundColor: chartType === 'bar' ? color + '99' : color + '1a',
+        borderWidth: 2,
+        pointBackgroundColor: color,
+        pointRadius: chartType === 'line' ? 4 : 0,
+        fill: chartType === 'line',
+        tension: 0.3,
+        borderRadius: chartType === 'bar' ? 4 : 0
       }]
     },
     options: {
@@ -884,7 +950,7 @@ function buildWeightChart(data) {
       plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#222' } },
-        y: { ticks: { color: '#666', font: { size: 10 }, callback: v => v+'kg' }, grid: { color: '#222' } }
+        y: { ticks: { color: '#666', font: { size: 10 }, callback: yCallback }, grid: { color: '#222' } }
       }
     }
   });
