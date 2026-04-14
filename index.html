@@ -760,23 +760,71 @@ function buildWeightChart(data) {
 
 // ─── HISTORY ─────────────────────────────────────────────
 async function loadHistory() {
-  const logs = await sb(`daily_logs?order=date.desc&limit=30&select=*`);
   const list = document.getElementById('history-list');
-  if (!logs || logs.length === 0) { list.innerHTML = '<div class="empty">No logs yet — start tracking today</div>'; return; }
-  list.innerHTML = logs.map(l => `
-    <div class="history-item" style="cursor:pointer;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
-      <div class="history-date">${new Date(l.date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long'})}</div>
-      <div class="history-stats">
-        ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
-        ${l.calories ? `<span class="pill" style="background:rgba(240,160,80,0.15);color:var(--amber);">${l.calories} kcal</span>` : ''}
-        ${l.fasting_hours ? `<span class="pill pill-sets">${l.fasting_hours}h fast</span>` : ''}
-        ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
-        ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
-      </div>
-      ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${l.notes}</div>` : ''}
-      <div style="font-size:11px;color:var(--accent);margin-top:6px;">tap to edit</div>
-    </div>
-  `).join('');
+  list.innerHTML = '<div class="loading">Loading...</div>';
+
+  const [logs, workouts] = await Promise.all([
+    sb(`daily_logs?order=date.desc&limit=30&select=*`),
+    sb(`workouts?order=date.desc&limit=30&select=id,date,session_type,notes`)
+  ]);
+
+  if ((!logs || logs.length === 0) && (!workouts || workouts.length === 0)) {
+    list.innerHTML = '<div class="empty">No logs yet — start tracking today</div>';
+    return;
+  }
+
+  // Group workouts by date
+  const workoutsByDate = {};
+  (workouts || []).forEach(w => {
+    if (!workoutsByDate[w.date]) workoutsByDate[w.date] = [];
+    workoutsByDate[w.date].push(w);
+  });
+
+  // Get all unique dates
+  const allDates = [...new Set([
+    ...(logs || []).map(l => l.date),
+    ...(workouts || []).map(w => w.date)
+  ])].sort((a, b) => b.localeCompare(a));
+
+  const logsByDate = {};
+  (logs || []).forEach(l => logsByDate[l.date] = l);
+
+  list.innerHTML = allDates.map(date => {
+    const l = logsByDate[date];
+    const ws = workoutsByDate[date] || [];
+    const dateStr = new Date(date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long'});
+
+    let html = `<div style="margin-bottom:1rem;">`;
+    html += `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">${dateStr}</div>`;
+
+    if (l) {
+      html += `<div class="history-item" style="cursor:pointer;margin-bottom:6px;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
+        <div class="history-stats">
+          ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
+          ${l.calories ? `<span class="pill" style="background:rgba(240,160,80,0.15);color:var(--amber);">${l.calories} kcal</span>` : ''}
+          ${l.fasting_hours ? `<span class="pill pill-sets">${l.fasting_hours}h fast</span>` : ''}
+          ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
+          ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
+        </div>
+        ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${l.notes}</div>` : ''}
+        <div style="font-size:11px;color:var(--accent);margin-top:6px;">tap to edit</div>
+      </div>`;
+    }
+
+    ws.forEach(w => {
+      const s = SESSIONS.find(s => s.id === w.session_type);
+      html += `<div class="history-item" style="margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="pill" style="background:rgba(232,93,47,0.15);color:var(--accent);">workout</span>
+          <span style="font-size:14px;font-weight:600;">${s ? s.name : w.session_type}</span>
+        </div>
+        ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${w.notes}</div>` : ''}
+      </div>`;
+    });
+
+    html += `</div>`;
+    return html;
+  }).join('');
 }
 
 // ─── NAV - FIX #4 persist page on refresh ─────────────────
