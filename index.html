@@ -359,7 +359,7 @@ const SESSIONS = [
       { name: 'Lying Leg Curl', sets: 3, reps: '8–12', rest: '75s' },
       { name: 'Walking Lunge', sets: 3, reps: '6 steps each way', rest: '75s', note: 'BW or light DBs — walk forward then back' },
       { name: 'Seated Calf Raise', sets: 3, reps: '10–12', rest: '60s' },
-      { name: 'Pallof Press', sets: 4, reps: '12 each side', rest: '45s', note: 'Core — hernia safe', variations: ['Red Band', 'Yellow Band'] },
+      { name: 'Pallof Press', sets: 4, reps: '12 each side', rest: '45s', note: 'Core — hernia safe', variations: ['Red Band', 'Yellow Band'], band: true },
     ]
   },
   {
@@ -587,7 +587,7 @@ async function buildWorkoutLogger(session) {
           <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
           <div class="prev-badge">${prevHint}</div>
         </div>`;
-      } else if (ex.variations) {
+      } else if (ex.variations && ex.band) {
         html += `<div class="set-row">
           <div class="set-num">${i}</div>
           <div class="set-input" id="w-${ex.name}-${i}" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">${selectedVariations[ex.name] || ex.variations[0]}</div>
