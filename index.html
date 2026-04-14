@@ -558,8 +558,7 @@ async function buildWorkoutLogger(session) {
         </div>
         ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
       </div>`;
-
-    // FIX #2 - variation toggle for exercises with options
+// FIX #2 - variation toggle for exercises with options
     if (ex.variations) {
       const defaultVar = prevVariation || ex.variations[0];
       selectedVariations[ex.name] = defaultVar;
@@ -578,14 +577,13 @@ async function buildWorkoutLogger(session) {
       html += `<div class="ex-prev">Previous: ${prevText}</div>`;
     }
 
-    // Set rows
     for (let i = 1; i <= ex.sets; i++) {
       const prevSet = prev[i-1];
       const prevHint = prevSet ? `${prevSet.weight}×${prevSet.reps}` : '—';
       html += `<div class="set-row">
         <div class="set-num">${i}</div>
-        <input type="number" step="0.5" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" />
-        <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" />
+        <input type="number" step="0.5" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${session.id}')" />
+        <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="reps" inputmode="numeric" oninput="saveDraft('${session.id}')" />
         <div class="prev-badge">${prevHint}</div>
       </div>`;
     }
@@ -594,11 +592,46 @@ async function buildWorkoutLogger(session) {
 
   html += `<div class="field-group" style="margin-top:0.875rem;">
     <label class="field-label">Session Notes</label>
-    <textarea class="field-input" id="workout-notes" placeholder="How did it go..."></textarea>
+    <textarea class="field-input" id="workout-notes" placeholder="How did it go..." oninput="saveDraft('${session.id}')"></textarea>
   </div>
   <button class="btn btn-save btn-full" onclick="saveWorkout()" style="margin-bottom:1rem;">Save Workout</button>`;
 
   logger.innerHTML = html;
+  restoreDraft(session);
+}
+
+// ─── DRAFT AUTO-SAVE ─────────────────────────────────────
+function saveDraft(sessionId) {
+  const draft = { sessionId, sets: {}, notes: document.getElementById('workout-notes')?.value || '' };
+  selectedSession.exercises.forEach(ex => {
+    for (let i = 1; i <= ex.sets; i++) {
+      const w = document.getElementById(`w-${ex.name}-${i}`)?.value;
+      const r = document.getElementById(`r-${ex.name}-${i}`)?.value;
+      if (w || r) draft.sets[`${ex.name}-${i}`] = { w, r };
+    }
+  });
+  localStorage.setItem('workout_draft', JSON.stringify(draft));
+}
+
+function restoreDraft(session) {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    if (draft.sessionId !== session.id) return;
+    session.exercises.forEach(ex => {
+      for (let i = 1; i <= ex.sets; i++) {
+        const key = `${ex.name}-${i}`;
+        if (draft.sets[key]) {
+          const wEl = document.getElementById(`w-${ex.name}-${i}`);
+          const rEl = document.getElementById(`r-${ex.name}-${i}`);
+          if (wEl && draft.sets[key].w) wEl.value = draft.sets[key].w;
+          if (rEl && draft.sets[key].r) rEl.value = draft.sets[key].r;
+        }
+      }
+    });
+    if (draft.notes) document.getElementById('workout-notes').value = draft.notes;
+  } catch(e) {}
 }
 
 function selectVariation(exName, variation, btn) {
@@ -634,6 +667,7 @@ async function saveWorkout() {
   });
   if (sets.length > 0) await sb('workout_sets', 'POST', sets);
   showToast('Workout saved!', 'success');
+  localStorage.removeItem('workout_draft');
   buildWeekStrip();
   document.getElementById('workout-logger').style.display = 'none';
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
