@@ -974,9 +974,11 @@ async function saveEditLog() {
 }
 // ─── EDIT WORKOUT MODAL ───────────────────────────────────
 let editingWorkoutId = null;
+let editingSessionType = null;
 
 async function openEditWorkout(workoutId, sessionType, notes) {
   editingWorkoutId = workoutId;
+  editingSessionType = sessionType;
   const s = SESSIONS.find(s => s.id === sessionType);
   document.getElementById('edit-workout-title').textContent = s ? s.name : sessionType;
   document.getElementById('edit-workout-notes').value = notes || '';
@@ -1025,7 +1027,7 @@ async function saveEditWorkout() {
   });
 
   const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=set_number.asc`);
-  const s = SESSIONS.find(s => s.exercises?.some(e => document.getElementById(`ew-${e.name}-1`)));
+  const s = SESSIONS.find(s => s.id === editingSessionType);
 
   for (const set of (existingSets || [])) {
     const wEl = document.getElementById(`ew-${set.exercise}-${set.set_number}`);
