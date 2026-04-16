@@ -266,7 +266,7 @@ async function selectSession(session, btn) {
 
   document.getElementById('conditioning-form').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'block';
-  await buildWorkoutLogger(session);
+  showSwTrigger(true);
 }
 
 // ─── WORKOUT LOGGER ───────────────────────────────────────
@@ -429,7 +429,7 @@ function selectVariation(exName, variation, btn) {
 
 // ─── COMPLETE EXERCISE ────────────────────────────────────
 async function completeExercise(exName) {
-  if (!currentWorkoutId || !selectedSession) return;
+  if (!selectedSession) return;
   const ex = selectedSession.exercises.find(e => e.name === exName);
   if (!ex) return;
 
@@ -515,6 +515,7 @@ async function saveWorkout() {
   document.getElementById('conditioning-form').style.display = 'none';
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   selectedSession = null;
+  showSwTrigger(false);
 }
 
 // ─── SAVE CONDITIONING ────────────────────────────────────
@@ -774,7 +775,6 @@ function showPage(name) {
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
   if (name === 'today') loadTodayLog();
-showSwTrigger(name === 'workout');
 }
 
 // ─── EDIT CHECK-IN MODAL ──────────────────────────────────
