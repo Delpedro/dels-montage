@@ -194,67 +194,21 @@
     </button>
   </nav>
 </div>
-<!-- STOPWATCH TRIGGER -->
-<div class="sw-trigger" id="sw-trigger" onclick="toggleSwPanel()">
-  <span class="sw-trigger-icon">⏱</span>
-  <span class="sw-trigger-time" id="sw-trigger-time">00:00</span>
-</div>
 
-<!-- STOPWATCH PANEL -->
-<div class="sw-overlay" id="sw-overlay" onclick="toggleSwPanel()"></div>
-<div class="sw-panel" id="sw-panel">
-  <button class="sw-panel-close" onclick="toggleSwPanel()">✕</button>
+<!-- STOPWATCH BAR -->
+<div class="sw-bar" id="sw-bar">
   <div>
-    <div class="sw-display" id="sw-display">00:00</div>
-    <div class="sw-label" id="sw-label">ready</div>
+    <div class="sw-time" id="sw-display">00:00</div>
+    <div class="sw-label" id="sw-label">Ready</div>
   </div>
   <div class="sw-saved" id="sw-saved"></div>
-  <div style="width:100%; display:flex; flex-direction:column; gap:8px;">
-    <button class="sw-btn sw-btn-start" id="sw-start-btn" onclick="swStart()">Start</button>
-    <button class="sw-btn sw-btn-reset" id="sw-reset-btn" onclick="swReset()">Reset</button>
-  </div>
-</div>
-
-<!-- EDIT CHECK-IN MODAL -->
-<div id="edit-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
-  <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-      <div style="font-family:'Bebas Neue',sans-serif; font-size:20px;" id="edit-modal-title">Edit Check-in</div>
-      <button onclick="closeEditLog()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;">✕</button>
-    </div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-      <div class="field-group">
-        <label class="field-label">Weight (kg)</label>
-        <input type="number" step="0.1" class="field-input" id="edit-weight" placeholder="82.0" />
-      </div>
-      <div class="field-group">
-        <label class="field-label">Fasting (hrs)</label>
-        <input type="number" step="0.5" class="field-input" id="edit-fasting" placeholder="16" />
-      </div>
-      <div class="field-group">
-        <label class="field-label">Calories</label>
-        <input type="number" class="field-input" id="edit-cals" placeholder="2000" />
-      </div>
-      <div class="field-group">
-        <label class="field-label">Steps</label>
-        <input type="number" class="field-input" id="edit-steps" placeholder="6000" />
-      </div>
-    </div>
-    <div class="field-group">
-      <label class="field-label">Energy</label>
-      <div class="energy-picker" id="edit-energy-picker">
-        <button class="energy-btn" data-val="1" onclick="setEditEnergy(1)">😴</button>
-        <button class="energy-btn" data-val="2" onclick="setEditEnergy(2)">😑</button>
-        <button class="energy-btn" data-val="3" onclick="setEditEnergy(3)">🙂</button>
-        <button class="energy-btn" data-val="4" onclick="setEditEnergy(4)">😤</button>
-        <button class="energy-btn" data-val="5" onclick="setEditEnergy(5)">🔥</button>
-      </div>
-    </div>
-    <div class="field-group">
-      <label class="field-label">Notes</label>
-      <textarea class="field-input" id="edit-notes" placeholder="How were you feeling..."></textarea>
-    </div>
-    <button class="btn btn-save btn-full" onclick="saveEditLog()">Save Changes</button>
+  <div class="sw-controls">
+    <button class="sw-reset-btn" onclick="swReset()">
+      <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+    </button>
+    <button class="sw-play-btn" id="sw-start-btn" onclick="swStart()">
+      <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+    </button>
   </div>
 </div>
 

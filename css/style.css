@@ -141,24 +141,72 @@ textarea.field-input { resize: vertical; min-height: 70px; }
 
 
 /* STOPWATCH */
-.sw-trigger {
+/* STOPWATCH */
+.sw-bar {
   position: fixed;
+  bottom: 65px;
+  left: 0;
   right: 0;
-  top: 50%;
-  transform: translateY(-50%);
   z-index: 150;
-  width: 4px;
-  height: 48px;
-  background: var(--border2);
-  border-radius: 4px 0 0 4px;
-  cursor: pointer;
+  background: var(--bg3);
+  border-top: 1px solid var(--border2);
+  padding: 10px 1.25rem;
   display: none;
-  transition: background 0.2s;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
-.sw-trigger.visible { display: block; }
-.sw-trigger.running { background: var(--accent); }
-.sw-trigger-icon { display: none; }
-.sw-trigger-time { display: none; }
+.sw-bar.visible { display: flex; }
+.sw-bar.running { border-top-color: var(--accent); }
+.sw-time {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 32px;
+  letter-spacing: 2px;
+  color: var(--text);
+  line-height: 1;
+}
+.sw-time.running { color: var(--accent); }
+.sw-time.stopped { color: var(--green); }
+.sw-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.sw-controls { display: flex; gap: 8px; align-items: center; }
+.sw-play-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.sw-play-btn:active { transform: scale(0.94); background: #d14d20; }
+.sw-play-btn.stop { background: var(--green); }
+.sw-play-btn svg { width: 18px; height: 18px; fill: #fff; }
+.sw-reset-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.sw-reset-btn svg { width: 14px; height: 14px; stroke: var(--muted); fill: none; }
+.sw-saved {
+  font-size: 11px;
+  color: var(--green);
+  min-width: 60px;
+}
 
 .sw-panel {
   position: fixed;

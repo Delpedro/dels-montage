@@ -996,38 +996,29 @@ function swUpdateDisplay() {
 }
 
 function swStart() {
+  const display = document.getElementById('sw-display');
+  const label = document.getElementById('sw-label');
+  const btn = document.getElementById('sw-start-btn');
+  const bar = document.getElementById('sw-bar');
+  const saved = document.getElementById('sw-saved');
+
   if (swRunning) {
-    // STOP
     clearInterval(swInterval);
     swInterval = null;
     swRunning = false;
-    const display = document.getElementById('sw-display');
-    const label = document.getElementById('sw-label');
-    const btn = document.getElementById('sw-start-btn');
-    const trigger = document.getElementById('sw-trigger');
     if (display) { display.classList.remove('running'); display.classList.add('stopped'); }
     if (label) label.textContent = 'rest time';
-    if (btn) { btn.textContent = 'Start'; btn.className = 'sw-btn sw-btn-start'; }
-    if (trigger) trigger.classList.remove('running');
-    // Save to last completed exercise if exists
+    if (btn) { btn.className = 'sw-play-btn'; btn.innerHTML = '<svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill="#fff"/></svg>'; }
+    if (bar) bar.classList.remove('running');
     swSaveToLastSet();
   } else {
-    // START
     swRunning = true;
-    const display = document.getElementById('sw-display');
-    const label = document.getElementById('sw-label');
-    const btn = document.getElementById('sw-start-btn');
-    const saved = document.getElementById('sw-saved');
-    const trigger = document.getElementById('sw-trigger');
     if (display) { display.classList.add('running'); display.classList.remove('stopped'); }
     if (label) label.textContent = 'resting...';
-    if (btn) { btn.textContent = 'Stop'; btn.className = 'sw-btn sw-btn-stop'; }
+    if (btn) { btn.className = 'sw-play-btn stop'; btn.innerHTML = '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" fill="#fff"/></svg>'; }
     if (saved) saved.textContent = '';
-    if (trigger) trigger.classList.add('running');
-    swInterval = setInterval(() => {
-      swSeconds++;
-      swUpdateDisplay();
-    }, 1000);
+    if (bar) bar.classList.add('running');
+    swInterval = setInterval(() => { swSeconds++; swUpdateDisplay(); }, 1000);
   }
 }
 
@@ -1041,12 +1032,12 @@ function swReset() {
   const label = document.getElementById('sw-label');
   const btn = document.getElementById('sw-start-btn');
   const saved = document.getElementById('sw-saved');
-  const trigger = document.getElementById('sw-trigger');
+  const bar = document.getElementById('sw-bar');
   if (display) { display.classList.remove('running', 'stopped'); }
-  if (label) label.textContent = 'ready';
-  if (btn) { btn.textContent = 'Start'; btn.className = 'sw-btn sw-btn-start'; }
+  if (label) label.textContent = 'Ready';
+  if (btn) { btn.className = 'sw-play-btn'; btn.innerHTML = '<svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill="#fff"/></svg>'; }
   if (saved) saved.textContent = '';
-  if (trigger) trigger.classList.remove('running');
+  if (bar) bar.classList.remove('running');
 }
 
 async function swSaveToLastSet() {
@@ -1068,11 +1059,6 @@ async function swSaveToLastSet() {
   }
 }
 
-function toggleSwPanel() {
-  swPanelOpen = !swPanelOpen;
-  document.getElementById('sw-panel').classList.toggle('open', swPanelOpen);
-  document.getElementById('sw-overlay').classList.toggle('open', swPanelOpen);
-}
 
 function showSwTrigger(visible) {
   const trigger = document.getElementById('sw-trigger');
