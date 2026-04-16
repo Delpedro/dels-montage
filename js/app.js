@@ -261,9 +261,7 @@ async function selectSession(session, btn) {
   }
 
   // Create workout row immediately
-  await sb('workouts', 'POST', { date: todayStr(), session_type: session.id, notes: '' });
-  const created = await sb(`workouts?date=eq.${todayStr()}&session_type=eq.${session.id}&order=created_at.desc&limit=1&select=id`);
-  if (created && created.length > 0) currentWorkoutId = created[0].id;
+  currentWorkoutId = null;
 
   document.getElementById('conditioning-form').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'block';
@@ -455,6 +453,12 @@ async function completeExercise(exName) {
   if (sets.length === 0) {
     showToast('Fill in at least one set first', 'error');
     return;
+  }
+
+  if (!currentWorkoutId) {
+    await sb('workouts', 'POST', { date: todayStr(), session_type: selectedSession.id, notes: '' });
+    const created = await sb(`workouts?date=eq.${todayStr()}&session_type=eq.${selectedSession.id}&order=created_at.desc&limit=1&select=id`);
+    if (created && created.length > 0) currentWorkoutId = created[0].id;
   }
 
   // Delete existing sets for this exercise first (in case of re-done)
