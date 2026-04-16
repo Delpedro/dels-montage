@@ -120,6 +120,26 @@ window.addEventListener('load', () => {
     const savedPage = sessionStorage.getItem('del_page') || 'home';
     initApp(savedPage);
   }
+  // Attach pill handlers
+  const pill = document.getElementById('sw-pill');
+  if (pill) {
+    pill.addEventListener('pointerdown', swPillPointerDown);
+    pill.addEventListener('pointerup', swPillPointerUp);
+    pill.addEventListener('pointerleave', swPillPointerCancel);
+    pill.addEventListener('pointercancel', swPillPointerCancel);
+  }
+});
+
+// Track last typed reps field (for stopwatch targeting)
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t || !t.id || !t.id.startsWith('r-')) return;
+  const rest = t.id.substring(2);
+  const lastDash = rest.lastIndexOf('-');
+  if (lastDash < 0) return;
+  const exName = rest.substring(0, lastDash);
+  const setNum = parseInt(rest.substring(lastDash + 1));
+  if (!isNaN(setNum)) lastTypedSet = { exName, setNum };
 });
 
 // ─── INIT ─────────────────────────────────────────────────
@@ -266,7 +286,8 @@ async function selectSession(session, btn) {
 
   document.getElementById('conditioning-form').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'block';
-  showSwTrigger(true);
+  buildWorkoutLogger(session);
+  showSwPill(true);
 }
 
 // ─── WORKOUT LOGGER ───────────────────────────────────────
@@ -440,14 +461,18 @@ async function completeExercise(exName) {
     const wVal = wEl ? (wEl.tagName === 'DIV' ? wEl.textContent : wEl.value) : '';
     const rVal = rEl ? rEl.value : '';
     if (wVal || rVal) {
-      sets.push({
+      const setObj = {
         workout_id: currentWorkoutId,
         exercise: exName,
         set_number: i,
         weight: wVal || null,
         reps: parseInt(rVal) || null,
         variation: selectedVariations[exName] || null
-      });
+      };
+      if (pendingRest[exName] && pendingRest[exName][i]) {
+        setObj.rest_seconds = pendingRest[exName][i];
+      }
+      sets.push(setObj);
     }
   }
 
@@ -460,6 +485,8 @@ async function completeExercise(exName) {
     await sb('workouts', 'POST', { date: todayStr(), session_type: selectedSession.id, notes: '' });
     const created = await sb(`workouts?date=eq.${todayStr()}&session_type=eq.${selectedSession.id}&order=created_at.desc&limit=1&select=id`);
     if (created && created.length > 0) currentWorkoutId = created[0].id;
+    // Backfill workout_id on the set objects we built before we had it
+    sets.forEach(s => s.workout_id = currentWorkoutId);
   }
 
   // Delete existing sets for this exercise first (in case of re-done)
@@ -482,6 +509,8 @@ async function completeExercise(exName) {
 
   showToast(`${exName} saved!`, 'success');
   lastCompletedExercise = exName;
+  // Clear any pending rest times we just applied
+  if (pendingRest[exName]) delete pendingRest[exName];
 }
 
 function selectEditVariation(exName, variation, btn) {
@@ -515,7 +544,7 @@ async function saveWorkout() {
   document.getElementById('conditioning-form').style.display = 'none';
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   selectedSession = null;
-  showSwTrigger(false);
+  showSwPill(false);
 }
 
 // ─── SAVE CONDITIONING ────────────────────────────────────
@@ -775,6 +804,8 @@ function showPage(name) {
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
   if (name === 'today') loadTodayLog();
+  // Hide pill if leaving workout page
+  if (name !== 'workout') showSwPill(false);
 }
 
 // ─── EDIT CHECK-IN MODAL ──────────────────────────────────
@@ -975,11 +1006,17 @@ function showToast(msg, type = '') {
   setTimeout(() => t.className = 'toast', 2500);
 }
 
-// ─── STOPWATCH ────────────────────────────────────────────
+// ─── STOPWATCH PILL ──────────────────────────────────────
 let swInterval = null;
 let swSeconds = 0;
 let swRunning = false;
-let swPanelOpen = false;
+let swTargetSeconds = 60;
+let swLongPressTimer = null;
+let swLongPressFired = false;
+let lastTypedSet = null;
+let pendingRest = {};
+
+const SW_RING_CIRCUMFERENCE = 144.51;
 
 function swFormat(s) {
   const m = Math.floor(s / 60).toString().padStart(2, '0');
@@ -987,39 +1024,77 @@ function swFormat(s) {
   return `${m}:${sec}`;
 }
 
-function swUpdateDisplay() {
-  const display = document.getElementById('sw-display');
-  const triggerTime = document.getElementById('sw-trigger-time');
-  const formatted = swFormat(swSeconds);
-  if (display) display.textContent = formatted;
-  if (triggerTime) triggerTime.textContent = formatted;
+function swVibrate(pattern) {
+  if (navigator.vibrate) navigator.vibrate(pattern);
+}
+
+function swParseRest(restStr) {
+  if (!restStr) return 60;
+  const m = restStr.match(/(\d+)/);
+  return m ? parseInt(m[1]) : 60;
+}
+
+function swRenderPill() {
+  const pill = document.getElementById('sw-pill');
+  const content = document.getElementById('sw-pill-content');
+  const ring = document.getElementById('sw-ring-fill');
+  if (!pill || !content || !ring) return;
+
+  if (swRunning) {
+    pill.classList.add('running');
+    content.innerHTML = `<div class="sw-time-text">${swFormat(swSeconds)}</div>`;
+    const pct = Math.min(swSeconds / swTargetSeconds, 1);
+    ring.style.strokeDashoffset = SW_RING_CIRCUMFERENCE * (1 - pct);
+    if (pct >= 1) pill.classList.add('done');
+  } else {
+    pill.classList.remove('running', 'done');
+    content.innerHTML = `<svg class="sw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M9 2h6"/></svg>`;
+    ring.style.strokeDashoffset = SW_RING_CIRCUMFERENCE;
+  }
+}
+
+function swUpdateTargetLabel() {
+  const label = document.getElementById('sw-target-label');
+  if (!label) return;
+  if (swRunning && lastTypedSet) {
+    label.textContent = `${lastTypedSet.exName.toLowerCase()} · set ${lastTypedSet.setNum}`;
+    label.classList.add('visible');
+  } else {
+    label.classList.remove('visible');
+  }
 }
 
 function swStart() {
-  const display = document.getElementById('sw-display');
-  const label = document.getElementById('sw-label');
-  const btn = document.getElementById('sw-start-btn');
-  const bar = document.getElementById('sw-bar');
-  const saved = document.getElementById('sw-saved');
-
-  if (swRunning) {
-    clearInterval(swInterval);
-    swInterval = null;
-    swRunning = false;
-    if (display) { display.classList.remove('running'); display.classList.add('stopped'); }
-    if (label) label.textContent = 'rest time';
-    if (btn) { btn.className = 'sw-play-btn'; btn.innerHTML = '<svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill="#fff"/></svg>'; }
-    if (bar) bar.classList.remove('running');
-    swSaveToLastSet();
+  if (lastTypedSet) {
+    const ex = selectedSession?.exercises.find(e => e.name === lastTypedSet.exName);
+    swTargetSeconds = swParseRest(ex?.rest);
   } else {
-    swRunning = true;
-    if (display) { display.classList.add('running'); display.classList.remove('stopped'); }
-    if (label) label.textContent = 'resting...';
-    if (btn) { btn.className = 'sw-play-btn stop'; btn.innerHTML = '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" fill="#fff"/></svg>'; }
-    if (saved) saved.textContent = '';
-    if (bar) bar.classList.add('running');
-    swInterval = setInterval(() => { swSeconds++; swUpdateDisplay(); }, 1000);
+    swTargetSeconds = 60;
   }
+  swRunning = true;
+  swSeconds = 0;
+  swVibrate(10);
+  swRenderPill();
+  swUpdateTargetLabel();
+  swInterval = setInterval(() => {
+    swSeconds++;
+    const wasUnder = swSeconds - 1 < swTargetSeconds;
+    const nowOver = swSeconds >= swTargetSeconds;
+    if (wasUnder && nowOver) swVibrate([80, 60, 80]);
+    swRenderPill();
+  }, 1000);
+}
+
+async function swStop() {
+  clearInterval(swInterval);
+  swInterval = null;
+  swRunning = false;
+  const elapsed = swSeconds;
+  swVibrate(10);
+  await swSaveRestToTarget(elapsed);
+  swSeconds = 0;
+  swRenderPill();
+  swUpdateTargetLabel();
 }
 
 function swReset() {
@@ -1027,40 +1102,80 @@ function swReset() {
   swInterval = null;
   swRunning = false;
   swSeconds = 0;
-  swUpdateDisplay();
-  const display = document.getElementById('sw-display');
-  const label = document.getElementById('sw-label');
-  const btn = document.getElementById('sw-start-btn');
-  const saved = document.getElementById('sw-saved');
-  const bar = document.getElementById('sw-bar');
-  if (display) { display.classList.remove('running', 'stopped'); }
-  if (label) label.textContent = 'Ready';
-  if (btn) { btn.className = 'sw-play-btn'; btn.innerHTML = '<svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill="#fff"/></svg>'; }
-  if (saved) saved.textContent = '';
-  if (bar) bar.classList.remove('running');
+  swVibrate([20, 40, 20]);
+  swRenderPill();
+  swUpdateTargetLabel();
 }
 
-async function swSaveToLastSet() {
-  if (!currentWorkoutId || !lastCompletedExercise) return;
-  const saved = document.getElementById('sw-saved');
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(lastCompletedExercise)}&order=set_number.desc&limit=1`, {
-      method: 'PATCH',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ rest_seconds: swSeconds })
-    });
-    if (saved) saved.textContent = `✓ ${swFormat(swSeconds)} saved`;
-  } catch(e) {
-    if (saved) saved.textContent = 'save failed';
+async function swSaveRestToTarget(seconds) {
+  if (!lastTypedSet || seconds === 0) return;
+  const { exName, setNum } = lastTypedSet;
+
+  if (currentWorkoutId) {
+    const existing = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}&set_number=eq.${setNum}&select=id`);
+    if (existing && existing.length > 0) {
+      await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?id=eq.${existing[0].id}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ rest_seconds: seconds })
+      });
+      swFlashGreen();
+      return;
+    }
   }
+
+  // Set not yet in DB — stash for when Mark Done runs
+  if (!pendingRest[exName]) pendingRest[exName] = {};
+  pendingRest[exName][setNum] = seconds;
+  swFlashGreen();
 }
 
+function swFlashGreen() {
+  const pill = document.getElementById('sw-pill');
+  const content = document.getElementById('sw-pill-content');
+  if (!pill || !content) return;
+  pill.classList.add('flash-green');
+  content.innerHTML = `<svg class="sw-tick" viewBox="0 0 24 24"><polyline points="5,12 10,17 19,7"/></svg>`;
+  setTimeout(() => {
+    pill.classList.remove('flash-green');
+    swRenderPill();
+  }, 700);
+}
 
-function showSwTrigger(visible) {
-  const bar = document.getElementById('sw-bar');
-  if (bar) bar.classList.toggle('visible', visible);
+// Single tap = toggle start/stop. Long press = reset.
+function swPillPointerDown(e) {
+  swLongPressFired = false;
+  swLongPressTimer = setTimeout(() => {
+    swLongPressFired = true;
+    swReset();
+  }, 450);
+}
+function swPillPointerUp(e) {
+  clearTimeout(swLongPressTimer);
+  if (swLongPressFired) return;
+  if (swRunning) swStop();
+  else swStart();
+}
+function swPillPointerCancel() {
+  clearTimeout(swLongPressTimer);
+}
+
+function showSwPill(visible) {
+  const pill = document.getElementById('sw-pill');
+  const label = document.getElementById('sw-target-label');
+  if (pill) pill.classList.toggle('visible', visible);
+  if (!visible && label) label.classList.remove('visible');
+  if (!visible) {
+    clearInterval(swInterval);
+    swInterval = null;
+    swRunning = false;
+    swSeconds = 0;
+    lastTypedSet = null;
+    pendingRest = {};
+    swRenderPill();
+  }
 }

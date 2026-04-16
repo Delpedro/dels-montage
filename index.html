@@ -195,22 +195,21 @@
   </nav>
 </div>
 
-<!-- STOPWATCH BAR -->
-<div class="sw-bar" id="sw-bar">
-  <div>
-    <div class="sw-time" id="sw-display">00:00</div>
-    <div class="sw-label" id="sw-label">Ready</div>
+<!-- STOPWATCH PILL -->
+<div class="sw-target-label" id="sw-target-label"></div>
+<button class="sw-pill" id="sw-pill" aria-label="Rest timer">
+  <svg class="sw-ring" viewBox="0 0 52 52">
+    <circle class="sw-ring-bg" cx="26" cy="26" r="23"></circle>
+    <circle class="sw-ring-fill" id="sw-ring-fill" cx="26" cy="26" r="23"></circle>
+  </svg>
+  <div class="sw-pill-content" id="sw-pill-content">
+    <svg class="sw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <circle cx="12" cy="13" r="8"/>
+      <path d="M12 9v4l2 2"/>
+      <path d="M9 2h6"/>
+    </svg>
   </div>
-  <div class="sw-saved" id="sw-saved"></div>
-  <div class="sw-controls">
-    <button class="sw-reset-btn" onclick="swReset()">
-      <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-    </button>
-    <button class="sw-play-btn" id="sw-start-btn" onclick="swStart()">
-      <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
-    </button>
-  </div>
-</div>
+</button>
 
 <!-- EDIT WORKOUT MODAL -->
 <div id="edit-workout-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
