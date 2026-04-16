@@ -61,6 +61,7 @@ let currentChartType = 'weight';
 let statsData = {};
 let currentPage = 'home';
 let currentWorkoutId = null;
+let lastCompletedExercise = null;
 
 // ─── SUPABASE ─────────────────────────────────────────────
 async function sb(path, method = 'GET', body = null) {
@@ -480,6 +481,7 @@ async function completeExercise(exName) {
   }
 
   showToast(`${exName} saved!`, 'success');
+  lastCompletedExercise = exName;
 }
 
 function selectEditVariation(exName, variation, btn) {
@@ -772,6 +774,7 @@ function showPage(name) {
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
   if (name === 'today') loadTodayLog();
+showSwTrigger(name === 'workout');
 }
 
 // ─── EDIT CHECK-IN MODAL ──────────────────────────────────
@@ -970,4 +973,108 @@ function showToast(msg, type = '') {
   t.textContent = msg;
   t.className = `toast ${type} show`;
   setTimeout(() => t.className = 'toast', 2500);
+}
+
+// ─── STOPWATCH ────────────────────────────────────────────
+let swInterval = null;
+let swSeconds = 0;
+let swRunning = false;
+let swPanelOpen = false;
+
+function swFormat(s) {
+  const m = Math.floor(s / 60).toString().padStart(2, '0');
+  const sec = (s % 60).toString().padStart(2, '0');
+  return `${m}:${sec}`;
+}
+
+function swUpdateDisplay() {
+  const display = document.getElementById('sw-display');
+  const triggerTime = document.getElementById('sw-trigger-time');
+  const formatted = swFormat(swSeconds);
+  if (display) display.textContent = formatted;
+  if (triggerTime) triggerTime.textContent = formatted;
+}
+
+function swStart() {
+  if (swRunning) {
+    // STOP
+    clearInterval(swInterval);
+    swInterval = null;
+    swRunning = false;
+    const display = document.getElementById('sw-display');
+    const label = document.getElementById('sw-label');
+    const btn = document.getElementById('sw-start-btn');
+    const trigger = document.getElementById('sw-trigger');
+    if (display) { display.classList.remove('running'); display.classList.add('stopped'); }
+    if (label) label.textContent = 'rest time';
+    if (btn) { btn.textContent = 'Start'; btn.className = 'sw-btn sw-btn-start'; }
+    if (trigger) trigger.classList.remove('running');
+    // Save to last completed exercise if exists
+    swSaveToLastSet();
+  } else {
+    // START
+    swRunning = true;
+    const display = document.getElementById('sw-display');
+    const label = document.getElementById('sw-label');
+    const btn = document.getElementById('sw-start-btn');
+    const saved = document.getElementById('sw-saved');
+    const trigger = document.getElementById('sw-trigger');
+    if (display) { display.classList.add('running'); display.classList.remove('stopped'); }
+    if (label) label.textContent = 'resting...';
+    if (btn) { btn.textContent = 'Stop'; btn.className = 'sw-btn sw-btn-stop'; }
+    if (saved) saved.textContent = '';
+    if (trigger) trigger.classList.add('running');
+    swInterval = setInterval(() => {
+      swSeconds++;
+      swUpdateDisplay();
+    }, 1000);
+  }
+}
+
+function swReset() {
+  clearInterval(swInterval);
+  swInterval = null;
+  swRunning = false;
+  swSeconds = 0;
+  swUpdateDisplay();
+  const display = document.getElementById('sw-display');
+  const label = document.getElementById('sw-label');
+  const btn = document.getElementById('sw-start-btn');
+  const saved = document.getElementById('sw-saved');
+  const trigger = document.getElementById('sw-trigger');
+  if (display) { display.classList.remove('running', 'stopped'); }
+  if (label) label.textContent = 'ready';
+  if (btn) { btn.textContent = 'Start'; btn.className = 'sw-btn sw-btn-start'; }
+  if (saved) saved.textContent = '';
+  if (trigger) trigger.classList.remove('running');
+}
+
+async function swSaveToLastSet() {
+  if (!currentWorkoutId || !lastCompletedExercise) return;
+  const saved = document.getElementById('sw-saved');
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(lastCompletedExercise)}&order=set_number.desc&limit=1`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ rest_seconds: swSeconds })
+    });
+    if (saved) saved.textContent = `✓ ${swFormat(swSeconds)} saved`;
+  } catch(e) {
+    if (saved) saved.textContent = 'save failed';
+  }
+}
+
+function toggleSwPanel() {
+  swPanelOpen = !swPanelOpen;
+  document.getElementById('sw-panel').classList.toggle('open', swPanelOpen);
+  document.getElementById('sw-overlay').classList.toggle('open', swPanelOpen);
+}
+
+function showSwTrigger(visible) {
+  const trigger = document.getElementById('sw-trigger');
+  if (trigger) trigger.classList.toggle('visible', visible);
 }

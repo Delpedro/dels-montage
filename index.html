@@ -194,6 +194,26 @@
     </button>
   </nav>
 </div>
+<!-- STOPWATCH TRIGGER -->
+<div class="sw-trigger" id="sw-trigger" onclick="toggleSwPanel()">
+  <span class="sw-trigger-icon">⏱</span>
+  <span class="sw-trigger-time" id="sw-trigger-time">00:00</span>
+</div>
+
+<!-- STOPWATCH PANEL -->
+<div class="sw-overlay" id="sw-overlay" onclick="toggleSwPanel()"></div>
+<div class="sw-panel" id="sw-panel">
+  <button class="sw-panel-close" onclick="toggleSwPanel()">✕</button>
+  <div>
+    <div class="sw-display" id="sw-display">00:00</div>
+    <div class="sw-label" id="sw-label">ready</div>
+  </div>
+  <div class="sw-saved" id="sw-saved"></div>
+  <div style="width:100%; display:flex; flex-direction:column; gap:8px;">
+    <button class="sw-btn sw-btn-start" id="sw-start-btn" onclick="swStart()">Start</button>
+    <button class="sw-btn sw-btn-reset" id="sw-reset-btn" onclick="swReset()">Reset</button>
+  </div>
+</div>
 
 <!-- EDIT CHECK-IN MODAL -->
 <div id="edit-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
