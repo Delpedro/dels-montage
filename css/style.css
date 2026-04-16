@@ -147,22 +147,18 @@ textarea.field-input { resize: vertical; min-height: 70px; }
   top: 50%;
   transform: translateY(-50%);
   z-index: 150;
-  background: var(--bg3);
-  border: 1px solid var(--border2);
-  border-right: none;
-  border-radius: 10px 0 0 10px;
-  padding: 12px 8px;
+  width: 4px;
+  height: 48px;
+  background: var(--border2);
+  border-radius: 4px 0 0 4px;
   cursor: pointer;
   display: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
   transition: background 0.2s;
 }
-.sw-trigger.visible { display: flex; }
-.sw-trigger.running { border-color: var(--accent); background: rgba(232,93,47,0.15); }
-.sw-trigger-icon { font-size: 20px; }
-.sw-trigger-time { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); writing-mode: vertical-rl; text-orientation: mixed; }
+.sw-trigger.visible { display: block; }
+.sw-trigger.running { background: var(--accent); }
+.sw-trigger-icon { display: none; }
+.sw-trigger-time { display: none; }
 
 .sw-panel {
   position: fixed;
