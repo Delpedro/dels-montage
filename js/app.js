@@ -60,6 +60,7 @@ let mainChart = null;
 let currentChartType = 'weight';
 let statsData = {};
 let currentPage = 'home';
+let currentWorkoutId = null;
 
 // ─── SUPABASE ─────────────────────────────────────────────
 async function sb(path, method = 'GET', body = null) {
@@ -235,6 +236,19 @@ async function selectSession(session, btn) {
   if (btn.classList.contains('done')) {
     if (!confirm(`You already logged ${session.name} today. Log again?`)) return;
   }
+
+  // If switching session, delete previous empty workout
+  if (currentWorkoutId) {
+    const existingSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=id`);
+    if (!existingSets || existingSets.length === 0) {
+      await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
+        method: 'DELETE',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      });
+    }
+    currentWorkoutId = null;
+  }
+
   selectedSession = session;
   selectedVariations = {};
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
@@ -245,6 +259,12 @@ async function selectSession(session, btn) {
     document.getElementById('workout-logger').style.display = 'none';
     return;
   }
+
+  // Create workout row immediately
+  await sb('workouts', 'POST', { date: todayStr(), session_type: session.id, notes: '' });
+  const created = await sb(`workouts?date=eq.${todayStr()}&session_type=eq.${session.id}&order=created_at.desc&limit=1&select=id`);
+  if (created && created.length > 0) currentWorkoutId = created[0].id;
+
   document.getElementById('conditioning-form').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'block';
   await buildWorkoutLogger(session);
@@ -279,15 +299,15 @@ async function buildWorkoutLogger(session) {
       ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
       : 'No previous data';
 
-    html += `<div class="exercise-block">
-      <div class="ex-top">
-        <div class="ex-name-display">${ex.name}</div>
-        <div class="ex-pills">
-          <span class="pill pill-sets">${ex.sets} sets</span>
-          <span class="pill pill-reps">${ex.reps}</span>
-          <span class="pill pill-rest">${ex.rest}</span>
-        </div>
-        ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
+html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
+    html += `</div>`;
+  });
+
+  html += `<div class="field-group" style="margin-top:0.875rem;">
+    <label class="field-label">Session Notes</label>
+    <textarea class="field-input" id="workout-notes" placeholder="How did it go..." oninput="saveDraft('${session.id}')"></textarea>
+  </div>
+  <button class="btn btn-save btn-full" onclick="saveWorkout()" style="margin-bottom:1rem;">Save Workout</button>`;
       </div>`;
 
     if (ex.variations) {
@@ -402,6 +422,52 @@ function selectVariation(exName, variation, btn) {
   }
 }
 
+// ─── COMPLETE EXERCISE ────────────────────────────────────
+async function completeExercise(exName) {
+  if (!currentWorkoutId || !selectedSession) return;
+  const ex = selectedSession.exercises.find(e => e.name === exName);
+  if (!ex) return;
+
+  const sets = [];
+  for (let i = 1; i <= ex.sets; i++) {
+    const wEl = document.getElementById(`w-${exName}-${i}`);
+    const rEl = document.getElementById(`r-${exName}-${i}`);
+    const wVal = wEl ? (wEl.tagName === 'DIV' ? wEl.textContent : wEl.value) : '';
+    const rVal = rEl ? rEl.value : '';
+    if (wVal || rVal) {
+      sets.push({
+        workout_id: currentWorkoutId,
+        exercise: exName,
+        set_number: i,
+        weight: wVal || null,
+        reps: parseInt(rVal) || null,
+        variation: selectedVariations[exName] || null
+      });
+    }
+  }
+
+  if (sets.length === 0) {
+    showToast('Fill in at least one set first', 'error');
+    return;
+  }
+
+  // Delete existing sets for this exercise first (in case of re-done)
+  await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`, {
+    method: 'DELETE',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+  });
+
+  await sb('workout_sets', 'POST', sets);
+
+  // Green visual on exercise block
+  const block = document.getElementById(`done-btn-${exName}`)?.closest('.exercise-block');
+  if (block) block.style.borderColor = 'var(--green)';
+  const btn = document.getElementById(`done-btn-${exName}`);
+  if (btn) { btn.textContent = '✓ Done'; btn.style.borderColor = 'var(--green)'; btn.style.color = 'var(--green)'; }
+
+  showToast(`${exName} saved!`, 'success');
+}
+
 function selectEditVariation(exName, variation, btn) {
   editSelectedVariations[exName] = variation;
   btn.parentElement.querySelectorAll('.var-btn').forEach(b => b.classList.remove('selected'));
@@ -418,34 +484,16 @@ function selectEditVariation(exName, variation, btn) {
 
 // ─── SAVE WORKOUT ─────────────────────────────────────────
 async function saveWorkout() {
-  if (!selectedSession) return;
+  if (!selectedSession || !currentWorkoutId) return;
   const notes = document.getElementById('workout-notes')?.value || '';
-  await sb('workouts', 'POST', { date: todayStr(), session_type: selectedSession.id, notes });
-  const workouts = await sb(`workouts?date=eq.${todayStr()}&session_type=eq.${selectedSession.id}&order=created_at.desc&limit=1&select=id`);
-  if (!workouts || workouts.length === 0) { showToast('Error saving', 'error'); return; }
-  const workoutId = workouts[0].id;
-  const sets = [];
-  selectedSession.exercises.forEach(ex => {
-    for (let i = 1; i <= ex.sets; i++) {
-      const wEl = document.getElementById(`w-${ex.name}-${i}`);
-      const rEl = document.getElementById(`r-${ex.name}-${i}`);
-      const wVal = wEl ? (wEl.tagName === 'DIV' ? wEl.textContent : wEl.value) : '';
-      const rVal = rEl ? rEl.value : '';
-      if (wVal || rVal) {
-        sets.push({
-          workout_id: workoutId,
-          exercise: ex.name,
-          set_number: i,
-          weight: wVal || null,
-          reps: parseInt(rVal) || null,
-          variation: selectedVariations[ex.name] || null
-        });
-      }
-    }
+  await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
+    method: 'PATCH',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes })
   });
-  if (sets.length > 0) await sb('workout_sets', 'POST', sets);
   showToast('Workout saved!', 'success');
   localStorage.removeItem('workout_draft');
+  currentWorkoutId = null;
   buildSessionGrid();
   document.getElementById('workout-logger').style.display = 'none';
   document.getElementById('conditioning-form').style.display = 'none';
