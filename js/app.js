@@ -1061,6 +1061,6 @@ async function swSaveToLastSet() {
 
 
 function showSwTrigger(visible) {
-  const trigger = document.getElementById('sw-trigger');
-  if (trigger) trigger.classList.toggle('visible', visible);
+  const bar = document.getElementById('sw-bar');
+  if (bar) bar.classList.toggle('visible', visible);
 }
