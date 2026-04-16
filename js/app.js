@@ -29,11 +29,11 @@ const SESSIONS = [
     exercises: [
       { name: 'Lat Pulldown', sets: 3, reps: '8–12', rest: '90s', note: 'Neutral grip' },
       { name: 'Chest Supported Row', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Seated Cable Row', sets: 3, reps: '10–12', rest: '75s', note: 'Rope attachment' },
+      { name: 'Seated Cable Row', sets: 3, reps: '10–12', rest: '75s' },
       { name: 'Face Pull', sets: 3, reps: '12–15', rest: '60s', note: "Don't skip this" },
       { name: 'Straight Arm Pulldown', sets: 3, reps: '12–15', rest: '60s' },
-      { name: 'Hammer Curl', sets: 3, reps: '10–12', rest: '75s', note: 'Neutral grip' },
-      { name: 'Cable Curl', sets: 3, reps: '12–15', rest: '60s', note: 'Rope attachment' },
+      { name: 'Hammer Curl', sets: 3, reps: '10–12', rest: '75s', note: '12 reps each side/arm — neutral grip' },
+      { name: 'Incline Single Cable Curl', sets: 3, reps: '12–15', rest: '60s' },
     ]
   },
   {
@@ -275,14 +275,18 @@ async function buildWorkoutLogger(session) {
   const logger = document.getElementById('workout-logger');
   logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
 
-  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=1&select=id,date`);
+  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=2&select=id,date`);
   previousSets = {};
   if (prevWorkouts && prevWorkouts.length > 0) {
-    const prevSets = await sb(`workout_sets?workout_id=eq.${prevWorkouts[0].id}&select=exercise,set_number,weight,reps,variation&order=set_number.asc`);
-    (prevSets || []).forEach(s => {
-      if (!previousSets[s.exercise]) previousSets[s.exercise] = [];
-      previousSets[s.exercise].push({ weight: s.weight, reps: s.reps, variation: s.variation });
-    });
+    // Use the most recent workout that isn't the current one
+    const prevWorkout = prevWorkouts.find(w => w.id !== currentWorkoutId);
+    if (prevWorkout) {
+      const prevSets = await sb(`workout_sets?workout_id=eq.${prevWorkout.id}&select=exercise,set_number,weight,reps,variation&order=set_number.asc`);
+      (prevSets || []).forEach(s => {
+        if (!previousSets[s.exercise]) previousSets[s.exercise] = [];
+        previousSets[s.exercise].push({ weight: s.weight, reps: s.reps, variation: s.variation });
+      });
+    }
   }
 
   let html = '';
@@ -299,15 +303,15 @@ async function buildWorkoutLogger(session) {
       ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
       : 'No previous data';
 
-html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
-    html += `</div>`;
-  });
-
-  html += `<div class="field-group" style="margin-top:0.875rem;">
-    <label class="field-label">Session Notes</label>
-    <textarea class="field-input" id="workout-notes" placeholder="How did it go..." oninput="saveDraft('${session.id}')"></textarea>
-  </div>
-  <button class="btn btn-save btn-full" onclick="saveWorkout()" style="margin-bottom:1rem;">Save Workout</button>`;
+    html += `<div class="exercise-block" id="block-${ex.name}">
+      <div class="ex-top">
+        <div class="ex-name-display">${ex.name}</div>
+        <div class="ex-pills">
+          <span class="pill pill-sets">${ex.sets} sets</span>
+          <span class="pill pill-reps">${ex.reps}</span>
+          <span class="pill pill-rest">${ex.rest}</span>
+        </div>
+        ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
       </div>`;
 
     if (ex.variations) {
@@ -346,6 +350,8 @@ html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" oncli
         <div class="prev-badge" id="badge-${ex.name}-${i}">${prevHint}</div>
       </div>`;
     }
+
+    html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
     html += `</div>`;
   });
 
@@ -460,10 +466,14 @@ async function completeExercise(exName) {
   await sb('workout_sets', 'POST', sets);
 
   // Green visual on exercise block
-  const block = document.getElementById(`done-btn-${exName}`)?.closest('.exercise-block');
+  const block = document.getElementById(`block-${exName}`);
   if (block) block.style.borderColor = 'var(--green)';
-  const btn = document.getElementById(`done-btn-${exName}`);
-  if (btn) { btn.textContent = '✓ Done'; btn.style.borderColor = 'var(--green)'; btn.style.color = 'var(--green)'; }
+  const doneBtn = document.getElementById(`done-btn-${exName}`);
+  if (doneBtn) {
+    doneBtn.textContent = '✓ Done';
+    doneBtn.style.borderColor = 'var(--green)';
+    doneBtn.style.color = 'var(--green)';
+  }
 
   showToast(`${exName} saved!`, 'success');
 }
