@@ -856,7 +856,7 @@ function renderHistoryPage() {
             ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
           </div>
           ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
-          <div class="history-card-action">Tap to edit</div>
+          
         </div>`;
       } else {
         const w = item.data;
@@ -867,7 +867,7 @@ function renderHistoryPage() {
             <span class="history-card-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
           </div>
           ${w.notes ? `<div class="history-card-notes">${w.notes}</div>` : ''}
-          <div class="history-card-action">Tap to edit</div>
+          
         </div>`;
       }
     });
