@@ -120,7 +120,6 @@ window.addEventListener('load', () => {
     const savedPage = sessionStorage.getItem('del_page') || 'home';
     initApp(savedPage);
   }
-  // Attach pill handlers
   const pill = document.getElementById('sw-pill');
   if (pill) {
     pill.addEventListener('pointerdown', swPillPointerDown);
@@ -130,7 +129,9 @@ window.addEventListener('load', () => {
   }
 });
 
-// Track last typed reps field (for stopwatch targeting)
+let lastTypedSet = null;
+let pendingRest = {};
+
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (!t || !t.id || !t.id.startsWith('r-')) return;
@@ -258,7 +259,6 @@ async function selectSession(session, btn) {
     if (!confirm(`You already logged ${session.name} today. Log again?`)) return;
   }
 
-  // If switching session, delete previous empty workout
   if (currentWorkoutId) {
     const existingSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=id`);
     if (!existingSets || existingSets.length === 0) {
@@ -281,7 +281,6 @@ async function selectSession(session, btn) {
     return;
   }
 
-  // Create workout row immediately
   currentWorkoutId = null;
 
   document.getElementById('conditioning-form').style.display = 'none';
@@ -298,7 +297,6 @@ async function buildWorkoutLogger(session) {
   const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=2&select=id,date`);
   previousSets = {};
   if (prevWorkouts && prevWorkouts.length > 0) {
-    // Use the most recent workout that isn't the current one
     const prevWorkout = prevWorkouts.find(w => w.id !== currentWorkoutId);
     if (prevWorkout) {
       const prevSets = await sb(`workout_sets?workout_id=eq.${prevWorkout.id}&select=exercise,set_number,weight,reps,variation&order=set_number.asc`);
@@ -485,11 +483,9 @@ async function completeExercise(exName) {
     await sb('workouts', 'POST', { date: todayStr(), session_type: selectedSession.id, notes: '' });
     const created = await sb(`workouts?date=eq.${todayStr()}&session_type=eq.${selectedSession.id}&order=created_at.desc&limit=1&select=id`);
     if (created && created.length > 0) currentWorkoutId = created[0].id;
-    // Backfill workout_id on the set objects we built before we had it
     sets.forEach(s => s.workout_id = currentWorkoutId);
   }
 
-  // Delete existing sets for this exercise first (in case of re-done)
   await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`, {
     method: 'DELETE',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
@@ -497,7 +493,6 @@ async function completeExercise(exName) {
 
   await sb('workout_sets', 'POST', sets);
 
-  // Green visual on exercise block
   const block = document.getElementById(`block-${exName}`);
   if (block) block.style.borderColor = 'var(--green)';
   const doneBtn = document.getElementById(`done-btn-${exName}`);
@@ -509,7 +504,6 @@ async function completeExercise(exName) {
 
   showToast(`${exName} saved!`, 'success');
   lastCompletedExercise = exName;
-  // Clear any pending rest times we just applied
   if (pendingRest[exName]) delete pendingRest[exName];
 }
 
@@ -774,6 +768,7 @@ async function loadHistory() {
     <span style="cursor:pointer;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">Tap to edit</span>
   </div>
 </div>`;
+    }
     ws.forEach(w => {
       const s = SESSIONS.find(s => s.id === w.session_type);
       html += `<div class="history-item" style="margin-bottom:6px;">
@@ -805,7 +800,6 @@ function showPage(name) {
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
   if (name === 'today') loadTodayLog();
-  // Hide pill if leaving workout page
   if (name !== 'workout') showSwPill(false);
 }
 
@@ -1014,8 +1008,6 @@ let swRunning = false;
 let swTargetSeconds = 60;
 let swLongPressTimer = null;
 let swLongPressFired = false;
-let lastTypedSet = null;
-let pendingRest = {};
 
 const SW_RING_CIRCUMFERENCE = 144.51;
 
@@ -1129,7 +1121,6 @@ async function swSaveRestToTarget(seconds) {
     }
   }
 
-  // Set not yet in DB — stash for when Mark Done runs
   if (!pendingRest[exName]) pendingRest[exName] = {};
   pendingRest[exName][setNum] = seconds;
   swFlashGreen();
@@ -1147,7 +1138,6 @@ function swFlashGreen() {
   }, 700);
 }
 
-// Single tap = toggle start/stop. Long press = reset.
 function swPillPointerDown(e) {
   swLongPressFired = false;
   swLongPressTimer = setTimeout(() => {
@@ -1155,12 +1145,14 @@ function swPillPointerDown(e) {
     swReset();
   }, 450);
 }
+
 function swPillPointerUp(e) {
   clearTimeout(swLongPressTimer);
   if (swLongPressFired) return;
   if (swRunning) swStop();
   else swStart();
 }
+
 function swPillPointerCancel() {
   clearTimeout(swLongPressTimer);
 }
