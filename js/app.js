@@ -29,7 +29,7 @@ const SESSIONS = [
     exercises: [
       { name: 'Lat Pulldown', sets: 3, reps: '8–12', rest: '90s', note: 'Neutral grip' },
       { name: 'Chest Supported Row', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Seated Cable Row', sets: 3, reps: '10–12', rest: '75s' },
+      { name: 'Seated Cable Row', sets: 3, reps: '10–12', rest: '75s', note: 'Not rope attachment' },
       { name: 'Face Pull', sets: 3, reps: '12–15', rest: '60s', note: "Don't skip this" },
       { name: 'Straight Arm Pulldown', sets: 3, reps: '12–15', rest: '60s' },
       { name: 'Hammer Curl', sets: 3, reps: '10–12', rest: '75s', note: '12 reps each side/arm — neutral grip' },
@@ -45,7 +45,7 @@ const SESSIONS = [
       { name: 'Hip Thrust Machine', sets: 3, reps: '10–15', rest: '75s', note: 'If available' },
       { name: 'Seated Calf Raise', sets: 3, reps: '8–12', rest: '60s' },
       { name: 'Dead Bug', sets: 3, reps: '10 each', rest: '45s', note: 'Core — hernia safe', bodyweight: true },
-      { name: 'Cable Woodchop', sets: 3, reps: '12 each', rest: '45s', note: 'Core — hernia safe' },
+      { name: 'Cable Woodchop', sets: 3, reps: '12 each', rest: '45s', note: 'Core — hernia safe', variations: ['Cable', 'KG'] },
     ]
   },
   { id: 'conditioning', day: 'Saturday', name: 'Conditioning', focus: 'Wild card' }
@@ -194,9 +194,8 @@ async function loadHomePage() {
   const avgSteps = stepsArr.length ? Math.round(stepsArr.reduce((a,b)=>a+b,0)/stepsArr.length) : null;
   document.getElementById('home-steps').textContent = avgSteps ? avgSteps.toLocaleString() : '--';
 
-  if (!document.getElementById('home-week-strip').hasChildNodes()) {
-    buildWeekStrip('home-week-strip');
-  }
+  // Always rebuild — buildWeekStrip clears innerHTML first, so no risk of duplicates
+  buildWeekStrip('home-week-strip');
 }
 
 function getWeekStart() {
