@@ -742,6 +742,11 @@ async function loadHistory() {
   ]);
   allHistoryLogs = logs || [];
   allHistoryWorkouts = workouts || [];
+  historyPage = 1;
+  historyTab = 'all';
+  historyDateRange = 'all';
+  historyWorkoutFilter = 'all';
+  historySearchTerm = '';
   if (allHistoryLogs.length === 0 && allHistoryWorkouts.length === 0) {
     list.innerHTML = '<div class="empty">No logs yet — start tracking today</div>';
     return;
@@ -766,14 +771,17 @@ function filterHistoryData() {
   const startDate = getDateRangeFilter();
   let filteredLogs = allHistoryLogs.filter(l => l.date >= startDate);
   let filteredWorkouts = allHistoryWorkouts.filter(w => w.date >= startDate);
+  
   if (historyWorkoutFilter !== 'all') {
     filteredWorkouts = filteredWorkouts.filter(w => w.session_type === historyWorkoutFilter);
   }
+  
   if (historySearchTerm) {
     const search = historySearchTerm.toLowerCase();
     filteredLogs = filteredLogs.filter(l => (l.notes && l.notes.toLowerCase().includes(search)));
     filteredWorkouts = filteredWorkouts.filter(w => (w.notes && w.notes.toLowerCase().includes(search)) || SESSIONS.find(s => s.id === w.session_type)?.name.toLowerCase().includes(search));
   }
+  
   if (historyTab === 'workouts') return { logs: [], workouts: filteredWorkouts };
   if (historyTab === 'daily') return { logs: filteredLogs, workouts: [] };
   return { logs: filteredLogs, workouts: filteredWorkouts };
@@ -782,44 +790,92 @@ function filterHistoryData() {
 function renderHistoryPage() {
   const list = document.getElementById('history-list');
   const { logs, workouts } = filterHistoryData();
-  let html = `<div style="margin-bottom:1.5rem;"><div style="display:flex;gap:6px;margin-bottom:1rem;"><button class="history-tab ${historyTab === 'all' ? 'active' : ''}" onclick="setHistoryTab('all')">All</button><button class="history-tab ${historyTab === 'workouts' ? 'active' : ''}" onclick="setHistoryTab('workouts')">Workouts</button><button class="history-tab ${historyTab === 'daily' ? 'active' : ''}" onclick="setHistoryTab('daily')">Daily Logs</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;"><select id="date-range-filter" onchange="setHistoryDateRange(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;"><option value="all">All Time</option><option value="month">Last Month</option><option value="week">This Week</option></select>${historyTab !== 'daily' ? `<select id="workout-filter" onchange="setHistoryWorkoutFilter(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;"><option value="all">All Workouts</option>${SESSIONS.filter(s => s.id !== 'conditioning').map(s => `<option value="${s.id}">${s.name}</option>`).join('')}</select>` : ''}</div><input type="text" id="history-search" placeholder="Search notes..." onkeyup="setHistorySearch(this.value)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;margin-bottom:1rem;" /></div>`;
+
+  let html = `<div style="margin-bottom:1.5rem;">
+    <div style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;">
+      <button class="history-tab ${historyTab === 'all' ? 'active' : ''}" onclick="setHistoryTab('all')">All</button>
+      <button class="history-tab ${historyTab === 'workouts' ? 'active' : ''}" onclick="setHistoryTab('workouts')">Workouts</button>
+      <button class="history-tab ${historyTab === 'daily' ? 'active' : ''}" onclick="setHistoryTab('daily')">Daily Logs</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;">
+      <select onchange="setHistoryDateRange(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;">
+        <option value="all">All Time</option>
+        <option value="month">Last Month</option>
+        <option value="week">This Week</option>
+      </select>
+      <select onchange="setHistoryWorkoutFilter(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;">
+        <option value="all">All Workouts</option>
+        ${SESSIONS.filter(s => s.id !== 'conditioning').map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+      </select>
+    </div>
+
+    <input type="text" placeholder="Search notes..." onkeyup="setHistorySearch(this.value)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;margin-bottom:1rem;font-family:'DM Sans',sans-serif;" />
+  </div>`;
+
   if (logs.length === 0 && workouts.length === 0) {
     html += '<div class="empty">No results found</div>';
     list.innerHTML = html;
     return;
   }
+
   const allItems = [];
   logs.forEach(l => allItems.push({ type: 'log', date: l.date, data: l }));
   workouts.forEach(w => allItems.push({ type: 'workout', date: w.date, data: w }));
   allItems.sort((a, b) => b.date.localeCompare(a.date));
+
   const itemsPerPage = 15;
   const startIdx = (historyPage - 1) * itemsPerPage;
   const endIdx = startIdx + itemsPerPage;
   const paginatedItems = allItems.slice(0, endIdx);
   const hasMore = allItems.length > endIdx;
+
   const byDate = {};
   paginatedItems.forEach(item => {
     if (!byDate[item.date]) byDate[item.date] = [];
     byDate[item.date].push(item);
   });
+
   Object.keys(byDate).sort((a, b) => b.localeCompare(a)).forEach(date => {
     const dateStr = new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-    html += `<div style="margin-bottom:1.25rem;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">${dateStr}</div>`;
+    html += `<div style="margin-bottom:1.5rem;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">${dateStr}</div>`;
+
     byDate[date].forEach(item => {
       if (item.type === 'log') {
         const l = item.data;
-        html += `<div class="history-item" style="background:rgba(76,175,125,0.08);border-color:var(--green);margin-bottom:8px;cursor:pointer;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="pill" style="background:rgba(76,175,125,0.2);color:var(--green);">daily log</span></div><div class="history-stats">${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}${l.calories ? `<span class="pill" style="background:rgba(240,160,80,0.15);color:var(--amber);">${l.calories} kcal</span>` : ''}${l.fasting_hours ? `<span class="pill pill-sets">${l.fasting_hours}h fast</span>` : ''}${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}</div>${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;">${l.notes}</div>` : ''}<div style="font-size:11px;color:var(--green);margin-top:6px;">tap to edit</div></div>`;
+        html += `<div class="history-item" style="margin-bottom:8px;cursor:pointer;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
+          <div style="font-size:12px;color:var(--muted2);font-weight:600;margin-bottom:6px;">Daily Check-in</div>
+          <div class="history-stats">
+            ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
+            ${l.calories ? `<span class="pill" style="background:rgba(240,160,80,0.15);color:var(--amber);">${l.calories} kcal</span>` : ''}
+            ${l.fasting_hours ? `<span class="pill pill-sets">${l.fasting_hours}h fast</span>` : ''}
+            ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
+            ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
+          </div>
+          ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;">${l.notes}</div>` : ''}
+          <div style="font-size:11px;color:var(--muted2);margin-top:6px;">tap to edit</div>
+        </div>`;
       } else {
         const w = item.data;
         const s = SESSIONS.find(s => s.id === w.session_type);
-        html += `<div class="history-item" style="margin-bottom:8px;cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="pill" style="background:rgba(232,93,47,0.15);color:var(--accent);">workout</span><span style="font-size:14px;font-weight:600;">${s ? s.name : w.session_type}</span></div>${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;">${w.notes}</div>` : ''}<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:11px;color:var(--amber);">tap to edit</span><span style="font-size:11px;color:var(--red);cursor:pointer;" onclick="event.stopPropagation();deleteWorkout('${w.id}')">delete</span></div></div>`;
+        html += `<div class="history-item" style="margin-bottom:8px;cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:14px;font-weight:600;">${s ? s.name : w.session_type}</span>
+            <span style="font-size:11px;color:var(--red);cursor:pointer;" onclick="event.stopPropagation();deleteWorkout('${w.id}')">delete</span>
+          </div>
+          ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${w.notes}</div>` : ''}
+          <div style="font-size:11px;color:var(--muted2);">tap to edit</div>
+        </div>`;
       }
     });
+
     html += `</div>`;
   });
+
   if (hasMore) {
     html += `<button class="btn btn-outline btn-full" onclick="loadMoreHistory()" style="margin-top:1rem;">Load More</button>`;
   }
+
   list.innerHTML = html;
 }
 
