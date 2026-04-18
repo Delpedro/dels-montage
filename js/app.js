@@ -776,14 +776,14 @@ async function loadHistory() {
 </div>`;
     ws.forEach(w => {
       const s = SESSIONS.find(s => s.id === w.session_type);
-      html += `<div class="history-item" style="margin-bottom:6px;cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
+      html += `<div class="history-item" style="margin-bottom:6px;">
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="pill" style="background:rgba(232,93,47,0.15);color:var(--accent);">workout</span>
           <span style="font-size:14px;font-weight:600;">${s ? s.name : w.session_type}</span>
         </div>
         ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${w.notes}</div>` : ''}
         <div style="display:flex;justify-content:space-between;margin-top:6px;">
-          <span style="font-size:11px;color:var(--amber);">tap to edit</span>
+          <span style="font-size:11px;color:var(--amber);cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">Tap to edit</span>
           <span style="font-size:11px;color:var(--red);cursor:pointer;" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
         </div>
       </div>`;
