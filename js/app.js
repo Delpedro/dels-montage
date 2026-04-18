@@ -105,6 +105,7 @@ async function handleLogin() {
 
 function handleLogout() {
   sessionStorage.clear();
+  localStorage.removeItem('workout_draft');  // Clear any mid-workout draft so next login starts fresh
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
 }
@@ -386,7 +387,7 @@ async function buildWorkoutLogger(session) {
 // ─── DRAFT AUTO-SAVE ─────────────────────────────────────
 function saveDraft(sessionId) {
   if (!selectedSession) return;
-  const draft = { sessionId, sets: {}, notes: document.getElementById('workout-notes')?.value || '' };
+  const draft = { sessionId, sets: {}, notes: document.getElementById('workout-notes')?.value || '', timestamp: Date.now() };
   selectedSession.exercises.forEach(ex => {
     for (let i = 1; i <= ex.sets; i++) {
       const wEl = document.getElementById(`w-${ex.name}-${i}`);
@@ -405,6 +406,7 @@ function restoreDraft(session) {
     if (!raw) return;
     const draft = JSON.parse(raw);
     if (draft.sessionId !== session.id) return;
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) { localStorage.removeItem('workout_draft'); return; }  // Expire drafts after 24hrs
     session.exercises.forEach(ex => {
       for (let i = 1; i <= ex.sets; i++) {
         const key = `${ex.name}-${i}`;
