@@ -791,31 +791,35 @@ function renderHistoryPage() {
   const list = document.getElementById('history-list');
   const { logs, workouts } = filterHistoryData();
 
-  let html = `<div style="margin-bottom:1.5rem;">
-    <div style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;">
+  // Filter bar — uses CSS classes from style.css, 'selected' attrs preserve dropdown state across re-renders
+  let html = `<div class="history-filters">
+    <div class="history-tabs">
       <button class="history-tab ${historyTab === 'all' ? 'active' : ''}" onclick="setHistoryTab('all')">All</button>
       <button class="history-tab ${historyTab === 'workouts' ? 'active' : ''}" onclick="setHistoryTab('workouts')">Workouts</button>
       <button class="history-tab ${historyTab === 'daily' ? 'active' : ''}" onclick="setHistoryTab('daily')">Daily Logs</button>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;">
-      <select onchange="setHistoryDateRange(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;">
-        <option value="all">All Time</option>
-        <option value="month">Last Month</option>
-        <option value="week">This Week</option>
+    <div class="history-selects">
+      <select class="history-select ${historyDateRange !== 'all' ? 'has-value' : ''}" onchange="setHistoryDateRange(this.value)">
+        <option value="all" ${historyDateRange === 'all' ? 'selected' : ''}>All Time</option>
+        <option value="month" ${historyDateRange === 'month' ? 'selected' : ''}>Last Month</option>
+        <option value="week" ${historyDateRange === 'week' ? 'selected' : ''}>This Week</option>
       </select>
-      <select onchange="setHistoryWorkoutFilter(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;">
-        <option value="all">All Workouts</option>
-        ${SESSIONS.filter(s => s.id !== 'conditioning').map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+      <select class="history-select ${historyWorkoutFilter !== 'all' ? 'has-value' : ''}" onchange="setHistoryWorkoutFilter(this.value)">
+        <option value="all" ${historyWorkoutFilter === 'all' ? 'selected' : ''}>All Workouts</option>
+        ${SESSIONS.filter(s => s.id !== 'conditioning').map(s =>
+          `<option value="${s.id}" ${historyWorkoutFilter === s.id ? 'selected' : ''}>${s.name}</option>`
+        ).join('')}
       </select>
     </div>
 
-    <input type="text" placeholder="Search notes..." onkeyup="setHistorySearch(this.value)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px;color:var(--text);font-size:13px;margin-bottom:1rem;font-family:'DM Sans',sans-serif;" />
+    <input type="text" class="history-search" id="history-search-input" placeholder="Search notes..." value="${historySearchTerm.replace(/"/g,'&quot;')}" oninput="setHistorySearch(this.value)" />
   </div>`;
 
   if (logs.length === 0 && workouts.length === 0) {
     html += '<div class="empty">No results found</div>';
     list.innerHTML = html;
+    restoreSearchFocus();
     return;
   }
 
@@ -825,8 +829,7 @@ function renderHistoryPage() {
   allItems.sort((a, b) => b.date.localeCompare(a.date));
 
   const itemsPerPage = 15;
-  const startIdx = (historyPage - 1) * itemsPerPage;
-  const endIdx = startIdx + itemsPerPage;
+  const endIdx = historyPage * itemsPerPage;
   const paginatedItems = allItems.slice(0, endIdx);
   const hasMore = allItems.length > endIdx;
 
@@ -838,33 +841,33 @@ function renderHistoryPage() {
 
   Object.keys(byDate).sort((a, b) => b.localeCompare(a)).forEach(date => {
     const dateStr = new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-    html += `<div style="margin-bottom:1.5rem;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">${dateStr}</div>`;
+    html += `<div class="history-date-group"><div class="history-date-header">${dateStr}</div>`;
 
     byDate[date].forEach(item => {
       if (item.type === 'log') {
         const l = item.data;
-        html += `<div class="history-item" style="margin-bottom:8px;cursor:pointer;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
-          <div style="font-size:12px;color:var(--muted2);font-weight:600;margin-bottom:6px;">Daily Check-in</div>
+        html += `<div class="history-card" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
+          <div class="history-card-label">Daily Check-in</div>
           <div class="history-stats">
             ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
-            ${l.calories ? `<span class="pill" style="background:rgba(240,160,80,0.15);color:var(--amber);">${l.calories} kcal</span>` : ''}
+            ${l.calories ? `<span class="pill pill-cals">${l.calories} kcal</span>` : ''}
             ${l.fasting_hours ? `<span class="pill pill-sets">${l.fasting_hours}h fast</span>` : ''}
             ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
             ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
           </div>
-          ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;">${l.notes}</div>` : ''}
-          <div style="font-size:11px;color:var(--muted2);margin-top:6px;">tap to edit</div>
+          ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
+          <div class="history-card-action">Tap to edit</div>
         </div>`;
       } else {
         const w = item.data;
         const s = SESSIONS.find(s => s.id === w.session_type);
-        html += `<div class="history-item" style="margin-bottom:8px;cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <span style="font-size:14px;font-weight:600;">${s ? s.name : w.session_type}</span>
-            <span style="font-size:11px;color:var(--red);cursor:pointer;" onclick="event.stopPropagation();deleteWorkout('${w.id}')">delete</span>
+        html += `<div class="history-card" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
+          <div class="history-workout-head">
+            <div class="history-card-title">${s ? s.name : w.session_type}</div>
+            <span class="history-card-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
           </div>
-          ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${w.notes}</div>` : ''}
-          <div style="font-size:11px;color:var(--muted2);">tap to edit</div>
+          ${w.notes ? `<div class="history-card-notes">${w.notes}</div>` : ''}
+          <div class="history-card-action">Tap to edit</div>
         </div>`;
       }
     });
@@ -877,6 +880,19 @@ function renderHistoryPage() {
   }
 
   list.innerHTML = html;
+  restoreSearchFocus();
+}
+
+// Keeps cursor/focus in search box across re-renders (otherwise typing loses focus every keystroke)
+let _searchFocusState = null;
+function restoreSearchFocus() {
+  const input = document.getElementById('history-search-input');
+  if (!input || !_searchFocusState) return;
+  if (_searchFocusState.focused) {
+    input.focus();
+    try { input.setSelectionRange(_searchFocusState.pos, _searchFocusState.pos); } catch(e) {}
+  }
+  _searchFocusState = null;
 }
 
 function setHistoryTab(tab) {
@@ -898,6 +914,11 @@ function setHistoryWorkoutFilter(type) {
 }
 
 function setHistorySearch(term) {
+  // Remember where cursor was so it survives the re-render
+  const input = document.getElementById('history-search-input');
+  if (input && document.activeElement === input) {
+    _searchFocusState = { focused: true, pos: input.selectionStart };
+  }
   historySearchTerm = term;
   historyPage = 1;
   renderHistoryPage();
