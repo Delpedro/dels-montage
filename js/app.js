@@ -761,18 +761,19 @@ async function loadHistory() {
     let html = `<div style="margin-bottom:1rem;">`;
     html += `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">${dateStr}</div>`;
     if (l) {
-      html += `<div class="history-item" style="cursor:pointer;margin-bottom:6px;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
-        <div class="history-stats">
-          ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
-          ${l.calories ? `<span class="pill" style="background:rgba(240,160,80,0.15);color:var(--amber);">${l.calories} kcal</span>` : ''}
-          ${l.fasting_hours ? `<span class="pill pill-sets">${l.fasting_hours}h fast</span>` : ''}
-          ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
-          ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
-        </div>
-        ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${l.notes}</div>` : ''}
-        <div style="font-size:11px;color:var(--amber);margin-top:6px;">tap to edit</div>
-      </div>`;
-    }
+      html += `<div class="history-item" style="margin-bottom:6px;">
+  <div class="history-stats">
+    ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
+    ${l.calories ? `<span class="pill" style="background:rgba(240,160,80,0.15);color:var(--amber);">${l.calories} kcal</span>` : ''}
+    ${l.fasting_hours ? `<span class="pill pill-sets">${l.fasting_hours}h fast</span>` : ''}
+    ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
+    ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
+  </div>
+  ${l.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${l.notes}</div>` : ''}
+  <div style="font-size:11px;color:var(--amber);margin-top:6px;">
+    <span style="cursor:pointer;" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">Tap to edit</span>
+  </div>
+</div>`;
     ws.forEach(w => {
       const s = SESSIONS.find(s => s.id === w.session_type);
       html += `<div class="history-item" style="margin-bottom:6px;cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
@@ -783,7 +784,7 @@ async function loadHistory() {
         ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${w.notes}</div>` : ''}
         <div style="display:flex;justify-content:space-between;margin-top:6px;">
           <span style="font-size:11px;color:var(--amber);">tap to edit</span>
-          <span style="font-size:11px;color:var(--red);cursor:pointer;" onclick="event.stopPropagation();deleteWorkout('${w.id}')">delete</span>
+          <span style="font-size:11px;color:var(--red);cursor:pointer;" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
         </div>
       </div>`;
     });
