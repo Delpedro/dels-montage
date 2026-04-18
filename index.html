@@ -310,21 +310,6 @@
   </div>
 </div>
 
-<!-- EDIT WORKOUT MODAL -->
-<div id="edit-workout-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
-  <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-      <div style="font-family:'Bebas Neue',sans-serif; font-size:20px;" id="edit-workout-title">Edit Workout</div>
-      <button onclick="closeEditWorkout()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;">✕</button>
-    </div>
-    <div id="edit-workout-sets"></div>
-    <div class="field-group" style="margin-top:0.875rem;">
-      <label class="field-label">Session Notes</label>
-      <textarea class="field-input" id="edit-workout-notes" placeholder="How did it go..."></textarea>
-    </div>
-    <button class="btn btn-save btn-full" onclick="saveEditWorkout()">Save Changes</button>
-  </div>
-</div>
 
 <!-- STOPWATCH PILL -->
 <div class="sw-target-label" id="sw-target-label"></div>
