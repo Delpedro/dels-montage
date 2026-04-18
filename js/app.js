@@ -211,7 +211,6 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   const dow = today.getDay();
   const strip = document.getElementById(containerId);
   if (!strip) return;
-  strip.innerHTML = '';
 
   const weekDates = [];
   for (let i = 0; i < 7; i++) {
@@ -221,6 +220,7 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   }
 
   const workouts = await sb(`workouts?date=gte.${weekDates[0]}&date=lte.${weekDates[6]}&select=date`);
+  strip.innerHTML = '';  // Clear AFTER fetch — prevents race between concurrent calls
   const doneDates = new Set((workouts || []).map(w => w.date));
   const restDays = [0, 3];
 
@@ -238,8 +238,9 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
 // ─── SESSION GRID ─────────────────────────────────────────
 async function buildSessionGrid() {
   const grid = document.getElementById('session-grid');
-  grid.innerHTML = '';
+  // Fetch data BEFORE clearing grid — prevents concurrent calls racing and both appending to same empty grid
   const todayWorkouts = await sb(`workouts?date=eq.${todayStr()}&select=session_type`);
+  grid.innerHTML = '';
   const doneTodaySessions = new Set((todayWorkouts || []).map(w => w.session_type));
 
   SESSIONS.forEach(s => {
