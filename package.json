@@ -1,0 +1,24 @@
+{
+  "name": "fitness",
+  "version": "1.0.0",
+  "description": "Del's Training Montage - Personal fitness tracker. Built with HTML/JS + Supabase",
+  "main": "index.js",
+  "scripts": {
+    "start": "live-server",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Delpedro/dels-montage.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Delpedro/dels-montage/issues"
+  },
+  "homepage": "https://github.com/Delpedro/dels-montage#readme",
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  }
+}

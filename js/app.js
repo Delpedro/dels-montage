@@ -361,7 +361,7 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
 
     for (let i = 1; i <= ex.sets; i++) {
       const prevSet = filteredPrev[i-1];
-      const prevHint = prevSet ? `${prevSet.weight}×${prevSet.reps}` : '—';
+      const prevHint = prevSet ? `${prevSet.weight ?? 'BW'}×${prevSet.reps}` : '—';
       const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
 
       let weightCol = '';
@@ -501,11 +501,13 @@ async function completeExercise(exName) {
     const wVal = wEl ? (wEl.tagName === 'DIV' ? wEl.textContent : wEl.value) : '';
     const rVal = rEl ? rEl.value : '';
     if (wVal || rVal) {
+      // Bodyweight exercises show "BW" in the UI but the DB weight column is numeric — save null instead of the string
+      const isBodyweight = ex.bodyweight;
       const setObj = {
         workout_id: currentWorkoutId,
         exercise: exName,
         set_number: i,
-        weight: wVal || null,
+        weight: isBodyweight ? null : (wVal || null),
         reps: parseInt(rVal) || null,
         variation: selectedVariations[exName] || null
       };
@@ -1075,7 +1077,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
 
       for (let i = 1; i <= ex.sets; i++) {
         const existing = exSets.find(s => s.set_number === i);
-        const prevHint = existing ? `${existing.weight}×${existing.reps}` : '—';
+        const prevHint = existing ? `${existing.weight ?? 'BW'}×${existing.reps}` : '—';
         const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
 
         let weightCol = '';
@@ -1137,7 +1139,7 @@ async function saveEditWorkout() {
           method: 'PATCH',
           headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            weight: wVal || null,
+            weight: ex.bodyweight ? null : (wVal || null),
             reps: parseInt(rVal) || null,
             variation: editSelectedVariations[ex.name] || null
           })
@@ -1147,7 +1149,7 @@ async function saveEditWorkout() {
           workout_id: editingWorkoutId,
           exercise: ex.name,
           set_number: i,
-          weight: wVal || null,
+          weight: ex.bodyweight ? null : (wVal || null),
           reps: parseInt(rVal) || null,
           variation: editSelectedVariations[ex.name] || null
         });
