@@ -367,7 +367,7 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
 
     for (let i = 1; i <= ex.sets; i++) {
       const prevSet = filteredPrev[i-1];
-      const prevHint = prevSet ? `${prevSet.weight ?? 'BW'}×${prevSet.reps}` : '—';
+      const prevHint = prevSet ? `${ex.band ? (prevSet.variation || 'Band') : (prevSet.weight ?? 'BW')}×${prevSet.reps}` : '—';
       const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
 
       let weightCol = '';
