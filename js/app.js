@@ -411,7 +411,13 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
 // ─── DRAFT AUTO-SAVE ─────────────────────────────────────
 function saveDraft(sessionId) {
   if (!selectedSession) return;
-  const draft = { sessionId, sets: {}, notes: document.getElementById('workout-notes')?.value || '', timestamp: Date.now() };
+  const draft = {
+    sessionId,
+    sets: {},
+    notes: document.getElementById('workout-notes')?.value || '',
+    pendingRest: pendingRest,   // persist rest times too, so they survive reload
+    timestamp: Date.now()
+  };
   selectedSession.exercises.forEach(ex => {
     for (let i = 1; i <= ex.sets; i++) {
       const wEl = document.getElementById(`w-${ex.name}-${i}`);
@@ -443,6 +449,16 @@ function restoreDraft(session) {
       }
     });
     if (draft.notes) document.getElementById('workout-notes').value = draft.notes;
+
+    // Restore rest times: rebuild pendingRest + repaint the "↳ Rest m:ss" lines
+    if (draft.pendingRest) {
+      pendingRest = draft.pendingRest;
+      Object.keys(pendingRest).forEach(exName => {
+        Object.keys(pendingRest[exName]).forEach(setNum => {
+          swPaintRestLine(exName, parseInt(setNum), pendingRest[exName][setNum]);
+        });
+      });
+    }
   } catch(e) {}
 }
 
@@ -1361,6 +1377,7 @@ async function swStop() {
     await swSaveRest(target.exName, target.setNum, elapsed);
     swPaintRestLine(target.exName, target.setNum, elapsed);
     swFlashWatch(exName);
+    saveDraft(selectedSession?.id);   // persist rest to localStorage so it survives reload
   } else {
     swRenderWatch(exName);
   }
