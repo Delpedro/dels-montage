@@ -287,7 +287,6 @@ async function selectSession(session, btn) {
   document.getElementById('conditioning-form').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'block';
   buildWorkoutLogger(session);
-  showSwPill(true);
 }
 
 // ─── WORKOUT LOGGER ───────────────────────────────────────
@@ -322,9 +321,24 @@ async function buildWorkoutLogger(session) {
       ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
       : 'No previous data';
 
-    html += `<div class="exercise-block" id="block-${ex.name}">
+html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${swParseRest(ex.rest)}">
       <div class="ex-top">
-        <div class="ex-name-display">${ex.name}</div>
+        <div class="ex-name-row">
+          <div class="ex-name-display">${ex.name}</div>
+          <button class="ex-watch" id="watch-${ex.name}" onclick="swTapWatch('${ex.name}')" aria-label="Rest timer">
+            <svg class="ex-watch-ring" viewBox="0 0 30 30">
+              <circle class="ex-watch-bg" cx="15" cy="15" r="12"></circle>
+              <circle class="ex-watch-fill" cx="15" cy="15" r="12"></circle>
+            </svg>
+            <span class="ex-watch-inner">
+              <svg class="ex-watch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                <circle cx="12" cy="13" r="5"/>
+                <path d="M12 10.5v2.5l1.5 1.5"/>
+                <path d="M10 5h4"/>
+              </svg>
+            </span>
+          </button>
+        </div>
         <div class="ex-pills">
           <span class="pill pill-sets">${ex.sets} sets</span>
           <span class="pill pill-reps">${ex.reps}</span>
@@ -341,12 +355,9 @@ async function buildWorkoutLogger(session) {
         html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${ex.name}', '${v}', this)">${v}</button>`;
       });
       html += `</div>`;
-      if (!ex.band) {
-        html += `<div class="ex-prev" id="prev-${ex.name}">Previous (${defaultVar}): ${prevText}</div>`;
-      }
-    } else {
-      html += `<div class="ex-prev">Previous: ${prevText}</div>`;
-    }
+      // Previous (variation): line removed — variation toggle + per-set badges carry this
+}
+    // Previous: line removed — per-set badges on the right already carry this info
 
     for (let i = 1; i <= ex.sets; i++) {
       const prevSet = filteredPrev[i-1];
@@ -367,7 +378,9 @@ async function buildWorkoutLogger(session) {
         ${weightCol}
         <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="${repPlaceholder}" inputmode="numeric" oninput="saveDraft('${session.id}')" />
         <div class="prev-badge" id="badge-${ex.name}-${i}">${prevHint}</div>
-      </div>`;
+      </div>
+      <div class="rest-line" id="rest-${ex.name}-${i}"></div>`;
+      // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
     }
 
     html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
@@ -382,6 +395,17 @@ async function buildWorkoutLogger(session) {
 
   logger.innerHTML = html;
   restoreDraft(session);
+
+  // Paint any rest_seconds already saved for this workout (on reload / edit flow)
+  if (currentWorkoutId) {
+    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds`);
+    (savedSets || []).forEach(s => {
+      if (s.rest_seconds) swPaintRestLine(s.exercise, s.set_number, s.rest_seconds);
+    });
+  }
+
+  // Rebuild any live timer from sessionStorage (user may have navigated away + back)
+  swRestoreFromStorage();
 }
 
 // ─── DRAFT AUTO-SAVE ─────────────────────────────────────
@@ -471,6 +495,7 @@ async function completeExercise(exName) {
       };
       if (pendingRest[exName] && pendingRest[exName][i]) {
         setObj.rest_seconds = pendingRest[exName][i];
+        swPaintRestLine(exName, i, pendingRest[exName][i]); // paint immediately
       }
       sets.push(setObj);
     }
@@ -540,7 +565,6 @@ async function saveWorkout() {
   document.getElementById('conditioning-form').style.display = 'none';
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   selectedSession = null;
-  showSwPill(false);
 }
 
 // ─── SAVE CONDITIONING ────────────────────────────────────
@@ -943,8 +967,7 @@ function showPage(name) {
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
   if (name === 'today') loadTodayLog();
-  if (name !== 'workout') showSwPill(false);
-}
+  }
 
 // ─── EDIT CHECK-IN MODAL ──────────────────────────────────
 let editingLogDate = null;
@@ -1144,174 +1167,265 @@ function showToast(msg, type = '') {
   setTimeout(() => t.className = 'toast', 2500);
 }
 
-// ─── STOPWATCH PILL ──────────────────────────────────────
-let swInterval = null;
-let swSeconds = 0;
+// ─── STOPWATCH (inline, per-exercise) ────────────────────
+// Uses Date.now() timestamps instead of a counter — this means the timer
+// keeps counting correctly even if the phone is locked, tab backgrounded,
+// or app minimised. setInterval can be throttled by mobile browsers, but
+// wall-clock time can't lie.
+let swStartTimestamp = null;   // when the current rest started (ms since epoch)
+let swTargetSeconds = 60;      // target rest for the current exercise
 let swRunning = false;
-let swTargetSeconds = 60;
+let swInterval = null;         // only used to re-render the ring every second
+let swActiveExercise = null;   // which exercise the watch is attached to
 let swLongPressTimer = null;
 let swLongPressFired = false;
+let swCompletionBeeped = false; // so we beep only once per rest
+const SW_RING_CIRCUMFERENCE = 75.4; // 2 * π * r where r=12
 
-const SW_RING_CIRCUMFERENCE = 144.51;
+// ─── STOPWATCH HELPERS ────────────────────────────────────
 
+// Format seconds as "m:ss" (no leading zero on minutes — "1:15" not "01:15")
 function swFormat(s) {
-  const m = Math.floor(s / 60).toString().padStart(2, '0');
+  const m = Math.floor(s / 60);
   const sec = (s % 60).toString().padStart(2, '0');
   return `${m}:${sec}`;
 }
 
-function swVibrate(pattern) {
-  if (navigator.vibrate) navigator.vibrate(pattern);
-}
+// Phone buzz helper — silently ignored on devices without vibration
+function swVibrate(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
 
+// Parse "180s" / "90s" / "2min" into a number of seconds, default 60
 function swParseRest(restStr) {
   if (!restStr) return 60;
   const m = restStr.match(/(\d+)/);
   return m ? parseInt(m[1]) : 60;
 }
 
-function swRenderPill() {
-  const pill = document.getElementById('sw-pill');
-  const content = document.getElementById('sw-pill-content');
-  const ring = document.getElementById('sw-ring-fill');
-  if (!pill || !content || !ring) return;
+// WEB AUDIO BEEP — two short tones when the target rest is reached.
+// Lazy-init so the audio context is only created when needed.
+// iOS requires audio to be triggered from a user gesture, which tapping
+// the watch counts as, so the first beep will work after that first tap.
+let swAudioCtx = null;
+function swBeep() {
+  try {
+    if (!swAudioCtx) swAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = swAudioCtx;
+    const now = ctx.currentTime;
+    [0, 0.18].forEach(offset => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.25, now + offset + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(now + offset); osc.stop(now + offset + 0.16);
+    });
+  } catch (e) { /* silent — device without audio */ }
+}
 
-  if (swRunning) {
-    pill.classList.add('running');
-    content.innerHTML = `<div class="sw-time-text">${swFormat(swSeconds)}</div>`;
-    const pct = Math.min(swSeconds / swTargetSeconds, 1);
-    ring.style.strokeDashoffset = SW_RING_CIRCUMFERENCE * (1 - pct);
-    if (pct >= 1) pill.classList.add('done');
+// ─── STOPWATCH STATE ──────────────────────────────────────
+// Computes elapsed seconds from swStartTimestamp — wall-clock based,
+// so locking the phone / backgrounding the tab can't pause it.
+function swElapsed() {
+  if (!swStartTimestamp) return 0;
+  return Math.floor((Date.now() - swStartTimestamp) / 1000);
+}
+
+// Find the last typed set for the currently-timed exercise.
+// Walks the set inputs backwards to find the highest set number with a rep value.
+// This is the set the rest belongs to (rest happens AFTER a set).
+function swFindLastTypedSetForExercise(exName) {
+  if (!selectedSession) return null;
+  const ex = selectedSession.exercises.find(e => e.name === exName);
+  if (!ex) return null;
+  for (let i = ex.sets; i >= 1; i--) {
+    const rEl = document.getElementById(`r-${exName}-${i}`);
+    if (rEl && rEl.value) return { exName, setNum: i };
+  }
+  return null;
+}
+
+// ─── RENDER ───────────────────────────────────────────────
+// Paints one exercise's watch. Idle hides the ring, running shows
+// ring progress + live time, done turns the ring green.
+function swRenderWatch(exName) {
+  const btn = document.getElementById(`watch-${exName}`);
+  if (!btn) return;
+  const fill = btn.querySelector('.ex-watch-fill');
+  const inner = btn.querySelector('.ex-watch-inner');
+  if (!fill || !inner) return;
+
+  const isThisActive = swRunning && swActiveExercise === exName;
+  btn.classList.toggle('running', isThisActive);
+
+  if (isThisActive) {
+    const secs = swElapsed();
+    const pct = Math.min(secs / swTargetSeconds, 1);
+    fill.style.strokeDashoffset = SW_RING_CIRCUMFERENCE * (1 - pct);
+    btn.classList.toggle('done', pct >= 1);
+    // Replace the icon with the live time text
+    inner.innerHTML = `<span class="ex-watch-time">${swFormat(secs)}</span>`;
+
+    // Fire the beep once, the moment we cross the target
+    if (pct >= 1 && !swCompletionBeeped) {
+      swCompletionBeeped = true;
+      swBeep();
+      swVibrate([80, 60, 80]);
+    }
   } else {
-    pill.classList.remove('running', 'done');
-    content.innerHTML = `<svg class="sw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M9 2h6"/></svg>`;
-    ring.style.strokeDashoffset = SW_RING_CIRCUMFERENCE;
+    btn.classList.remove('done');
+    fill.style.strokeDashoffset = SW_RING_CIRCUMFERENCE;
+    // Restore the icon glyph
+    inner.innerHTML = `<svg class="ex-watch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="13" r="5"/><path d="M12 10.5v2.5l1.5 1.5"/><path d="M10 5h4"/></svg>`;
   }
 }
 
-function swUpdateTargetLabel() {
-  const label = document.getElementById('sw-target-label');
-  if (!label) return;
-  if (swRunning && lastTypedSet) {
-    label.textContent = `${lastTypedSet.exName.toLowerCase()} · set ${lastTypedSet.setNum}`;
-    label.classList.add('visible');
-  } else {
-    label.classList.remove('visible');
-  }
+// Paint all watches in the current session (cheap — only a handful of exercises)
+function swRenderAll() {
+  if (!selectedSession) return;
+  selectedSession.exercises.forEach(ex => swRenderWatch(ex.name));
 }
 
-function swStart() {
-  if (lastTypedSet) {
-    const ex = selectedSession?.exercises.find(e => e.name === lastTypedSet.exName);
-    swTargetSeconds = swParseRest(ex?.rest);
-  } else {
-    swTargetSeconds = 60;
-  }
+// ─── START / STOP / RESET ────────────────────────────────
+function swStart(exName) {
+  // If a different exercise was running, stop it first (no orphan timers)
+  if (swRunning && swActiveExercise && swActiveExercise !== exName) swStop();
+
+  const ex = selectedSession?.exercises.find(e => e.name === exName);
+  swTargetSeconds = swParseRest(ex?.rest);
+  swStartTimestamp = Date.now();
+  swActiveExercise = exName;
   swRunning = true;
-  swSeconds = 0;
+  swCompletionBeeped = false;
+
+  // Persist across page navigation — sessionStorage survives Stats→Workout
+  sessionStorage.setItem('sw_state', JSON.stringify({
+    start: swStartTimestamp,
+    target: swTargetSeconds,
+    exercise: exName
+  }));
+
   swVibrate(10);
-  swRenderPill();
-  swUpdateTargetLabel();
-  swInterval = setInterval(() => {
-    swSeconds++;
-    const wasUnder = swSeconds - 1 < swTargetSeconds;
-    const nowOver = swSeconds >= swTargetSeconds;
-    if (wasUnder && nowOver) swVibrate([80, 60, 80]);
-    swRenderPill();
-  }, 1000);
+  swRenderWatch(exName);
+
+  // Interval only drives re-renders; the maths is based on Date.now() so
+  // even if this interval stutters or pauses, the time shown is still correct
+  clearInterval(swInterval);
+  swInterval = setInterval(() => swRenderWatch(exName), 1000);
 }
 
 async function swStop() {
+  if (!swRunning) return;
+  const elapsed = swElapsed();
+  const exName = swActiveExercise;
+
   clearInterval(swInterval);
   swInterval = null;
   swRunning = false;
-  const elapsed = swSeconds;
+  swStartTimestamp = null;
+  swActiveExercise = null;
+  sessionStorage.removeItem('sw_state');
   swVibrate(10);
-  await swSaveRestToTarget(elapsed);
-  swSeconds = 0;
-  swRenderPill();
-  swUpdateTargetLabel();
+
+  // Save the rest to the last typed set for THIS exercise
+  const target = swFindLastTypedSetForExercise(exName);
+  if (target && elapsed > 0) {
+    await swSaveRest(target.exName, target.setNum, elapsed);
+    swPaintRestLine(target.exName, target.setNum, elapsed);
+    swFlashWatch(exName);
+  } else {
+    swRenderWatch(exName);
+  }
 }
 
+// Long-press = wipe the timer without saving (in case of mis-tap)
 function swReset() {
+  const exName = swActiveExercise;
   clearInterval(swInterval);
   swInterval = null;
   swRunning = false;
-  swSeconds = 0;
+  swStartTimestamp = null;
+  swActiveExercise = null;
+  sessionStorage.removeItem('sw_state');
   swVibrate([20, 40, 20]);
-  swRenderPill();
-  swUpdateTargetLabel();
+  if (exName) swRenderWatch(exName);
 }
 
-async function swSaveRestToTarget(seconds) {
-  if (!lastTypedSet || seconds === 0) return;
-  const { exName, setNum } = lastTypedSet;
+// ─── REST LINE PAINTING ──────────────────────────────────
+// Paints "↳ Rest 2:45" under the set row. Called both after a live
+// stop AND when loading the logger (so past rests are visible on reload).
+function swPaintRestLine(exName, setNum, seconds) {
+  const el = document.getElementById(`rest-${exName}-${setNum}`);
+  if (el) el.textContent = `↳ Rest ${swFormat(seconds)}`;
+}
 
+// ─── SAVE REST TO DB (or buffer if workout not created yet) ──
+async function swSaveRest(exName, setNum, seconds) {
   if (currentWorkoutId) {
     const existing = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}&set_number=eq.${setNum}&select=id`);
     if (existing && existing.length > 0) {
       await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?id=eq.${existing[0].id}`, {
         method: 'PATCH',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ rest_seconds: seconds })
       });
-      swFlashGreen();
       return;
     }
   }
-
+  // Workout row doesn't exist yet (user hasn't hit Mark Done on anything) —
+  // buffer the rest so completeExercise can attach it later.
   if (!pendingRest[exName]) pendingRest[exName] = {};
   pendingRest[exName][setNum] = seconds;
-  swFlashGreen();
 }
 
-function swFlashGreen() {
-  const pill = document.getElementById('sw-pill');
-  const content = document.getElementById('sw-pill-content');
-  if (!pill || !content) return;
-  pill.classList.add('flash-green');
-  content.innerHTML = `<svg class="sw-tick" viewBox="0 0 24 24"><polyline points="5,12 10,17 19,7"/></svg>`;
-  setTimeout(() => {
-    pill.classList.remove('flash-green');
-    swRenderPill();
-  }, 700);
+// Briefly flash the watch green to confirm the rest was saved
+function swFlashWatch(exName) {
+  const btn = document.getElementById(`watch-${exName}`);
+  if (!btn) return;
+  btn.classList.add('flash-green');
+  setTimeout(() => { btn.classList.remove('flash-green'); swRenderWatch(exName); }, 700);
 }
 
-function swPillPointerDown(e) {
+// ─── TAP HANDLER (on the watch button itself) ────────────
+// Short tap = start/stop toggle, long press = reset
+function swTapWatch(exName) {
+  if (swLongPressFired) { swLongPressFired = false; return; }
+  if (swRunning && swActiveExercise === exName) swStop();
+  else swStart(exName);
+}
+
+// Long-press detection lives on the button — attached in buildWorkoutLogger
+// via delegation (see DOMContentLoaded handler below)
+document.addEventListener('pointerdown', e => {
+  const btn = e.target.closest('.ex-watch');
+  if (!btn) return;
   swLongPressFired = false;
-  swLongPressTimer = setTimeout(() => {
-    swLongPressFired = true;
-    swReset();
-  }, 450);
-}
+  swLongPressTimer = setTimeout(() => { swLongPressFired = true; swReset(); }, 450);
+});
+document.addEventListener('pointerup', () => clearTimeout(swLongPressTimer));
+document.addEventListener('pointercancel', () => clearTimeout(swLongPressTimer));
 
-function swPillPointerUp(e) {
-  clearTimeout(swLongPressTimer);
-  if (swLongPressFired) return;
-  if (swRunning) swStop();
-  else swStart();
-}
-
-function swPillPointerCancel() {
-  clearTimeout(swLongPressTimer);
-}
-
-function showSwPill(visible) {
-  const pill = document.getElementById('sw-pill');
-  const label = document.getElementById('sw-target-label');
-  if (pill) pill.classList.toggle('visible', visible);
-  if (!visible && label) label.classList.remove('visible');
-  if (!visible) {
+// ─── RESTORE ACROSS PAGE NAVIGATION ──────────────────────
+// If the user taps Stats then comes back to Workout, we rebuild the
+// watch state from sessionStorage so the timer keeps going visibly.
+function swRestoreFromStorage() {
+  try {
+    const raw = sessionStorage.getItem('sw_state');
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (!s.start || !s.exercise) return;
+    swStartTimestamp = s.start;
+    swTargetSeconds = s.target || 60;
+    swActiveExercise = s.exercise;
+    swRunning = true;
+    swCompletionBeeped = (Date.now() - s.start) / 1000 >= s.target;
+    swRenderWatch(s.exercise);
     clearInterval(swInterval);
-    swInterval = null;
-    swRunning = false;
-    swSeconds = 0;
-    lastTypedSet = null;
-    pendingRest = {};
-    swRenderPill();
-  }
+    swInterval = setInterval(() => swRenderWatch(s.exercise), 1000);
+  } catch (e) { sessionStorage.removeItem('sw_state'); }
 }
+
+// Stub kept for compatibility with old calls — the new system doesn't need
+// a global visibility toggle because the watch lives inside each tile.
+function showSwPill() { /* no-op */ }
