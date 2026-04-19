@@ -1205,23 +1205,54 @@ function swParseRest(restStr) {
 // Lazy-init so the audio context is only created when needed.
 // iOS requires audio to be triggered from a user gesture, which tapping
 // the watch counts as, so the first beep will work after that first tap.
+// ─── AUDIO (iOS-aware) ───────────────────────────────────
+// iOS blocks Web Audio until the user has tapped something. We unlock the
+// context on the very FIRST tap of any watch and keep it alive for the
+// rest of the session. Tap = user gesture = iOS allows sound.
 let swAudioCtx = null;
-function swBeep() {
+let swAudioUnlocked = false;
+
+// Called from swStart — runs INSIDE a user-gesture callback, which is the
+// only moment iOS will let us create + resume an AudioContext with sound on.
+function swUnlockAudio() {
+  if (swAudioUnlocked) return;
   try {
-    if (!swAudioCtx) swAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const ctx = swAudioCtx;
-    const now = ctx.currentTime;
+    swAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // Play a 1ms silent buffer to convince iOS this context is "alive"
+    const buf = swAudioCtx.createBuffer(1, 1, 22050);
+    const src = swAudioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(swAudioCtx.destination);
+    src.start(0);
+    if (swAudioCtx.state === 'suspended') swAudioCtx.resume();
+    swAudioUnlocked = true;
+    showToast(`audio unlocked · state: ${swAudioCtx.state}`, 'success'); // DEBUG
+  } catch (e) {
+    showToast(`audio init failed: ${e.message}`, 'error'); // DEBUG
+  }
+}
+
+function swBeep() {
+  // DEBUG: confirm the function was even called
+  showToast(`beep! ctx=${swAudioCtx?.state || 'none'}`, 'success');
+  if (!swAudioCtx) return;
+  try {
+    // Re-resume in case iOS suspended it since the last tap
+    if (swAudioCtx.state === 'suspended') swAudioCtx.resume();
+    const now = swAudioCtx.currentTime;
     [0, 0.18].forEach(offset => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
+      const osc = swAudioCtx.createOscillator();
+      const gain = swAudioCtx.createGain();
       osc.frequency.value = 880;
       gain.gain.setValueAtTime(0.0001, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.25, now + offset + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.4, now + offset + 0.01); // louder (0.25 → 0.4)
       gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
-      osc.connect(gain); gain.connect(ctx.destination);
+      osc.connect(gain); gain.connect(swAudioCtx.destination);
       osc.start(now + offset); osc.stop(now + offset + 0.16);
     });
-  } catch (e) { /* silent — device without audio */ }
+  } catch (e) {
+    showToast(`beep error: ${e.message}`, 'error');
+  }
 }
 
 // ─── STOPWATCH STATE ──────────────────────────────────────
@@ -1289,6 +1320,9 @@ function swRenderAll() {
 
 // ─── START / STOP / RESET ────────────────────────────────
 function swStart(exName) {
+  // UNLOCK AUDIO — must happen inside this tap handler or iOS blocks sound
+  swUnlockAudio();
+
   // If a different exercise was running, stop it first (no orphan timers)
   if (swRunning && swActiveExercise && swActiveExercise !== exName) swStop();
 
