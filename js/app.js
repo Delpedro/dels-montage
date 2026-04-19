@@ -277,15 +277,21 @@ async function selectSession(session, btn) {
   btn.classList.add('selected');
 
   if (session.id === 'conditioning') {
-    document.getElementById('conditioning-form').style.display = 'block';
-    document.getElementById('workout-logger').style.display = 'none';
+    document.getElementById('session-grid').style.display = 'none';
+document.getElementById('session-pill').style.display = 'flex';
+document.getElementById('session-pill-name').textContent = session.name;
+document.getElementById('conditioning-form').style.display = 'block';
+document.getElementById('workout-logger').style.display = 'none';
     return;
   }
 
   currentWorkoutId = null;
 
-  document.getElementById('conditioning-form').style.display = 'none';
-  document.getElementById('workout-logger').style.display = 'block';
+  document.getElementById('session-grid').style.display = 'none';
+document.getElementById('session-pill').style.display = 'flex';
+document.getElementById('session-pill-name').textContent = session.name;
+document.getElementById('conditioning-form').style.display = 'none';
+document.getElementById('workout-logger').style.display = 'block';
   buildWorkoutLogger(session);
 }
 
@@ -410,6 +416,7 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
 
 // ─── DRAFT AUTO-SAVE ─────────────────────────────────────
 function saveDraft(sessionId) {
+  document.getElementById('session-pill').style.display = 'none';
   if (!selectedSession) return;
   const draft = {
     sessionId,
@@ -564,6 +571,29 @@ function selectEditVariation(exName, variation, btn) {
       if (wEl) wEl.textContent = variation;
     }
   }
+}
+// Called when "Log Workout" title is tapped — warns if data exists, then resets back to grid
+function resetSessionSelection() {
+  if (selectedSession) {
+    const hasData = selectedSession.exercises?.some(ex => {
+      for (let i = 1; i <= ex.sets; i++) {
+        const r = document.getElementById(`r-${ex.name}-${i}`);
+        if (r && r.value) return true;
+      }
+      return false;
+    });
+    if (hasData && !confirm(`You've started logging ${selectedSession.name} — go back and lose your data?`)) return;
+  }
+  selectedSession = null;
+  currentWorkoutId = null;
+  localStorage.removeItem('workout_draft');
+  document.getElementById('session-grid').style.display = 'grid';
+  document.getElementById('session-pill').style.display = 'none';
+  document.getElementById('workout-logger').style.display = 'none';
+  document.getElementById('session-grid').style.display = 'grid';
+document.getElementById('session-pill').style.display = 'none';
+  document.getElementById('conditioning-form').style.display = 'none';
+  buildSessionGrid();
 }
 
 // ─── SAVE WORKOUT ─────────────────────────────────────────

@@ -114,7 +114,11 @@
 
   <!-- WORKOUT -->
   <div class="page" id="page-workout">
-    <div class="section-title">Log Workout</div>
+    <div class="section-title" onclick="resetSessionSelection()" style="cursor:pointer;">Log Workout</div>
+<div id="session-pill" style="display:none; align-items:center; gap:10px; background:rgba(232,93,47,0.1); border:1px solid var(--accent); border-radius:20px; padding:5px 14px; margin-bottom:0.875rem; width:fit-content;">
+  <span id="session-pill-name" style="font-size:13px; font-weight:600; color:var(--accent);"></span>
+  <span onclick="resetSessionSelection()" style="font-size:11px; color:var(--muted); cursor:pointer; text-decoration:underline;">change</span>
+</div>
     <div class="section-sub">What are we doing today?</div>
     <div class="session-grid" id="session-grid"></div>
     <div id="conditioning-form" style="display:none;">
