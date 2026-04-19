@@ -948,7 +948,8 @@ function renderHistoryPage() {
         const s = SESSIONS.find(s => s.id === w.session_type);
         html += `<div class="history-card" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
           <div class="history-workout-head">
-            <div class="history-card-title">${s ? s.name : w.session_type}</div>
+<div class="history-card-label" style="color:var(--amber);">${s ? s.name : w.session_type}</div>
+            
             <span class="history-card-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
           </div>
           ${w.notes ? `<div class="history-card-notes">${w.notes}</div>` : ''}
