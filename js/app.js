@@ -816,6 +816,17 @@ async function loadHistory() {
   ]);
   allHistoryLogs = logs || [];
   allHistoryWorkouts = workouts || [];
+  // Fetch all sets for visible workouts in one batched call — not one call per card
+const workoutIds = (workouts || []).map(w => `"${w.id}"`).join(',');
+const allSets = workoutIds.length
+  ? await sb(`workout_sets?workout_id=in.(${workoutIds})&select=workout_id,exercise,weight,reps&order=weight.desc`)
+  : [];
+// Group sets by workout_id for quick lookup when rendering cards
+window._setsByWorkout = {};
+(allSets || []).forEach(s => {
+  if (!window._setsByWorkout[s.workout_id]) window._setsByWorkout[s.workout_id] = [];
+  window._setsByWorkout[s.workout_id].push(s);
+});
   historyPage = 1;
   historyTab = 'all';
   historyDateRange = 'all';
@@ -941,6 +952,16 @@ function renderHistoryPage() {
             <span class="history-card-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
           </div>
           ${w.notes ? `<div class="history-card-notes">${w.notes}</div>` : ''}
+${(() => {
+  const sets = (window._setsByWorkout[w.id] || []).filter(s => s.weight);
+  const seen = {};
+  const top3 = [];
+  for (const s of sets) {
+    if (!seen[s.exercise]) { seen[s.exercise] = true; top3.push(s); }
+    if (top3.length === 3) break;
+  }
+  return top3.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:6px;">${top3.map(s => `${s.exercise} ${s.weight}×${s.reps}`).join(' / ')}</div>` : '';
+})()}
           
         </div>`;
       }
