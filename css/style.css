@@ -78,7 +78,18 @@ textarea.field-input { resize: vertical; min-height: 70px; }
 .set-input:focus { border-color: var(--accent); }
 .set-input::placeholder { color: var(--border2); font-size: 12px; }
 .set-label { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--muted); font-size: 12px; font-family: 'DM Mono', monospace; text-align: center; min-width: 0; display: flex; align-items: center; justify-content: center; }
-.prev-badge { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; background: var(--bg2); border-radius: 4px; padding: 2px 5px; white-space: nowrap; min-width: 52px; text-align: center; }
+.prev-badge {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'DM Mono', monospace;
+  background: var(--bg2);
+  border-radius: 4px;
+  padding: 2px 5px;
+  white-space: nowrap;
+  width: 64px;                /* fixed width so every row lines up */
+  text-align: center;
+  justify-self: end;          /* hug the right edge of the grid column */
+}
 
 .variation-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
 .var-btn { flex: 1; padding: 7px 8px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all 0.15s; text-align: center; font-family: 'DM Sans', sans-serif; }
@@ -216,11 +227,12 @@ textarea.field-input { resize: vertical; min-height: 70px; }
 
 .ex-watch-time {
   display: none;
-  font-family: 'Bebas Neue', sans-serif;
-  font-size: 10px;
-  letter-spacing: 0.3px;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: -0.3px;       /* tighter so "0:22" stays inside the ring */
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  font-weight: 500;
 }
 
 /* ─── REST LINE (under completed set rows) ─────────────── */

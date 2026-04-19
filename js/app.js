@@ -1226,15 +1226,10 @@ function swUnlockAudio() {
     src.start(0);
     if (swAudioCtx.state === 'suspended') swAudioCtx.resume();
     swAudioUnlocked = true;
-    showToast(`audio unlocked · state: ${swAudioCtx.state}`, 'success'); // DEBUG
-  } catch (e) {
-    showToast(`audio init failed: ${e.message}`, 'error'); // DEBUG
-  }
+  } catch (e) { /* device without audio */ }
 }
 
 function swBeep() {
-  // DEBUG: confirm the function was even called
-  showToast(`beep! ctx=${swAudioCtx?.state || 'none'}`, 'success');
   if (!swAudioCtx) return;
   try {
     // Re-resume in case iOS suspended it since the last tap
@@ -1250,9 +1245,7 @@ function swBeep() {
       osc.connect(gain); gain.connect(swAudioCtx.destination);
       osc.start(now + offset); osc.stop(now + offset + 0.16);
     });
-  } catch (e) {
-    showToast(`beep error: ${e.message}`, 'error');
-  }
+  } catch (e) { /* silent fail */ }
 }
 
 // ─── STOPWATCH STATE ──────────────────────────────────────
