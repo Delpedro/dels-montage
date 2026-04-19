@@ -223,7 +223,7 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   const workouts = await sb(`workouts?date=gte.${weekDates[0]}&date=lte.${weekDates[6]}&select=date`);
   strip.innerHTML = '';  // Clear AFTER fetch — prevents race between concurrent calls
   const doneDates = new Set((workouts || []).map(w => w.date));
-  const restDays = [0, 3];
+  const restDays = [];
 
   weekDates.forEach((date, i) => {
     const div = document.createElement('div');
