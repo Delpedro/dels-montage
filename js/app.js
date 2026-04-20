@@ -144,10 +144,31 @@ document.addEventListener('input', (e) => {
   if (!isNaN(setNum)) lastTypedSet = { exName, setNum };
 });
 
+// Auto-close any in-progress workouts older than 24 hours.
+// These are orphans — user started a session then something interrupted them
+// (phone died, app crashed, life got in the way) and they never hit Save Workout.
+// Matches the 24hr draft expiry rule so the UX stays consistent across the app.
+// Note: completed_at gets stamped with "now" for simplicity — accurate timestamps
+// would require fetching each row first. Not worth the extra DB calls for an edge case.
+async function autoCloseStaleWorkouts() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  await fetch(`${SUPABASE_URL}/rest/v1/workouts?completed_at=is.null&created_at=lt.${cutoff}`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal'
+    },
+    body: JSON.stringify({ completed_at: new Date().toISOString() })
+  });
+}
+
 // ─── INIT ─────────────────────────────────────────────────
-function initApp(page = 'home') {
+async function initApp(page = 'home') {
   const now = new Date();
   document.getElementById('topbar-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  await autoCloseStaleWorkouts();  // Clean up orphans from >24hrs ago before rendering the session grid
   buildSessionGrid();
   loadTodayLog();
   showPage(page);
@@ -240,7 +261,8 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
 async function buildSessionGrid() {
   const grid = document.getElementById('session-grid');
   // Fetch data BEFORE clearing grid — prevents concurrent calls racing and both appending to same empty grid
-  const todayWorkouts = await sb(`workouts?date=eq.${todayStr()}&select=session_type`);
+  // Only count as "done" if completed_at is set — an in-progress workout (Mark Done but no Save Workout) should NOT lock the session
+  const todayWorkouts = await sb(`workouts?date=eq.${todayStr()}&completed_at=not.is.null&select=session_type`);
   grid.innerHTML = '';
   const doneTodaySessions = new Set((todayWorkouts || []).map(w => w.session_type));
 
@@ -260,14 +282,29 @@ async function selectSession(session, btn) {
     if (!confirm(`You already logged ${session.name} today. Log again?`)) return;
   }
 
-  if (currentWorkoutId) {
-    const existingSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=id`);
-    if (!existingSets || existingSets.length === 0) {
-      await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
-        method: 'DELETE',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-      });
+  // Check if ANY session is currently in progress today (completed_at IS NULL).
+  // This covers both the "resume same session" case (e.g. refreshed mid-Upper-A)
+  // AND the "switched session" case (started Upper A, now tapping Lower A).
+  const inProgress = await sb(`workouts?date=eq.${todayStr()}&completed_at=is.null&select=id,session_type`);
+
+  if (inProgress && inProgress.length > 0) {
+    const existing = inProgress[0];
+
+    if (existing.session_type === session.id) {
+      // SAME session tapped — silently adopt the existing workout row.
+      // buildWorkoutLogger + restoreDraft will rehydrate inputs & rest times.
+      currentWorkoutId = existing.id;
+    } else {
+      // DIFFERENT session tapped — warn before abandoning the in-progress one.
+      const existingSession = SESSIONS.find(s => s.id === existing.session_type);
+      const existingName = existingSession ? existingSession.name : existing.session_type;
+      if (!confirm(`You have an in-progress ${existingName} session. Start ${session.name} instead? (${existingName} will stay saved, you can resume it later.)`)) {
+        return;
+      }
+      // User confirmed — leave the old row as-is (in-progress). Start fresh for the new session.
+      currentWorkoutId = null;
     }
+  } else {
     currentWorkoutId = null;
   }
 
@@ -603,7 +640,7 @@ async function saveWorkout() {
   await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
     method: 'PATCH',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ notes })
+    body: JSON.stringify({ notes, completed_at: new Date().toISOString() })
   });
   showToast('Workout saved!', 'success');
   localStorage.removeItem('workout_draft');

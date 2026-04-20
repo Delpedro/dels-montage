@@ -1,0 +1,6 @@
+-- NOTE (20 Apr 2026): This migration was NOT executed via `supabase db push` due to
+-- a bug in Supabase CLI v2.84.2 — the CLI silently recorded the migration as applied
+-- in supabase_migrations.schema_migrations but skipped the SQL body. The statements
+-- below were run manually via the Supabase dashboard SQL editor. The tracking table
+-- still shows this migration as applied, so future `db push` calls will skip it.
+-- TODO: update Supabase CLI to v2.90.0+.
