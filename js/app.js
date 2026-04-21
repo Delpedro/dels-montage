@@ -1230,7 +1230,7 @@ async function saveEditWorkout() {
           method: 'PATCH',
           headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            weight: ex.bodyweight ? null : (wVal || null),
+            weight: (ex.bodyweight || ex.band) ? null : (wVal || null),
             reps: parseInt(rVal) || null,
             variation: editSelectedVariations[ex.name] || null
           })
@@ -1240,7 +1240,7 @@ async function saveEditWorkout() {
           workout_id: editingWorkoutId,
           exercise: ex.name,
           set_number: i,
-          weight: ex.bodyweight ? null : (wVal || null),
+          weight: (ex.bodyweight || ex.band) ? null : (wVal || null),
           reps: parseInt(rVal) || null,
           variation: editSelectedVariations[ex.name] || null
         });
