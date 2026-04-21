@@ -1314,40 +1314,42 @@ function swParseRest(restStr) {
 // the watch counts as, so the first beep will work after that first tap.
 // ─── AUDIO (iOS-aware) ───────────────────────────────────
 // iOS blocks Web Audio until the user has tapped something. We unlock the
-// context on the very FIRST tap of any watch and keep it alive for the
-// rest of the session. Tap = user gesture = iOS allows sound.
+// context on the first watch tap and re-resume it on every subsequent tap,
+// because iOS suspends the context on screen lock (common during gym rest).
 let swAudioCtx = null;
-let swAudioUnlocked = false;
 
-// Called from swStart — runs INSIDE a user-gesture callback, which is the
-// only moment iOS will let us create + resume an AudioContext with sound on.
+// Called from swStart — runs INSIDE a user-gesture callback.
+// Creates the context on first call; on every subsequent call it re-resumes it,
+// because iOS suspends the context whenever the screen locks (common during gym rest).
 function swUnlockAudio() {
-  if (swAudioUnlocked) return;
   try {
-    swAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // Play a 1ms silent buffer to convince iOS this context is "alive"
-    const buf = swAudioCtx.createBuffer(1, 1, 22050);
-    const src = swAudioCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(swAudioCtx.destination);
-    src.start(0);
+    if (!swAudioCtx) {
+      swAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // Play a 1ms silent buffer to convince iOS this context is "alive"
+      const buf = swAudioCtx.createBuffer(1, 1, 22050);
+      const src = swAudioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(swAudioCtx.destination);
+      src.start(0);
+    }
+    // Always resume — cheap/idempotent if already running, essential if iOS suspended it
     if (swAudioCtx.state === 'suspended') swAudioCtx.resume();
-    swAudioUnlocked = true;
   } catch (e) { /* device without audio */ }
 }
 
-function swBeep() {
+// await the resume before scheduling oscillators — if iOS suspended the context
+// while the screen was locked, scheduling without waiting produces silence.
+async function swBeep() {
   if (!swAudioCtx) return;
   try {
-    // Re-resume in case iOS suspended it since the last tap
-    if (swAudioCtx.state === 'suspended') swAudioCtx.resume();
+    if (swAudioCtx.state === 'suspended') await swAudioCtx.resume();
     const now = swAudioCtx.currentTime;
     [0, 0.18].forEach(offset => {
       const osc = swAudioCtx.createOscillator();
       const gain = swAudioCtx.createGain();
       osc.frequency.value = 880;
       gain.gain.setValueAtTime(0.0001, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.4, now + offset + 0.01); // louder (0.25 → 0.4)
+      gain.gain.exponentialRampToValueAtTime(0.4, now + offset + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
       osc.connect(gain); gain.connect(swAudioCtx.destination);
       osc.start(now + offset); osc.stop(now + offset + 0.16);
