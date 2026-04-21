@@ -404,7 +404,7 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
 
     for (let i = 1; i <= ex.sets; i++) {
       const prevSet = filteredPrev[i-1];
-      const prevHint = prevSet ? `${ex.band ? (prevSet.variation || 'Band') : (prevSet.weight ?? 'BW')}×${prevSet.reps}` : '—';
+      const prevHint = prevSet ? `${ex.band ? (prevSet.variation || 'Band').split(' ').map(w => w[0]).join('') : (prevSet.weight ?? 'BW')}×${prevSet.reps}` : '—';
       const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
 
       let weightCol = '';
@@ -1166,7 +1166,9 @@ async function openEditWorkout(workoutId, sessionType, notes) {
 
       for (let i = 1; i <= ex.sets; i++) {
         const existing = exSets.find(s => s.set_number === i);
-        const prevHint = existing ? `${existing.weight ?? 'BW'}×${existing.reps}` : '—';
+        const prevHint = existing
+          ? `${ex.band ? (existing.variation || 'B').split(' ').map(w => w[0]).join('') : (existing.weight ?? 'BW')}×${existing.reps}`
+          : '—';
         const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
 
         let weightCol = '';

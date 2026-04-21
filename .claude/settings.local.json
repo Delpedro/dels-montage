@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/User/Desktop/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\User\\Desktop"
+    ]
+  }
+}

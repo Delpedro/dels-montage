@@ -77,7 +77,7 @@ textarea.field-input { resize: vertical; min-height: 70px; }
 .set-input { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--text); font-size: 14px; font-family: 'DM Mono', monospace; outline: none; text-align: center; transition: border-color 0.2s; min-width: 0; }
 .set-input:focus { border-color: var(--accent); }
 .set-input::placeholder { color: var(--border2); font-size: 12px; }
-.set-label { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--muted); font-size: 12px; font-family: 'DM Mono', monospace; text-align: center; min-width: 0; display: flex; align-items: center; justify-content: center; }
+.set-label { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--muted); font-size: 12px; font-family: 'DM Sans', sans-serif; text-align: center; min-width: 0; display: flex; align-items: center; justify-content: center; }
 .prev-badge {
   font-size: 10px;
   color: var(--muted);
@@ -92,7 +92,7 @@ textarea.field-input { resize: vertical; min-height: 70px; }
 }
 
 .variation-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
-.var-btn { flex: 1; padding: 7px 8px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all 0.15s; text-align: center; font-family: 'DM Sans', sans-serif; }
+.var-btn { flex: 1; padding: 7px 8px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all 0.15s; text-align: center; font-family: 'DM Sans', sans-serif; display: flex; align-items: center; justify-content: center; }
 .var-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); color: var(--accent); font-weight: 600; }
 
 .pill { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
