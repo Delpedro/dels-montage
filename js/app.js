@@ -101,8 +101,10 @@ async function handleLogin() {
     sessionStorage.setItem('del_auth', '1');
     sessionStorage.setItem('del_page', 'home');
     document.documentElement.classList.remove('login-active');
-    document.getElementById('login-screen').style.display = 'none';
     window.scrollTo(0, 0);
+    await new Promise(r => requestAnimationFrame(r));
+    await new Promise(r => requestAnimationFrame(r));
+    document.getElementById('login-screen').style.display = 'none';
     initApp();
   } else {
     document.getElementById('login-error').style.display = 'block';
