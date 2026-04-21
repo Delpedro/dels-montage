@@ -8,7 +8,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; }
 
-#login-screen { position: fixed; inset: 0; z-index: 50; background: var(--bg); overflow-y: auto; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+#login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
 .login-card { width: 100%; max-width: 380px; }
 .login-title { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; line-height: 1; margin-bottom: 4px; }
 .login-sub { font-size: 13px; color: var(--muted); margin-bottom: 2.5rem; }
