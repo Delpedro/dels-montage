@@ -130,7 +130,7 @@ All failed attempts:
 
 Current code state: login-screen is position:fixed overlay, #app always display:block, html.login-active{overflow:hidden;touch-action:none} from page load, JS scroll guard while login-active, overlay hidden after 2 rAFs.
 
-Next to try: Chrome's ~60px offset may be URL bar height not scroll — check window.scrollY value in Chrome devtools after login. If scrollY=0, it's a viewport/layout issue not scroll. Also try visualViewport API to detect keyboard fully dismissed before transition.
+OBSERVER EFFECT FOUND: enabling Web Inspector on iPhone made Chrome work — Web Inspector disables Chrome production scroll optimisations. Must test Chrome WITHOUT Web Inspector (cold load, no USB) next session to confirm if fix actually works in production.
 
 Also session 6: wrote CODEBASE.md — full function reference with line numbers.
 
