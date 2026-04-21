@@ -1,3 +1,5 @@
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
 const SUPABASE_URL = 'https://mltikqmwwlgyzogrgemr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_2BQBFSox7bL1X2TlSlbOYA_hn8FcPmy';
 
@@ -1069,7 +1071,7 @@ function showPage(name) {
   document.getElementById(`nav-${name}`)?.classList.add('active');
   currentPage = name;
   sessionStorage.setItem('del_page', name);
-  window.scrollTo(0, 0);
+  requestAnimationFrame(() => window.scrollTo(0, 0));
   if (name === 'home') loadHomePage();
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
