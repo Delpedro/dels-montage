@@ -1,4 +1,7 @@
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+window.addEventListener('scroll', () => {
+  if (document.documentElement.classList.contains('login-active')) window.scrollTo(0, 0);
+});
 
 const SUPABASE_URL = 'https://mltikqmwwlgyzogrgemr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_2BQBFSox7bL1X2TlSlbOYA_hn8FcPmy';
