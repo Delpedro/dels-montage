@@ -222,7 +222,7 @@ async function loadHomePage() {
 
 function getWeekStart() {
   const d = new Date();
-  d.setDate(d.getDate() - d.getDay());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return d.toISOString().split('T')[0];
 }
 
@@ -880,8 +880,7 @@ function getDateRangeFilter() {
   const today = new Date();
   let startDate = new Date('2000-01-01');
   if (historyDateRange === 'week') {
-    startDate = new Date(today);
-    startDate.setDate(today.getDate() - 7);
+    return getWeekStart();
   } else if (historyDateRange === 'month') {
     startDate = new Date(today);
     startDate.setMonth(today.getMonth() - 1);
