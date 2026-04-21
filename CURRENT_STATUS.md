@@ -29,7 +29,7 @@ Last updated: Tuesday 21 April 2026
 <summary>📋 Backlog (roughly priority order)</summary>
 
 **Bugs**
-- Login page scroll bug — iOS Chrome only, fresh load shows greeting scrolled off top ~60px (NOT FIXED — 10+ attempts across sessions 5–7, Safari fixed, Chrome still broken — see Recent Bug Fixes for full history)
+- ~~Login page scroll bug — iOS Chrome + Safari, fresh load scrolled past greeting~~ ✅ FIXED session 7
 - History filters don't persist across visits — should remember last state between tab changes
 - Bottom nav layout bug on scroll (Chrome iOS)
 
@@ -110,7 +110,7 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 <details>
 <summary>✅ Recent Bug Fixes</summary>
 
-**21 Apr — sessions 5, 6, 7 — login scroll bug (NOT FIXED — Chrome iOS only)**
+**21 Apr — sessions 5, 6, 7 — login scroll bug (FIXED session 7)**
 
 iOS Chrome only. After fresh load + login, home page loads with greeting scrolled off top (~60px). Logout+login works fine. Safari fixed. Chrome still broken.
 
@@ -130,7 +130,7 @@ All failed attempts:
 
 Current code state: login-screen is position:fixed overlay, #app always display:block, html.login-active{overflow:hidden;touch-action:none} from page load, JS scroll guard while login-active, overlay hidden after 2 rAFs.
 
-OBSERVER EFFECT FOUND: enabling Web Inspector on iPhone made Chrome work — Web Inspector disables Chrome production scroll optimisations. Must test Chrome WITHOUT Web Inspector (cold load, no USB) next session to confirm if fix actually works in production.
+CONFIRMED FIXED on Chrome + Safari, cold load, no Web Inspector, history cleared. Winning combination: login-screen as position:fixed overlay + #app always display:block + html.login-active{overflow:hidden;touch-action:none} held from page load + JS scroll guard + overlay hidden after 2 rAFs post scroll reset.
 
 Also session 6: wrote CODEBASE.md — full function reference with line numbers.
 
