@@ -97,6 +97,7 @@ async function handleLogin() {
     sessionStorage.setItem('del_page', 'home');
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
+    window.scrollTo(0, 0);
     initApp();
   } else {
     document.getElementById('login-error').style.display = 'block';
@@ -1069,6 +1070,7 @@ function showPage(name) {
   document.getElementById(`nav-${name}`)?.classList.add('active');
   currentPage = name;
   sessionStorage.setItem('del_page', name);
+  window.scrollTo(0, 0);
   if (name === 'home') loadHomePage();
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
