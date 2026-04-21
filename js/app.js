@@ -97,6 +97,8 @@ async function handleLogin() {
   if (users && users.length > 0) {
     sessionStorage.setItem('del_auth', '1');
     sessionStorage.setItem('del_page', 'home');
+    document.activeElement?.blur();
+    await new Promise(r => setTimeout(r, 350));
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     document.documentElement.scrollTop = 0;
