@@ -29,7 +29,7 @@ Last updated: Tuesday 21 April 2026
 <summary>📋 Backlog (roughly priority order)</summary>
 
 **Bugs**
-- Login page scroll bug — iOS Chrome, page loads scrolled down after login (NOT FIXED — 6 attempts across sessions 5–6, all failed on device)
+- Login page scroll bug — iOS Chrome only, fresh load shows greeting scrolled off top ~60px (NOT FIXED — 10+ attempts across sessions 5–7, Safari fixed, Chrome still broken — see Recent Bug Fixes for full history)
 - History filters don't persist across visits — should remember last state between tab changes
 - Bottom nav layout bug on scroll (Chrome iOS)
 
@@ -110,21 +110,27 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 <details>
 <summary>✅ Recent Bug Fixes</summary>
 
-**21 Apr — sessions 5, 6, 7 — login scroll bug (ATTEMPT 7 — NOT YET CONFIRMED)**
+**21 Apr — sessions 5, 6, 7 — login scroll bug (NOT FIXED — Chrome iOS only)**
 
-iOS Chrome only. After login, home page loads scrolled down — topbar + greeting not visible, must scroll up.
+iOS Chrome only. After fresh load + login, home page loads with greeting scrolled off top (~60px). Logout+login works fine. Safari fixed. Chrome still broken.
 
-Attempts failed on device (sessions 5–6):
+All failed attempts:
 - `history.scrollRestoration = 'manual'`
 - `requestAnimationFrame(() => window.scrollTo(0,0))`
-- `position:fixed` on login screen — reverted (broke iOS layout)
+- `position:fixed` on login screen (original attempt — broke iOS keyboard layout)
 - `document.documentElement.scrollTop = 0; document.body.scrollTop = 0`
 - Removed `height:100%` from `html,body`
-- `document.activeElement?.blur()` + `await 350ms delay` before showing `#app`
+- `document.activeElement?.blur()` + 350ms delay
+- `overflow:hidden` on html+body during transition, released after 500ms + rAF
+- `window.scrollTo(0,0)` in window.load handler
+- `#login-screen` as `position:fixed` overlay, `#app` always `display:block` — fixed Safari, Chrome still broken
+- `html.login-active { overflow:hidden; touch-action:none }` held from page load until login
+- JS scroll guard: `window.scrollTo(0,0)` on every scroll event while login-active
+- Keep overlay visible for 2 rAFs after scroll reset before hiding
 
-Session 7 attempt — overflow:hidden lock (NOT YET TESTED ON DEVICE):
-Root cause: iOS Chrome restores a remembered scroll position AFTER layout reflow, overriding any JS scroll reset.
-Fix: set `overflow:hidden` on `html`+`body` before showing `#app`. A document that can't scroll can't have scroll restored. Lock held for 500ms (850ms total from blur), then released + `window.scrollTo(0,0)`. `handleLogin()` lines 105–117.
+Current code state: login-screen is position:fixed overlay, #app always display:block, html.login-active{overflow:hidden;touch-action:none} from page load, JS scroll guard while login-active, overlay hidden after 2 rAFs.
+
+Next to try: Chrome's ~60px offset may be URL bar height not scroll — check window.scrollY value in Chrome devtools after login. If scrollY=0, it's a viewport/layout issue not scroll. Also try visualViewport API to detect keyboard fully dismissed before transition.
 
 Also session 6: wrote CODEBASE.md — full function reference with line numbers.
 
