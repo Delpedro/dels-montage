@@ -113,7 +113,7 @@ async function handleLogin() {
     setTimeout(() => {
       document.documentElement.style.overflow = '';
       document.body.style.overflow = '';
-      window.scrollTo(0, 0);
+      requestAnimationFrame(() => window.scrollTo(0, 0));
     }, 500);
   } else {
     document.getElementById('login-error').style.display = 'block';
@@ -132,6 +132,7 @@ document.getElementById('login-password').addEventListener('keydown', e => {
 });
 
 window.addEventListener('load', () => {
+  window.scrollTo(0, 0); // Reset any iOS scroll position restored from previous session
   if (sessionStorage.getItem('del_auth')) {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
