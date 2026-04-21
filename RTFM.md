@@ -98,10 +98,9 @@ Fill in as many or as few fields as you want — everything is optional except s
 ## History
 
 ### Filters
+- **All Time** — everything
+- **Last Month** — rolling 30 days
 - **This Week** — Monday to today
-- **Last Week** — previous Mon–Sun
-- **This Month** — 1st to today
-- **All** — everything
 
 ### Search
 - Type in the search box to filter by session name (e.g. "Upper", "Lower")
@@ -125,4 +124,4 @@ Fill in as many or as few fields as you want — everything is optional except s
 - **Same exercise in two sessions** — previous lift badges pull from the last time that session was run, not globally across all sessions
 - **Dead Bug / bodyweight exercises** — weight column shows "BW", not a number. Saves as null weight — this is correct.
 - **Pallof Press / band exercises** — weight column shows the band colour label. Saves as null weight with band name stored as the variation.
-- **Long-pressing anything** — nothing. No hidden long-press actions exist.
+- **Long-pressing the watch icon** — resets the timer without saving (useful if you mis-tapped). Vibrates to confirm.

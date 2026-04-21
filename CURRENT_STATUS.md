@@ -19,7 +19,7 @@ Big job — start in a fresh chat at 0% usage
 <details open>
 <summary>📚 DOCS TO WRITE</summary>
 
-CODEBASE.md — plain English walkthrough of every major function
+~~CODEBASE.md — plain English walkthrough of every major function~~ ✅
 ~~RTFM.md — how to USE the app (long-press reset, draft auto-save, variations etc)~~ ✅
 
 </details>
@@ -49,7 +49,7 @@ Smith Machine Incline — variation toggle (Smith / Incline Bench / DB Incline)
 Lateral Raise — variation toggle (Machine / DBs)
 ~~History "This Week" filter shows last week's workouts instead of current week — date range bug~~ ✅
 History filters don't persist across visits — should remember last state between tab changes
-Login page scroll bug on phone — have to drag page down to reach top on first load (NOT FIXED — attempts made in session 5, unconfirmed on device)
+Login page scroll bug on phone — have to drag page down to reach top on first load (NOT FIXED — 6 attempts across sessions 5–6, all failed on device)
 Stats: exercise picker to view progressive overload for a chosen lift over time
 Adherence score on home page (e.g. "3/4 sessions, 5/7 step target")
 Protein/carbs/fat on daily check-in + Supabase columns
@@ -102,10 +102,21 @@ Coaching-platform ideas (from GPT chat 20 Apr) — still valid architecture targ
 <details>
 <summary>✅ Recent Bug Fixes</summary>
 
-**21 Apr — session 5**
+**21 Apr — sessions 5 & 6 — login scroll bug (NOT FIXED)**
 
-Login scroll bug (iOS Chrome) — page loaded scrolled down so topbar/greeting not visible on first load.
-Fixes applied: `history.scrollRestoration = 'manual'` (prevents Chrome restoring previous scroll position for the URL), `requestAnimationFrame` deferred scroll reset in `showPage`, `window.scrollTo(0,0)` on login and page navigation. Reverted a bad detour through `position: fixed` on the login screen (broke iOS layout due to large-viewport calculation). Needs phone confirmation.
+iOS Chrome only. After login, home page loads scrolled down — topbar + greeting not visible, must scroll up.
+
+All attempts failed on device:
+- `history.scrollRestoration = 'manual'`
+- `requestAnimationFrame(() => window.scrollTo(0,0))`
+- `position:fixed` on login screen — reverted (broke iOS layout)
+- `document.documentElement.scrollTop = 0; document.body.scrollTop = 0`
+- Removed `height:100%` from `html,body`
+- `document.activeElement?.blur()` + `await 350ms delay` before showing `#app` (keyboard-dismiss theory)
+
+Root cause: iOS fires scroll restoration during keyboard close animation — all JS scroll resets run before iOS finishes. Still investigating.
+
+Also in session 6: wrote CODEBASE.md — full function reference with line numbers.
 
 ---
 
