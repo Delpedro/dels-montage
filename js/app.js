@@ -99,6 +99,8 @@ async function handleLogin() {
     sessionStorage.setItem('del_page', 'home');
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     initApp();
   } else {
     document.getElementById('login-error').style.display = 'block';
@@ -120,6 +122,8 @@ window.addEventListener('load', () => {
   if (sessionStorage.getItem('del_auth')) {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     const savedPage = sessionStorage.getItem('del_page') || 'home';
     initApp(savedPage);
   }
@@ -1071,7 +1075,10 @@ function showPage(name) {
   document.getElementById(`nav-${name}`)?.classList.add('active');
   currentPage = name;
   sessionStorage.setItem('del_page', name);
-  requestAnimationFrame(() => window.scrollTo(0, 0));
+  requestAnimationFrame(() => {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  });
   if (name === 'home') loadHomePage();
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();

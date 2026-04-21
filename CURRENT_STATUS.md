@@ -20,7 +20,7 @@ Big job — start in a fresh chat at 0% usage
 <summary>📚 DOCS TO WRITE</summary>
 
 CODEBASE.md — plain English walkthrough of every major function
-RTFM.md — how to USE the app (long-press reset, draft auto-save, variations etc)
+~~RTFM.md — how to USE the app (long-press reset, draft auto-save, variations etc)~~ ✅
 
 </details>
 
@@ -49,7 +49,7 @@ Smith Machine Incline — variation toggle (Smith / Incline Bench / DB Incline)
 Lateral Raise — variation toggle (Machine / DBs)
 ~~History "This Week" filter shows last week's workouts instead of current week — date range bug~~ ✅
 History filters don't persist across visits — should remember last state between tab changes
-~~Login page scroll bug on phone — have to drag page down to reach top on first load~~ ✅ (probably — needs final confirm)
+Login page scroll bug on phone — have to drag page down to reach top on first load (NOT FIXED — attempts made in session 5, unconfirmed on device)
 Stats: exercise picker to view progressive overload for a chosen lift over time
 Adherence score on home page (e.g. "3/4 sessions, 5/7 step target")
 Protein/carbs/fat on daily check-in + Supabase columns
