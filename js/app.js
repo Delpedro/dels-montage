@@ -95,11 +95,9 @@ async function handleLogin() {
   if (users && users.length > 0) {
     sessionStorage.setItem('del_auth', '1');
     sessionStorage.setItem('del_page', 'home');
-    document.activeElement?.blur();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     initApp();
-    setTimeout(() => window.scrollTo(0, 0), 100);
   } else {
     document.getElementById('login-error').style.display = 'block';
   }
