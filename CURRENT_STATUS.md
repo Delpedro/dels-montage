@@ -110,11 +110,11 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 <details>
 <summary>✅ Recent Bug Fixes</summary>
 
-**21 Apr — sessions 5 & 6 — login scroll bug (NOT FIXED)**
+**21 Apr — sessions 5, 6, 7 — login scroll bug (ATTEMPT 7 — NOT YET CONFIRMED)**
 
 iOS Chrome only. After login, home page loads scrolled down — topbar + greeting not visible, must scroll up.
 
-All attempts failed on device:
+Attempts failed on device (sessions 5–6):
 - `history.scrollRestoration = 'manual'`
 - `requestAnimationFrame(() => window.scrollTo(0,0))`
 - `position:fixed` on login screen — reverted (broke iOS layout)
@@ -122,7 +122,9 @@ All attempts failed on device:
 - Removed `height:100%` from `html,body`
 - `document.activeElement?.blur()` + `await 350ms delay` before showing `#app`
 
-Root cause theory: iOS fires scroll restoration during keyboard close animation — all JS scroll resets run before iOS finishes. Still open.
+Session 7 attempt — overflow:hidden lock (NOT YET TESTED ON DEVICE):
+Root cause: iOS Chrome restores a remembered scroll position AFTER layout reflow, overriding any JS scroll reset.
+Fix: set `overflow:hidden` on `html`+`body` before showing `#app`. A document that can't scroll can't have scroll restored. Lock held for 500ms (850ms total from blur), then released + `window.scrollTo(0,0)`. `handleLogin()` lines 105–117.
 
 Also session 6: wrote CODEBASE.md — full function reference with line numbers.
 

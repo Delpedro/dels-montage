@@ -252,6 +252,6 @@ Dark theme. CSS variables in `:root` for all colours.
 - History sets are fetched in one batched call and stored in `window._setsByWorkout` — not a per-card fetch.
 - `buildWeekStrip` clears `innerHTML` AFTER the async fetch to prevent race conditions from concurrent calls both writing to the same empty container.
 - `buildSessionGrid` does the same: fetch first, clear second.
-- iOS scroll bug: `window.scrollTo(0,0)` doesn't stick on iOS Chrome after login. Current attempt: `documentElement.scrollTop = 0; body.scrollTop = 0` + removed `height:100%` from `html, body`. Status: unconfirmed.
+- iOS scroll bug: iOS Chrome restores a remembered scroll position after the `display:none→block` layout change, overriding any JS scroll reset. Current fix (attempt 7, `handleLogin()` line 105): set `overflow:hidden` on `html`+`body` before showing `#app` so iOS can't apply scroll restoration; released after 500ms + `window.scrollTo(0,0)`. Status: not yet confirmed on device.
 - iOS audio: Web Audio context must be created inside a user gesture and re-resumed after screen lock. `swUnlockAudio()` handles both.
 - `history.scrollRestoration = 'manual'` set at line 1 to suppress browser scroll restoration.

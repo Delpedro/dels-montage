@@ -99,11 +99,22 @@ async function handleLogin() {
     sessionStorage.setItem('del_page', 'home');
     document.activeElement?.blur();
     await new Promise(r => setTimeout(r, 350));
+    // Lock scroll so iOS can't restore a stale position during the layout change.
+    // overflow:hidden on both axes prevents any scroll restoration from applying.
+    // Released after 500ms (850ms total from blur) once iOS keyboard animation is done.
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
+    window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
     initApp();
+    setTimeout(() => {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+      window.scrollTo(0, 0);
+    }, 500);
   } else {
     document.getElementById('login-error').style.display = 'block';
   }
