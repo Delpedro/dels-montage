@@ -97,24 +97,9 @@ async function handleLogin() {
   if (users && users.length > 0) {
     sessionStorage.setItem('del_auth', '1');
     sessionStorage.setItem('del_page', 'home');
-    document.activeElement?.blur();
-    await new Promise(r => setTimeout(r, 350));
-    // Lock scroll so iOS can't restore a stale position during the layout change.
-    // overflow:hidden on both axes prevents any scroll restoration from applying.
-    // Released after 500ms (850ms total from blur) once iOS keyboard animation is done.
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
     document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
     window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
     initApp();
-    setTimeout(() => {
-      document.documentElement.style.overflow = '';
-      document.body.style.overflow = '';
-      requestAnimationFrame(() => window.scrollTo(0, 0));
-    }, 500);
   } else {
     document.getElementById('login-error').style.display = 'block';
   }
@@ -123,7 +108,7 @@ async function handleLogin() {
 function handleLogout() {
   sessionStorage.clear();
   localStorage.removeItem('workout_draft');  // Clear any mid-workout draft so next login starts fresh
-  document.getElementById('app').style.display = 'none';
+  window.scrollTo(0, 0);
   document.getElementById('login-screen').style.display = 'flex';
 }
 
@@ -132,12 +117,8 @@ document.getElementById('login-password').addEventListener('keydown', e => {
 });
 
 window.addEventListener('load', () => {
-  window.scrollTo(0, 0); // Reset any iOS scroll position restored from previous session
   if (sessionStorage.getItem('del_auth')) {
     document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
     const savedPage = sessionStorage.getItem('del_page') || 'home';
     initApp(savedPage);
   }

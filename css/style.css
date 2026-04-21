@@ -8,7 +8,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; }
 
-#login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+#login-screen { position: fixed; inset: 0; z-index: 999; display: flex; align-items: center; justify-content: center; padding: 2rem; background: var(--bg); }
 .login-card { width: 100%; max-width: 380px; }
 .login-title { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; line-height: 1; margin-bottom: 4px; }
 .login-sub { font-size: 13px; color: var(--muted); margin-bottom: 2.5rem; }
@@ -20,7 +20,7 @@ html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', 
 .btn-primary:active { transform: scale(0.98); background: #d14d20; }
 .login-error { font-size: 13px; color: var(--red); margin-top: 0.75rem; text-align: center; display: none; }
 
-#app { display: none; min-height: 100vh; padding-bottom: 80px; }
+#app { display: block; min-height: 100vh; padding-bottom: 80px; }
 .topbar { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); padding: 0.75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
 .topbar-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1px; color: var(--accent); cursor: pointer; }
 .topbar-date { font-size: 11px; color: var(--muted); }
