@@ -97,6 +97,7 @@ async function handleLogin() {
   if (users && users.length > 0) {
     sessionStorage.setItem('del_auth', '1');
     sessionStorage.setItem('del_page', 'home');
+    document.documentElement.classList.remove('login-active');
     document.getElementById('login-screen').style.display = 'none';
     window.scrollTo(0, 0);
     initApp();
@@ -109,6 +110,7 @@ function handleLogout() {
   sessionStorage.clear();
   localStorage.removeItem('workout_draft');  // Clear any mid-workout draft so next login starts fresh
   window.scrollTo(0, 0);
+  document.documentElement.classList.add('login-active');
   document.getElementById('login-screen').style.display = 'flex';
 }
 
@@ -118,6 +120,7 @@ document.getElementById('login-password').addEventListener('keydown', e => {
 
 window.addEventListener('load', () => {
   if (sessionStorage.getItem('del_auth')) {
+    document.documentElement.classList.remove('login-active');
     document.getElementById('login-screen').style.display = 'none';
     const savedPage = sessionStorage.getItem('del_page') || 'home';
     initApp(savedPage);
