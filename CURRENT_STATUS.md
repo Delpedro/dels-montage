@@ -110,7 +110,7 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 <details open>
 <summary>✅ Recent Bug Fixes</summary>
 
-**23 Apr — workout data loss on resume (FIXED)**
+**23 Apr — workout data loss on resume (DEPLOYED — needs UAT at next workout)**
 
 After any mid-workout navigation away (stats, home, etc.) and return, `selectSession` correctly found the in-progress workout and set `currentWorkoutId = existing.id` — but the very next line unconditionally reset it to `null`. Every "resume" silently created a new orphaned workout row instead of continuing the existing one. Sets saved to a ghost workout that didn't match what the user was viewing in history.
 
