@@ -93,10 +93,11 @@ Conditioning (id: `'conditioning'`) has no exercises array — shows a free-text
 
 `selectSession(session, btn)` (line 286):
 1. Checks for in-progress workout today (null `completed_at`)
-2. If same session → adopt existing `currentWorkoutId`
-3. If different session → warn, then start fresh
-4. Hides grid, shows session pill + workout logger (or conditioning form)
-5. Calls `buildWorkoutLogger(session)`
+2. If same session → adopt existing `currentWorkoutId` (resume)
+3. If different session → warn, then start fresh (`currentWorkoutId = null`)
+4. If no in-progress → fresh start (`currentWorkoutId = null`)
+5. Hides grid, shows session pill + workout logger (or conditioning form)
+6. Calls `buildWorkoutLogger(session)`
 
 ### Building the logger
 `buildWorkoutLogger(session)` (line 342):
@@ -104,7 +105,7 @@ Conditioning (id: `'conditioning'`) has no exercises array — shows a free-text
 2. Builds HTML: one `.exercise-block` per exercise, each with N set rows
 3. Set row layout (CSS grid): `[set#] [weight input] [reps input] [prev badge]`
 4. Calls `restoreDraft(session)` to repopulate any saved inputs
-5. If `currentWorkoutId` exists, fetches saved `rest_seconds` and paints rest lines
+5. If `currentWorkoutId` exists (resume): fetches saved sets (weight, reps, rest_seconds), paints rest lines, fills empty inputs from DB, marks completed exercises green
 
 ### Marking an exercise done
 `completeExercise(exName)` (line 542):
