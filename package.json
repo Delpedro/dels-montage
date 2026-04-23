@@ -1,4 +1,10 @@
 {
+  "_comments": [
+    "HOW TO USE:",
+    "  Install dependencies (first time only): npm install",
+    "  Run dev server (live reload):           npm start",
+    "  Site runs at:                           http://localhost:8080  (live-server default)"
+  ],
   "name": "fitness",
   "version": "1.0.0",
   "description": "Del's Training Montage - Personal fitness tracker. Built with HTML/JS + Supabase",
