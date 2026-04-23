@@ -331,8 +331,6 @@ document.getElementById('workout-logger').style.display = 'none';
     return;
   }
 
-  currentWorkoutId = null;
-
   document.getElementById('session-grid').style.display = 'none';
 document.getElementById('session-pill').style.display = 'flex';
 document.getElementById('session-pill-name').textContent = session.name;
@@ -448,11 +446,28 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
   logger.innerHTML = html;
   restoreDraft(session);
 
-  // Paint any rest_seconds already saved for this workout (on reload / edit flow)
+  // Restore already-saved sets on resume: paint rest times, fill empty inputs, mark exercises done
   if (currentWorkoutId) {
-    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds`);
+    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds,weight,reps`);
     (savedSets || []).forEach(s => {
       if (s.rest_seconds) swPaintRestLine(s.exercise, s.set_number, s.rest_seconds);
+      // Fill inputs only where draft didn't already populate them
+      const wEl = document.getElementById(`w-${s.exercise}-${s.set_number}`);
+      const rEl = document.getElementById(`r-${s.exercise}-${s.set_number}`);
+      if (wEl && wEl.tagName === 'INPUT' && !wEl.value && s.weight != null) wEl.value = s.weight;
+      if (rEl && !rEl.value && s.reps != null) rEl.value = s.reps;
+    });
+    // Mark any exercise that has at least one saved set as done (green)
+    const doneExercises = new Set((savedSets || []).map(s => s.exercise));
+    doneExercises.forEach(exName => {
+      const block = document.getElementById(`block-${exName}`);
+      if (block) block.style.borderColor = 'var(--green)';
+      const doneBtn = document.getElementById(`done-btn-${exName}`);
+      if (doneBtn) {
+        doneBtn.textContent = '✓ Done';
+        doneBtn.style.borderColor = 'var(--green)';
+        doneBtn.style.color = 'var(--green)';
+      }
     });
   }
 

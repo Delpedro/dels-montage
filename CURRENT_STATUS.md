@@ -1,5 +1,5 @@
 CURRENT STATUS — D-Log
-Last updated: Tuesday 21 April 2026
+Last updated: Wednesday 23 April 2026
 
 ---
 
@@ -107,8 +107,22 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 
 ---
 
-<details>
+<details open>
 <summary>✅ Recent Bug Fixes</summary>
+
+**23 Apr — workout data loss on resume (FIXED)**
+
+After any mid-workout navigation away (stats, home, etc.) and return, `selectSession` correctly found the in-progress workout and set `currentWorkoutId = existing.id` — but the very next line unconditionally reset it to `null`. Every "resume" silently created a new orphaned workout row instead of continuing the existing one. Sets saved to a ghost workout that didn't match what the user was viewing in history.
+
+Fix: removed the rogue `currentWorkoutId = null`.
+
+Also added resume UX: `buildWorkoutLogger` now fetches already-saved sets for the resumed workout, fills empty inputs with stored weight/reps, and marks completed exercises green so the user can see what's already in the DB.
+
+**Known iOS audio limitation:** Stopwatch beep may stop if the phone locks during a rest. `AudioContext.resume()` from `setInterval` (not a user gesture) is silently rejected by iOS. Real fix requires the PWA service worker (top backlog item).
+
+**Orphaned data from 23 Apr Upper B:** There may be duplicate workout cards in history for today — an orphaned incomplete row and the manually-corrected one. Check history, identify the empty one, delete it.
+
+---
 
 **21 Apr — sessions 5, 6, 7 — login scroll bug (FIXED session 7)**
 
