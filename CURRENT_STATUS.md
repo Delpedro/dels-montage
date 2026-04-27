@@ -43,7 +43,7 @@ Approach 1 is considered most reliable. Best tried together with the PWA service
 
 **Quick wins**
 - App name — "D-Log" is placeholder, needs a proper name
-- ~~Smith Machine Incline — variation toggle (Smith / Incline Bench / DB Incline)~~ ✅
+- ~~Smith Machine Incline — variation toggle~~ ✅ (renamed → Incline Chest Press, variations: Smith / DB)
 - ~~Lateral Raise — variation toggle (Machine / DBs)~~ ✅
 - Display rest_seconds in workout history cards
 - Data labels on chart nodes
