@@ -110,17 +110,19 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 <details open>
 <summary>✅ Recent Bug Fixes</summary>
 
-**23 Apr — workout data loss on resume (DEPLOYED — needs UAT at next workout)**
+**27 Apr — silent workout save failure (DEPLOYED — needs UAT at next workout)**
 
-After any mid-workout navigation away (stats, home, etc.) and return, `selectSession` correctly found the in-progress workout and set `currentWorkoutId = existing.id` — but the very next line unconditionally reset it to `null`. Every "resume" silently created a new orphaned workout row instead of continuing the existing one. Sets saved to a ghost workout that didn't match what the user was viewing in history.
+Two root causes: (1) `completeExercise` created the workout row lazily on first Mark Done — if `currentWorkoutId` was null for exercises 2–N (state loss, race condition), each call would silently fail or scatter sets to orphaned rows. (2) `sb('workout_sets', 'POST', sets)` return value was never checked — Supabase 4xx/5xx silently swallowed, exercise always turned green regardless of DB outcome.
 
-Fix: removed the rogue `currentWorkoutId = null`.
+Fix: workout row now created eagerly in `selectSession` (using `Prefer: return=representation` to get ID directly — no follow-up GET needed). `completeExercise` now guards on `!currentWorkoutId` and checks `saveRes.ok`, showing an error toast on failure instead of falsely turning green. `currentWorkoutHasSets` flag added so cancelled sessions clean up their empty workout row. Conditioning sessions gated out from row creation. Also removed stray `session-pill` DOM hide from `saveDraft` that was firing on every keystroke.
 
-Also added resume UX: `buildWorkoutLogger` now fetches already-saved sets for the resumed workout, fills empty inputs with stored weight/reps, and marks completed exercises green so the user can see what's already in the DB.
+---
+
+**23 Apr — workout data loss on resume (FIXED — superseded by 27 Apr root cause work)**
+
+After mid-workout navigation, `selectSession` set `currentWorkoutId = existing.id` but the next line unconditionally reset it to `null`. Removed the rogue reset. Also added resume UX: `buildWorkoutLogger` fetches saved sets, fills inputs, marks completed exercises green.
 
 **Known iOS audio limitation:** Stopwatch beep may stop if the phone locks during a rest. `AudioContext.resume()` from `setInterval` (not a user gesture) is silently rejected by iOS. Real fix requires the PWA service worker (top backlog item).
-
-**Orphaned data from 23 Apr Upper B:** There may be duplicate workout cards in history for today — an orphaned incomplete row and the manually-corrected one. Check history, identify the empty one, delete it.
 
 ---
 

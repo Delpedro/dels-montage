@@ -66,6 +66,7 @@ let currentChartType = 'weight';
 let statsData = {};
 let currentPage = 'home';
 let currentWorkoutId = null;
+let currentWorkoutHasSets = false;
 let lastCompletedExercise = null;
 
 // ─── SUPABASE ─────────────────────────────────────────────
@@ -83,6 +84,22 @@ async function sb(path, method = 'GET', body = null) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
   if (method === 'GET') return res.json();
   return res;
+}
+
+async function createWorkoutRow(sessionId) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/workouts`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    },
+    body: JSON.stringify({ date: todayStr(), session_type: sessionId, notes: '' })
+  });
+  if (!res.ok) return null;
+  const rows = await res.json();
+  return rows[0]?.id ?? null;
 }
 
 // ─── AUTH ─────────────────────────────────────────────────
@@ -303,6 +320,7 @@ async function selectSession(session, btn) {
       // SAME session tapped — silently adopt the existing workout row.
       // buildWorkoutLogger + restoreDraft will rehydrate inputs & rest times.
       currentWorkoutId = existing.id;
+      currentWorkoutHasSets = true;
     } else {
       // DIFFERENT session tapped — warn before abandoning the in-progress one.
       const existingSession = SESSIONS.find(s => s.id === existing.session_type);
@@ -310,11 +328,25 @@ async function selectSession(session, btn) {
       if (!confirm(`You have an in-progress ${existingName} session. Start ${session.name} instead? (${existingName} will stay saved, you can resume it later.)`)) {
         return;
       }
-      // User confirmed — leave the old row as-is (in-progress). Start fresh for the new session.
-      currentWorkoutId = null;
+      // User confirmed — create fresh workout row for new session immediately (not conditioning).
+      if (session.id !== 'conditioning') {
+        currentWorkoutId = await createWorkoutRow(session.id);
+        currentWorkoutHasSets = false;
+        if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return; }
+      } else {
+        currentWorkoutId = null;
+        currentWorkoutHasSets = false;
+      }
     }
   } else {
-    currentWorkoutId = null;
+    if (session.id !== 'conditioning') {
+      currentWorkoutId = await createWorkoutRow(session.id);
+      currentWorkoutHasSets = false;
+      if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return; }
+    } else {
+      currentWorkoutId = null;
+      currentWorkoutHasSets = false;
+    }
   }
 
   selectedSession = session;
@@ -477,7 +509,6 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
 
 // ─── DRAFT AUTO-SAVE ─────────────────────────────────────
 function saveDraft(sessionId) {
-  document.getElementById('session-pill').style.display = 'none';
   if (!selectedSession) return;
   const draft = {
     sessionId,
@@ -593,10 +624,8 @@ async function completeExercise(exName) {
   }
 
   if (!currentWorkoutId) {
-    await sb('workouts', 'POST', { date: todayStr(), session_type: selectedSession.id, notes: '' });
-    const created = await sb(`workouts?date=eq.${todayStr()}&session_type=eq.${selectedSession.id}&order=created_at.desc&limit=1&select=id`);
-    if (created && created.length > 0) currentWorkoutId = created[0].id;
-    sets.forEach(s => s.workout_id = currentWorkoutId);
+    showToast('Session error — go back and re-select the workout', 'error');
+    return;
   }
 
   await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`, {
@@ -604,7 +633,12 @@ async function completeExercise(exName) {
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
   });
 
-  await sb('workout_sets', 'POST', sets);
+  const saveRes = await sb('workout_sets', 'POST', sets);
+  if (!saveRes.ok) {
+    showToast(`Save failed — tap Mark Done again`, 'error');
+    return;
+  }
+  currentWorkoutHasSets = true;
 
   const block = document.getElementById(`block-${exName}`);
   if (block) block.style.borderColor = 'var(--green)';
@@ -645,6 +679,13 @@ function resetSessionSelection() {
     });
     if (hasData && !confirm(`You've started logging ${selectedSession.name} — go back and lose your data?`)) return;
   }
+  if (currentWorkoutId && !currentWorkoutHasSets) {
+    fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+  }
+  currentWorkoutHasSets = false;
   selectedSession = null;
   currentWorkoutId = null;
   localStorage.removeItem('workout_draft');
@@ -668,6 +709,7 @@ async function saveWorkout() {
   });
   showToast('Workout saved!', 'success');
   localStorage.removeItem('workout_draft');
+  currentWorkoutHasSets = false;
   currentWorkoutId = null;
   buildSessionGrid();
   document.getElementById('workout-logger').style.display = 'none';
