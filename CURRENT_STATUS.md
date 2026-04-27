@@ -37,12 +37,13 @@ Approach 1 is considered most reliable. Best tried together with the PWA service
 
 **Bugs**
 - ~~Login page scroll bug — iOS Chrome + Safari, fresh load scrolled past greeting~~ ✅ FIXED session 7
+- **Variation toggle — prev badges don't update when switching variation.** Badges are computed once at render time for the default variation. Switching to e.g. "New Leg Extension" shows `—` even though that variation has prior data. `selectVariation()` needs to re-compute and re-render the right-side badges for the selected variation on toggle.
 - History filters don't persist across visits — should remember last state between tab changes
 - Bottom nav layout bug on scroll (Chrome iOS)
 
 **Quick wins**
 - App name — "D-Log" is placeholder, needs a proper name
-- Smith Machine Incline — variation toggle (Smith / Incline Bench / DB Incline)
+- ~~Smith Machine Incline — variation toggle (Smith / Incline Bench / DB Incline)~~ ✅
 - ~~Lateral Raise — variation toggle (Machine / DBs)~~ ✅
 - Display rest_seconds in workout history cards
 - Data labels on chart nodes

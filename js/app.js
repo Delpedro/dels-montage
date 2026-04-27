@@ -10,7 +10,7 @@ const SESSIONS = [
   {
     id: 'upper-a', day: 'Monday', name: 'Upper A', focus: 'Push focus',
     exercises: [
-      { name: 'Smith Machine Incline Press', sets: 3, reps: '6–10', rest: '180s', note: 'Start lighter than you think' },
+      { name: 'Smith Machine Incline Press', sets: 3, reps: '6–10', rest: '180s', note: 'Start lighter than you think', variations: ['Smith', 'Incline Bench', 'DB Incline'] },
       { name: 'Machine Chest Press', sets: 3, reps: '8–12', rest: '90s' },
       { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'DB'], aliases: ['Machine Shoulder Press'] },
       { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', variations: ['DB', 'Machine'] },
