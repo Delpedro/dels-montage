@@ -12,8 +12,8 @@ const SESSIONS = [
     exercises: [
       { name: 'Smith Machine Incline Press', sets: 3, reps: '6–10', rest: '180s', note: 'Start lighter than you think' },
       { name: 'Machine Chest Press', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Machine Shoulder Press', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', note: 'DB or machine' },
+      { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'DB'], aliases: ['Machine Shoulder Press'] },
+      { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', variations: ['DB', 'Machine'] },
       { name: 'Overhead Cable Tricep Ext', sets: 3, reps: '10–15', rest: '60s' },
       { name: 'Tricep Pushdown', sets: 3, reps: '12–15', rest: '60s', note: 'Rope — neutral grip' },
     ]
@@ -47,7 +47,7 @@ const SESSIONS = [
       { name: 'Smith RDL', sets: 3, reps: '6–10', rest: '120s', note: 'Hernia safe' },
       { name: 'Leg Press', sets: 3, reps: '8–12', rest: '180s', note: 'Higher feet — glute bias' },
       { name: 'Leg Curl', sets: 3, reps: '10–12', rest: '60s' },
-      { name: 'Hip Thrust Machine', sets: 3, reps: '10–15', rest: '75s', note: 'If available' },
+      { name: 'Hip Thrusts', sets: 3, reps: '10–15', rest: '75s', variations: ['Hip Machine', 'Booty Hip Machine'], aliases: ['Hip Thrust Machine'] },
       { name: 'Seated Calf Raise', sets: 3, reps: '8–12', rest: '60s' },
       { name: 'Dead Bug', sets: 3, reps: '10 each', rest: '45s', note: 'Core — hernia safe', bodyweight: true },
       { name: 'Cable Woodchop', sets: 3, reps: '12 each', rest: '45s', note: 'Core — hernia safe', variations: ['Cable', 'KG'] },
@@ -391,7 +391,7 @@ async function buildWorkoutLogger(session) {
 
   let html = '';
   session.exercises.forEach(ex => {
-    const prev = previousSets[ex.name] || [];
+    const prev = previousSets[ex.name] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
     const prevVariation = prev[0]?.variation || '';
     const defaultVar = ex.variations ? (prevVariation || ex.variations[0]) : null;
     let filteredPrev = prev;
@@ -1129,6 +1129,18 @@ function loadMoreHistory() {
 
 // ─── NAV ─────────────────────────────────────────────────
 function showPage(name) {
+  if (name !== 'home' && currentWorkoutId && !currentWorkoutHasSets) {
+    fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    currentWorkoutId = null;
+    currentWorkoutHasSets = false;
+    selectedSession = null;
+    document.getElementById('session-grid').style.display = 'grid';
+    document.getElementById('session-pill').style.display = 'none';
+    document.getElementById('workout-logger').style.display = 'none';
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`page-${name}`).classList.add('active');
@@ -1216,7 +1228,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
   let html = '';
   if (s) {
     s.exercises.forEach(ex => {
-      const exSets = setsByExercise[ex.name] || [];
+      const exSets = setsByExercise[ex.name] || (ex.aliases || []).flatMap(a => setsByExercise[a] || []);
       const currentVariation = exSets[0]?.variation || (ex.variations ? ex.variations[0] : null);
       if (currentVariation) editSelectedVariations[ex.name] = currentVariation;
 
@@ -1292,7 +1304,8 @@ async function saveEditWorkout() {
 
       const wVal = wEl.tagName === 'DIV' ? wEl.textContent : wEl.value;
       const rVal = rEl.value;
-      const existingSet = (existingSets || []).find(es => es.exercise === ex.name && es.set_number === i);
+      const exNames = [ex.name, ...(ex.aliases || [])];
+      const existingSet = (existingSets || []).find(es => exNames.includes(es.exercise) && es.set_number === i);
 
       if (existingSet) {
         await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?id=eq.${existingSet.id}`, {

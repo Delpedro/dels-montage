@@ -11,6 +11,13 @@ Last updated: Wednesday 23 April 2026
 - Enables iOS beep when phone locked/app closed
 - Big job — start in a fresh chat at low usage
 
+**iOS audio workarounds to trial (researched 27 Apr)**
+Three approaches found for keeping AudioContext alive when navigating away / locking screen:
+1. **Silent audio loop** — create an `<audio>` element playing a silent/near-silent file in a loop, started on a user gesture (e.g. "Start Training" tap). iOS keeps the JS engine awake if it thinks media is playing.
+2. **Route AudioContext through a MediaStream** — `const stream = audioCtx.createMediaStreamDestination()`. Safari treats a live MediaStream like an active call and doesn't kill it in the background.
+3. **`visibilitychange` resume** — `document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'hidden') audioContext.resume(); })` — catches the return-to-app case when context has suspended.
+Approach 1 is considered most reliable. Best tried together with the PWA service worker work.
+
 </details>
 
 ---
@@ -36,7 +43,7 @@ Last updated: Wednesday 23 April 2026
 **Quick wins**
 - App name — "D-Log" is placeholder, needs a proper name
 - Smith Machine Incline — variation toggle (Smith / Incline Bench / DB Incline)
-- Lateral Raise — variation toggle (Machine / DBs)
+- ~~Lateral Raise — variation toggle (Machine / DBs)~~ ✅
 - Display rest_seconds in workout history cards
 - Data labels on chart nodes
 - Retrofit more comments into app.js
