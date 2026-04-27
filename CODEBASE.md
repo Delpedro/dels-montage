@@ -1,11 +1,11 @@
 # D-LOG Codebase Reference
 
 Single-file SPA. No framework, no build step. Two files do all the work:
-- `js/app.js` — all logic (~1580 lines)
+- `js/app.js` — all logic (~1638 lines)
 - `css/style.css` — all styles (~373 lines)
 - `index.html` — static shell, no logic
 
-Backend is Supabase (Postgres + REST API). All DB calls go through one helper: `sb()` at line 69.
+Backend is Supabase (Postgres + REST API). All DB calls go through one helper: `sb()` at line 73.
 
 ---
 
@@ -19,17 +19,17 @@ js/app.js           — Everything else
 
 ---
 
-## Auth (lines 85–133)
+## Auth (lines 111–143)
 
-No sessions, no JWT. On login, password is SHA-256 hashed client-side and compared against `app_user.password_hash` in Supabase. Auth state lives in `sessionStorage` (`del_auth = '1'`). On page reload, `window.addEventListener('load')` at line 121 checks for this key and restores the session.
+No sessions, no JWT. On login, password is SHA-256 hashed client-side and compared against `app_user.password_hash` in Supabase. Auth state lives in `sessionStorage` (`del_auth = '1'`). On page reload, `window.addEventListener('load')` checks for this key and restores the session.
 
 **Login flow:**
-1. `handleLogin()` (line 91) — hashes pw, queries `app_user`, if match: hides `#login-screen`, shows `#app`, calls `initApp()`
-2. `handleLogout()` (line 110) — clears sessionStorage + `workout_draft` from localStorage, flips visibility back
+1. `handleLogin()` (line 111) — hashes pw, queries `app_user`, if match: hides `#login-screen`, shows `#app`, calls `initApp()`
+2. `handleLogout()` (line 131) — clears sessionStorage + `workout_draft` from localStorage, flips visibility back
 
 ---
 
-## App Init (line 174)
+## App Init (line 194)
 
 ```
 initApp(page = 'home')
@@ -42,7 +42,7 @@ initApp(page = 'home')
 
 ---
 
-## Navigation (line 1071)
+## Navigation (line 1131)
 
 `showPage(name)` is the single routing function. It:
 1. Removes `.active` from all `.page` and `.nav-item` elements
@@ -66,11 +66,11 @@ Pages: `home`, `today`, `workout`, `stats`, `history`
 | `conditioning_logs` | `date`, `activity`, `duration_mins`, `notes` | Saturday cardio |
 | `quotes` | `quote`, `author` | Home page quote |
 
-`completed_at = null` means a workout is in-progress. `autoCloseStaleWorkouts()` (line 159) stamps these with `now` if they're >24hrs old.
+`completed_at = null` means a workout is in-progress. `autoCloseStaleWorkouts()` (line 179) stamps these with `now` if they're >24hrs old.
 
 ---
 
-## SESSIONS Data (lines 6–54)
+## SESSIONS Data (lines 6–57)
 
 Hardcoded array of 5 session objects. Each has:
 - `id` — used as `session_type` in DB (e.g. `'upper-a'`)
@@ -86,21 +86,27 @@ Conditioning (id: `'conditioning'`) has no exercises array — shows a free-text
 
 ---
 
-## Workout Logging Flow (lines 266–659)
+## Workout Logging Flow (lines 287–719)
 
 ### Selecting a session
-`buildSessionGrid()` (line 267) — renders session buttons, marks done ones green (only counts `completed_at IS NOT NULL`).
+`buildSessionGrid()` (line 287) — renders session buttons, marks done ones green (only counts `completed_at IS NOT NULL`).
 
-`selectSession(session, btn)` (line 286):
-1. Checks for in-progress workout today (null `completed_at`)
-2. If same session → adopt existing `currentWorkoutId` (resume)
-3. If different session → warn, then start fresh (`currentWorkoutId = null`)
-4. If no in-progress → fresh start (`currentWorkoutId = null`)
-5. Hides grid, shows session pill + workout logger (or conditioning form)
-6. Calls `buildWorkoutLogger(session)`
+`selectSession(session, btn)` (line 306):
+1. Checks for in-progress workout today (`completed_at IS NULL`)
+2. If same session → adopt existing `currentWorkoutId` (resume), set `currentWorkoutHasSets = true`
+3. If different session → warn user, then call `createWorkoutRow()` for the new session
+4. If no in-progress → call `createWorkoutRow()` for fresh start
+5. For conditioning sessions: skip workout row creation (`currentWorkoutId = null`)
+6. If `createWorkoutRow()` returns null (network/DB failure) → show error toast, abort
+7. Hides grid, shows session pill + workout logger (or conditioning form)
+8. Calls `buildWorkoutLogger(session)`
+
+`createWorkoutRow(sessionId)` (line 89):
+- POSTs to `workouts` with `Prefer: return=representation` — gets the new row's `id` back directly (no follow-up GET)
+- Returns the UUID on success, `null` on failure
 
 ### Building the logger
-`buildWorkoutLogger(session)` (line 342):
+`buildWorkoutLogger(session)` (line 375):
 1. Fetches last 2 workouts for this session type to get previous set data
 2. Builds HTML: one `.exercise-block` per exercise, each with N set rows
 3. Set row layout (CSS grid): `[set#] [weight input] [reps input] [prev badge]`
@@ -108,26 +114,34 @@ Conditioning (id: `'conditioning'`) has no exercises array — shows a free-text
 5. If `currentWorkoutId` exists (resume): fetches saved sets (weight, reps, rest_seconds), paints rest lines, fills empty inputs from DB, marks completed exercises green
 
 ### Marking an exercise done
-`completeExercise(exName)` (line 542):
+`completeExercise(exName)` (line 591):
 1. Reads all set inputs for that exercise
-2. If no `currentWorkoutId` yet, creates the `workouts` row first
+2. Guards on `!currentWorkoutId` — shows error toast and returns (workout row is always created eagerly in `selectSession`, so this only fires on error)
 3. Deletes existing sets for this exercise from DB (idempotent re-save)
-4. Posts new sets to `workout_sets`
-5. Flashes the block border green
+4. POSTs new sets to `workout_sets`
+5. Checks `saveRes.ok` — on failure, shows "Save failed" toast and returns WITHOUT turning the exercise green
+6. Sets `currentWorkoutHasSets = true`, flashes block border green
 
 ### Saving the workout
-`saveWorkout()` (line 643):
+`saveWorkout()` (line 702):
 - PATCHes the `workouts` row: sets `notes` + `completed_at = now()`
-- Clears draft, resets `currentWorkoutId`, rebuilds session grid
+- Resets `currentWorkoutHasSets = false`, `currentWorkoutId = null`
+- Clears draft, rebuilds session grid
+
+### Cancelling a session
+`resetSessionSelection()` (line 671):
+- If `currentWorkoutId` is set and `currentWorkoutHasSets` is false (user tapped back before any Mark Done), DELETEs the empty workout row immediately
+- Resets `currentWorkoutHasSets = false`, `currentWorkoutId = null`, `selectedSession = null`
+- Clears draft, rebuilds session grid
 
 ### Draft auto-save
-`saveDraft(sessionId)` (line 461) — called on every input event. Serialises all set inputs + notes + `pendingRest` to `localStorage('workout_draft')`. Expires after 24hrs.
+`saveDraft(sessionId)` (line 511) — called on every input event. Serialises all set inputs + notes + `pendingRest` to `localStorage('workout_draft')`. Expires after 24hrs.
 
-`restoreDraft(session)` (line 483) — called at end of `buildWorkoutLogger`. Reads draft, checks sessionId matches, populates inputs and rest lines.
+`restoreDraft(session)` (line 532) — called at end of `buildWorkoutLogger`. Reads draft, checks sessionId matches, populates inputs and rest lines.
 
 ---
 
-## Rest Timer / Stopwatch (lines 1288–1578)
+## Rest Timer / Stopwatch (lines ~1350–1638)
 
 Per-exercise watch button (`.ex-watch`) inside each exercise tile. SVG ring shows progress toward the target rest duration.
 
@@ -138,55 +152,55 @@ Per-exercise watch button (`.ex-watch`) inside each exercise tile. SVG ring show
 
 **Tap = start/stop.** Long press (450ms) = reset without saving.
 
-`swStop()` (line 1465):
+`swStop()` (line 1525):
 1. Calculates elapsed
-2. Finds last typed set for this exercise via `swFindLastTypedSetForExercise()`
+2. Finds last typed set for this exercise via `swFindLastTypedSetForExercise()` (line 1442)
 3. Saves `rest_seconds` to DB via `swSaveRest()`, or buffers in `pendingRest{}` if workout row doesn't exist yet
 4. Paints `↳ Rest m:ss` under the set row
 
-Timer state persisted to `sessionStorage('sw_state')` so it survives navigating to Stats and back. Restored by `swRestoreFromStorage()` at end of `buildWorkoutLogger`.
+Timer state persisted to `sessionStorage('sw_state')` so it survives navigating to Stats and back. Restored by `swRestoreFromStorage()` (line 1620) at end of `buildWorkoutLogger`.
 
-**Audio:** Web Audio API, lazy-init. iOS needs the AudioContext created inside a user gesture — handled by `swUnlockAudio()` called inside `swStart()`. Context is re-resumed on every tap because iOS suspends it on screen lock.
+**Audio:** Web Audio API, lazy-init. iOS needs the AudioContext created inside a user gesture — handled by `swUnlockAudio()` (line 1395) called inside `swStart()`. Context is re-resumed on every tap because iOS suspends it on screen lock.
 
 ---
 
-## Home Page (lines 195–263)
+## Home Page (lines 215–285)
 
-`loadHomePage()` (line 195):
+`loadHomePage()` (line 215):
 - Sets greeting (`getGreeting()` — morning/afternoon/evening by hour)
 - Picks random quote from `quotes` table
 - Fetches: latest weight, today's steps, this week's workout count, last 7 days steps for average
 - Calls `buildWeekStrip('home-week-strip')`
 
-`buildWeekStrip(containerId)` (line 236) — renders 7 day bubbles for the current Sun–Sat week. Highlights today (accent) and days with a workout (green).
+`buildWeekStrip(containerId)` (line 256) — renders 7 day bubbles for the current Sun–Sat week. Highlights today (accent) and days with a workout (green).
 
-`getWeekStart()` (line 229) — returns Monday's date string for the current week.
-
----
-
-## Daily Check-in (lines 675–723)
-
-`loadTodayLog()` (line 676) — always clears fields first, then fetches today's row and populates if found.
-
-`saveDailyLog()` (line 695) — checks if today's row exists: PATCH if yes, POST if no.
-
-`setEnergy(val)` (line 718) — sets `selectedEnergy`, toggles `.selected` on emoji buttons. Called with `0` to deselect all.
+`getWeekStart()` (line 249) — returns Monday's date string for the current week.
 
 ---
 
-## Stats Page (lines 725–841)
+## Daily Check-in (lines 736–783)
 
-`loadStats()` (line 726) — single `Promise.all` fetches last 14 days of weight logs, daily logs, workouts, plus 5 most recent workouts. Populates 4 stat tiles + calls `switchChart()`.
+`loadTodayLog()` (line 736) — always clears fields first, then fetches today's row and populates if found.
 
-`switchChart(type)` (line 772) — destroys existing Chart.js instance if present, builds new one. Types: `weight`, `sessions`, `fasting`, `steps`. Data lives in `statsData{}` set during `loadStats()`.
+`saveDailyLog()` (line 755) — checks if today's row exists: PATCH if yes, POST if no.
+
+`setEnergy(val)` (line 778) — sets `selectedEnergy`, toggles `.selected` on emoji buttons. Called with `0` to deselect all.
 
 ---
 
-## History Page (lines 844–1068)
+## Stats Page (lines 786–911)
 
-`loadHistory()` (line 853) — fetches all daily_logs + workouts. Fetches all workout_sets in one batched call (grouped into `window._setsByWorkout` for O(1) lookup during render).
+`loadStats()` (line 786) — single `Promise.all` fetches last 14 days of weight logs, daily logs, workouts, plus 5 most recent workouts. Populates 4 stat tiles + calls `switchChart()`.
 
-`renderHistoryPage()` (line 917) — builds the filter bar + paginated list. Items sorted by date, grouped by date header. 15 items per page.
+`switchChart(type)` (line 832) — destroys existing Chart.js instance if present, builds new one. Types: `weight`, `sessions`, `fasting`, `steps`. Data lives in `statsData{}` set during `loadStats()`.
+
+---
+
+## History Page (lines 913–1129)
+
+`loadHistory()` (line 913) — fetches all daily_logs + workouts. Fetches all workout_sets in one batched call (grouped into `window._setsByWorkout` for O(1) lookup during render).
+
+`renderHistoryPage()` (line 977) — builds the filter bar + paginated list. Items sorted by date, grouped by date header. 15 items per page.
 
 Filter state (module-level vars):
 - `historyTab` — `'all'` / `'workouts'` / `'daily'`
@@ -194,11 +208,11 @@ Filter state (module-level vars):
 - `historyWorkoutFilter` — `'all'` or session id
 - `historySearchTerm` — string
 
-`restoreSearchFocus()` (line 1026) — hack to keep cursor position in the search input across re-renders. Saves `{focused, pos}` before `renderHistoryPage()`, restores after.
+`restoreSearchFocus()` (line 1086) — hack to keep cursor position in the search input across re-renders. Saves `{focused, pos}` before `renderHistoryPage()`, restores after.
 
-Editing: tapping a daily log card → `openEditLog(l)` → edit modal. Tapping a workout card → `openEditWorkout()` → edit modal.
+Editing: tapping a daily log card → `openEditLog(l)` (line 1152) → edit modal. Tapping a workout card → `openEditWorkout()` (line 1201) → edit modal.
 
-`deleteWorkout()` (line 1265) — deletes `workout_sets` rows first, then `workouts` row (foreign key order).
+`deleteWorkout()` (line 1325) — deletes `workout_sets` rows first, then `workouts` row (foreign key order).
 
 ---
 
@@ -229,7 +243,7 @@ Dark theme. CSS variables in `:root` for all colours.
 
 ---
 
-## Global State Variables (lines 56–66)
+## Global State Variables (lines 59–70)
 
 | Variable | Purpose |
 |---|---|
@@ -241,18 +255,19 @@ Dark theme. CSS variables in `:root` for all colours.
 | `mainChart` | Chart.js instance (destroyed on tab switch) |
 | `currentChartType` | `'weight'` / `'sessions'` / `'fasting'` / `'steps'` |
 | `currentPage` | Current page name |
-| `currentWorkoutId` | DB id of the in-progress workout row (null until first Mark Done) |
+| `currentWorkoutId` | DB id of the in-progress workout row — set eagerly in `selectSession`, never null during logging |
+| `currentWorkoutHasSets` | True once any exercise has been successfully saved; used to decide whether to delete the workout row on cancel |
 | `lastCompletedExercise` | Set after each `completeExercise()` call |
-| `pendingRest{}` | Buffer for rest times before workout row exists in DB |
+| `pendingRest{}` | Buffer for rest times in edge cases where workout row isn't set yet |
 
 ---
 
 ## Known Quirks / Non-Obvious Behaviour
 
-- `currentWorkoutId` is `null` until the first "Mark Done" tap. The workout row isn't created until then — so rest times before the first Mark Done are buffered in `pendingRest{}` and attached when the row is finally created.
+- Workout row is created **eagerly in `selectSession`** (not lazily on first Mark Done). This means `currentWorkoutId` is always set by the time the user can interact with exercises. The `pendingRest{}` buffer is a legacy safety net for edge cases.
 - History sets are fetched in one batched call and stored in `window._setsByWorkout` — not a per-card fetch.
 - `buildWeekStrip` clears `innerHTML` AFTER the async fetch to prevent race conditions from concurrent calls both writing to the same empty container.
 - `buildSessionGrid` does the same: fetch first, clear second.
-- iOS Chrome scroll bug (NOT FIXED): fresh load shows greeting scrolled off top ~60px. Safari fixed. Chrome WKWebView applies scroll at native UIScrollView level, bypassing CSS overflow:hidden, touch-action:none, and JS scroll events. 10+ attempts failed. Current code: login-screen is position:fixed overlay, #app always display:block, html.login-active{overflow:hidden;touch-action:none} from page load, JS scroll guard on scroll event, overlay hidden after 2 rAFs. Next to try: check if window.scrollY=0 in Chrome after login (if so it's viewport/URL-bar height not scroll), try visualViewport API.
+- iOS Chrome scroll bug (FIXED): fresh load + login was showing greeting scrolled off top ~60px. Winning combo: login-screen as `position:fixed` overlay + `#app` always `display:block` + `html.login-active{overflow:hidden;touch-action:none}` held from page load + JS scroll guard on scroll event + overlay hidden after 2 rAFs post scroll reset.
 - iOS audio: Web Audio context must be created inside a user gesture and re-resumed after screen lock. `swUnlockAudio()` handles both.
 - `history.scrollRestoration = 'manual'` set at line 1 to suppress browser scroll restoration.
