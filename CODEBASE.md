@@ -117,19 +117,20 @@ Conditioning (id: `'conditioning'`) has no exercises array — shows a free-text
 `completeExercise(exName)` (line 591):
 1. Reads all set inputs for that exercise
 2. Guards on `!currentWorkoutId` — shows error toast and returns (workout row is always created eagerly in `selectSession`, so this only fires on error)
-3. Deletes existing sets for this exercise from DB (idempotent re-save)
-4. POSTs new sets to `workout_sets`
-5. Checks `saveRes.ok` — on failure, shows "Save failed" toast and returns WITHOUT turning the exercise green
-6. Sets `currentWorkoutHasSets = true`, flashes block border green
+3. Builds set objects — `weight: null` for bodyweight AND band exercises (`ex.bodyweight || ex.band`); `rest_seconds` always included (defaults to `0` if no stopwatch was used for that set)
+4. Deletes existing sets for this exercise from DB (idempotent re-save)
+5. POSTs new sets to `workout_sets`
+6. Checks `saveRes.ok` — on failure, shows "Save failed (STATUS)" toast with HTTP status code and returns WITHOUT turning the exercise green
+7. Sets `currentWorkoutHasSets = true`, flashes block border green
 
 ### Saving the workout
-`saveWorkout()` (line 702):
+`saveWorkout()` (line 700):
 - PATCHes the `workouts` row: sets `notes` + `completed_at = now()`
 - Resets `currentWorkoutHasSets = false`, `currentWorkoutId = null`
 - Clears draft, rebuilds session grid
 
 ### Cancelling a session
-`resetSessionSelection()` (line 671):
+`resetSessionSelection()` (line 669):
 - If `currentWorkoutId` is set and `currentWorkoutHasSets` is false (user tapped back before any Mark Done), DELETEs the empty workout row immediately
 - Resets `currentWorkoutHasSets = false`, `currentWorkoutId = null`, `selectedSession = null`
 - Clears draft, rebuilds session grid

@@ -118,6 +118,20 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 <details open>
 <summary>✅ Recent Bug Fixes</summary>
 
+**28 Apr — band exercise save failure + incomplete-rest save failure (DEPLOYED)**
+
+Two bugs in `completeExercise`:
+
+(1) Band exercises (Pallof Press) always showed "Save failed" toast regardless of rest periods. Root cause: `ex.band` was not checked alongside `ex.bodyweight` when nulling the weight field. Band exercises sent `weight: "Red Band"` to the DB — a 400 if the weight column is still numeric (the `change_weight_to_text` migration may not have applied due to known CLI v2.84.2 bug). Fix: `const isBodyweight = ex.bodyweight || ex.band;` — mirrors `saveEditWorkout` which was already correct.
+
+(2) Any exercise with fewer than all rest periods recorded showed "Save failed". Root cause: sets without a stopwatch-recorded rest omitted `rest_seconds` from the POST body entirely. If the column has a NOT NULL constraint (possible — added via dashboard due to CLI bug), the missing field caused the whole batch insert to 400. Fix: `rest_seconds` always included in every set object, defaulting to `0`. The `0` is harmless — resume paint logic uses `if (s.rest_seconds)` which is falsy for 0.
+
+Toast now shows HTTP status code on failure (`Save failed (400)`) for gym-side diagnosis without devtools.
+
+UAT Thursday: Pallof Press all 4 sets → should go green. Regular exercise with only some rests → should go green.
+
+---
+
 **27 Apr — silent workout save failure (DEPLOYED — needs UAT at next workout)**
 
 Two root causes: (1) `completeExercise` created the workout row lazily on first Mark Done — if `currentWorkoutId` was null for exercises 2–N (state loss, race condition), each call would silently fail or scatter sets to orphaned rows. (2) `sb('workout_sets', 'POST', sets)` return value was never checked — Supabase 4xx/5xx silently swallowed, exercise always turned green regardless of DB outcome.
