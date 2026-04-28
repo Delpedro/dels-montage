@@ -600,8 +600,7 @@ async function completeExercise(exName) {
     const wVal = wEl ? (wEl.tagName === 'DIV' ? wEl.textContent : wEl.value) : '';
     const rVal = rEl ? rEl.value : '';
     if (wVal || rVal) {
-      // Bodyweight exercises show "BW" in the UI but the DB weight column is numeric — save null instead of the string
-      const isBodyweight = ex.bodyweight;
+      const isBodyweight = ex.bodyweight || ex.band;
       const setObj = {
         workout_id: currentWorkoutId,
         exercise: exName,
@@ -610,10 +609,9 @@ async function completeExercise(exName) {
         reps: parseInt(rVal) || null,
         variation: selectedVariations[exName] || null
       };
-      if (pendingRest[exName] && pendingRest[exName][i]) {
-        setObj.rest_seconds = pendingRest[exName][i];
-        swPaintRestLine(exName, i, pendingRest[exName][i]); // paint immediately
-      }
+      const restSecs = (pendingRest[exName] && pendingRest[exName][i]) ? pendingRest[exName][i] : 0;
+      if (restSecs > 0) swPaintRestLine(exName, i, restSecs);
+      setObj.rest_seconds = restSecs;
       sets.push(setObj);
     }
   }
@@ -635,7 +633,7 @@ async function completeExercise(exName) {
 
   const saveRes = await sb('workout_sets', 'POST', sets);
   if (!saveRes.ok) {
-    showToast(`Save failed — tap Mark Done again`, 'error');
+    showToast(`Save failed (${saveRes.status}) — tap Mark Done again`, 'error');
     return;
   }
   currentWorkoutHasSets = true;
