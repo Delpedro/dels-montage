@@ -119,18 +119,52 @@
   <span id="session-pill-name" style="font-size:13px; font-weight:600; color:var(--accent);"></span>
   <span onclick="resetSessionSelection()" style="font-size:11px; color:var(--muted); cursor:pointer; text-decoration:underline;">change</span>
 </div>
-    <div class="section-sub">What are we doing today?</div>
+    <div class="section-sub" id="workout-subtitle">Choose your training programme</div>
     <div class="session-grid" id="session-grid"></div>
     <div id="conditioning-form" style="display:none;">
       <div class="card">
-        <div class="card-title">Saturday Conditioning</div>
+        <div class="card-title">CV + Pump Session</div>
         <div class="field-group">
-          <label class="field-label">Activity</label>
-          <input type="text" class="field-input" id="cond-activity" placeholder="e.g. Les Mills, HIIT circuits, Stepper..." />
+          <label class="field-label">Pump Focus</label>
+          <select class="field-input" id="cond-pump-focus">
+            <option value="Side Delts">Side Delts</option>
+            <option value="Calves">Calves</option>
+            <option value="Traps">Traps</option>
+            <option value="Rear Delts">Rear Delts</option>
+            <option value="Arms">Arms</option>
+            <option value="Core">Core</option>
+            <option value="Other">Other</option>
+          </select>
         </div>
         <div class="field-group">
-          <label class="field-label">Duration (mins)</label>
-          <input type="number" class="field-input" id="cond-duration" placeholder="30" />
+          <label class="field-label">Pump Method</label>
+          <input type="text" class="field-input" id="cond-pump-method" placeholder="e.g. lateral raise rack run, high-rep calves..." />
+        </div>
+        <div class="field-group">
+          <label class="field-label">Cardio Type</label>
+          <select class="field-input" id="cond-activity">
+            <option value="Incline Walk">Incline Walk</option>
+            <option value="Outdoor Walk">Outdoor Walk</option>
+            <option value="Stairmaster">Stairmaster</option>
+            <option value="Bike">Bike</option>
+            <option value="Sprints">Sprints</option>
+            <option value="HIIT">HIIT</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div class="field-group">
+            <label class="field-label">Duration (mins)</label>
+            <input type="number" class="field-input" id="cond-duration" placeholder="30" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Intensity</label>
+            <select class="field-input" id="cond-intensity">
+              <option value="Easy">Easy</option>
+              <option value="Moderate">Moderate</option>
+              <option value="Hard">Hard</option>
+            </select>
+          </div>
         </div>
         <div class="field-group">
           <label class="field-label">Notes</label>

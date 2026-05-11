@@ -8,7 +8,7 @@ const SUPABASE_KEY = 'sb_publishable_2BQBFSox7bL1X2TlSlbOYA_hn8FcPmy';
 
 const SESSIONS = [
   {
-    id: 'upper-a', day: 'Monday', name: 'Upper A', focus: 'Push focus',
+    id: 'upper-a', day: 'Monday', name: 'Upper A', focus: 'Push focus', programme: 'upper-lower',
     exercises: [
       { name: 'Incline Chest Press', sets: 3, reps: '6–10', rest: '180s', note: 'Start lighter than you think', variations: ['Smith', 'DB'], aliases: ['Smith Machine Incline Press'] },
       { name: 'Machine Chest Press', sets: 3, reps: '8–12', rest: '90s' },
@@ -19,7 +19,7 @@ const SESSIONS = [
     ]
   },
   {
-    id: 'lower-a', day: 'Tuesday', name: 'Lower A', focus: 'Quad focus + core',
+    id: 'lower-a', day: 'Tuesday', name: 'Lower A', focus: 'Quad focus + core', programme: 'upper-lower',
     exercises: [
       { name: 'Hack Squat / Leg Press', sets: 3, reps: '8–12', rest: '180s', variations: ['Hack Squat', 'Leg Press'] },
       { name: 'Leg Extension', sets: 3, reps: '10–12', rest: '60s', variations: ['Leg Extension', 'New Leg Extension'] },
@@ -30,7 +30,7 @@ const SESSIONS = [
     ]
   },
   {
-    id: 'upper-b', day: 'Thursday', name: 'Upper B', focus: 'Pull focus',
+    id: 'upper-b', day: 'Thursday', name: 'Upper B', focus: 'Pull focus', programme: 'upper-lower',
     exercises: [
       { name: 'Lat Pulldown', sets: 3, reps: '8–12', rest: '90s', note: 'Neutral grip' },
       { name: 'Chest Supported Row', sets: 3, reps: '8–12', rest: '90s' },
@@ -42,7 +42,7 @@ const SESSIONS = [
     ]
   },
   {
-    id: 'lower-b', day: 'Friday', name: 'Lower B', focus: 'Posterior chain + core',
+    id: 'lower-b', day: 'Friday', name: 'Lower B', focus: 'Posterior chain + core', programme: 'upper-lower',
     exercises: [
       { name: 'Smith RDL', sets: 3, reps: '6–10', rest: '120s', note: 'Hernia safe' },
       { name: 'Leg Press', sets: 3, reps: '8–12', rest: '180s', note: 'Higher feet — glute bias' },
@@ -53,11 +53,58 @@ const SESSIONS = [
       { name: 'Cable Woodchop', sets: 3, reps: '12 each', rest: '45s', note: 'Core — hernia safe', variations: ['Cable', 'KG'] },
     ]
   },
-  { id: 'conditioning', day: 'Saturday', name: 'Conditioning', focus: 'Wild card' }
+  {
+    id: 'full-body-a', name: 'Full Body A', focus: 'Squat + push bias', programme: 'full-body-cv',
+    exercises: [
+      { name: 'Hack Squat / Leg Press', sets: 3, reps: '6–10', rest: '180s', variations: ['Hack Squat', 'Leg Press'] },
+      { name: 'Incline Chest Press', sets: 3, reps: '6–10', rest: '150s', variations: ['Smith', 'DB'], aliases: ['Smith Machine Incline Press'] },
+      { name: 'Chest Supported Row', sets: 3, reps: '8–12', rest: '90s' },
+      { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', variations: ['DB', 'Machine'] },
+      { name: 'Tricep Pushdown', sets: 2, reps: '10–15', rest: '60s', note: 'Controlled reps — no ego' },
+      { name: 'Seated Calf Raise', sets: 3, reps: '10–15', rest: '60s' },
+    ]
+  },
+  {
+    id: 'full-body-b', name: 'Full Body B', focus: 'Hinge + pull bias', programme: 'full-body-cv',
+    exercises: [
+      { name: 'Smith RDL', sets: 3, reps: '6–10', rest: '150s', note: 'Hernia safe' },
+      { name: 'Machine Chest Press', sets: 3, reps: '8–12', rest: '90s' },
+      { name: 'Lat Pulldown', sets: 3, reps: '8–12', rest: '90s', note: 'Neutral grip' },
+      { name: 'Face Pull', sets: 3, reps: '12–15', rest: '60s', note: 'Rear delts + shoulder health' },
+      { name: 'Hammer Curl', sets: 2, reps: '10–12', rest: '60s', note: '12 reps each side/arm — neutral grip' },
+      { name: 'Dead Bug', sets: 3, reps: '10 each', rest: '45s', note: 'Core — hernia safe', bodyweight: true },
+    ]
+  },
+  {
+    id: 'full-body-c', name: 'Full Body C', focus: 'Balanced performance', programme: 'full-body-cv',
+    exercises: [
+      { name: 'Leg Press', sets: 3, reps: '8–12', rest: '180s', note: 'Controlled depth' },
+      { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'DB'], aliases: ['Machine Shoulder Press'] },
+      { name: 'Seated Cable Row', sets: 3, reps: '10–12', rest: '75s', note: 'Not rope attachment' },
+      { name: 'Machine Chest Press', sets: 2, reps: '10–12', rest: '90s' },
+      { name: 'Incline Single Cable Curl', sets: 2, reps: '12–15', rest: '60s' },
+      { name: 'Lying Leg Curl', sets: 3, reps: '10–12', rest: '60s' },
+    ]
+  },
+  { id: 'cv-pump', name: 'CV + Pump', focus: 'One weak-point lift + cardio', programme: 'full-body-cv', cardio: true }
+];
+
+const TRAINING_PROGRAMMES = [
+  {
+    id: 'upper-lower',
+    name: 'Upper / Lower Training Programme',
+    focus: 'Upper A, Lower A, Upper B, Lower B'
+  },
+  {
+    id: 'full-body-cv',
+    name: 'Full Body + CV Training Programme',
+    focus: '3 strength days, 2 CV + pump days'
+  }
 ];
 
 let selectedEnergy = 0;
 let selectedSession = null;
+let selectedProgramme = null;
 let previousSets = {};
 let selectedVariations = {};
 let editSelectedVariations = {};
@@ -283,29 +330,84 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   });
 }
 
-// ─── SESSION GRID ─────────────────────────────────────────
-async function buildSessionGrid() {
+// ─── PROGRAMME / SESSION GRID ─────────────────────────────
+function getSessionById(id) {
+  return SESSIONS.find(s => s.id === id);
+}
+
+async function buildSessionGrid(programmeId = null) {
   const grid = document.getElementById('session-grid');
+  const sub = document.getElementById('workout-subtitle');
+  if (!grid) return;
+
+  // Programme picker first. Session picker second.
+  if (!programmeId) {
+    selectedProgramme = null;
+    grid.innerHTML = '';
+    if (sub) sub.textContent = 'Choose your training programme';
+
+    TRAINING_PROGRAMMES.forEach(p => {
+      const btn = document.createElement('div');
+      btn.className = 'session-btn programme-btn';
+      btn.id = `programme-btn-${p.id}`;
+      btn.innerHTML = `<div class="session-name">${p.name}</div><div class="session-focus">${p.focus}</div>`;
+      btn.onclick = () => showProgrammeSessions(p.id);
+      grid.appendChild(btn);
+    });
+    return;
+  }
+
+  selectedProgramme = programmeId;
+  if (sub) sub.textContent = 'Choose your session';
+
   // Fetch data BEFORE clearing grid — prevents concurrent calls racing and both appending to same empty grid
   // Only count as "done" if completed_at is set — an in-progress workout (Mark Done but no Save Workout) should NOT lock the session
   const todayWorkouts = await sb(`workouts?date=eq.${todayStr()}&completed_at=not.is.null&select=session_type`);
   grid.innerHTML = '';
   const doneTodaySessions = new Set((todayWorkouts || []).map(w => w.session_type));
+  const sessions = SESSIONS.filter(s => s.programme === programmeId);
 
-  SESSIONS.forEach(s => {
+  const back = document.createElement('div');
+  back.className = 'session-btn';
+  back.innerHTML = `<div class="session-name">← Programmes</div><div class="session-focus">Back to programme selection</div>`;
+  back.onclick = () => resetSessionSelection(true);
+  grid.appendChild(back);
+
+  sessions.forEach(s => {
     const btn = document.createElement('div');
     btn.className = 'session-btn';
     btn.id = `session-btn-${s.id}`;
     if (doneTodaySessions.has(s.id)) btn.classList.add('done');
-    btn.innerHTML = `<div class="session-day">${s.day}</div><div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>${doneTodaySessions.has(s.id) ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
+    btn.innerHTML = `<div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>${doneTodaySessions.has(s.id) ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
     btn.onclick = () => selectSession(s, btn);
     grid.appendChild(btn);
   });
 }
 
+function showProgrammeSessions(programmeId) {
+  selectedProgramme = programmeId;
+  buildSessionGrid(programmeId);
+}
+
 async function selectSession(session, btn) {
   if (btn.classList.contains('done')) {
     if (!confirm(`You already logged ${session.name} today. Log again?`)) return;
+  }
+
+  if (session.cardio) {
+    selectedSession = session;
+    selectedVariations = {};
+    document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    currentWorkoutId = null;
+    currentWorkoutHasSets = false;
+
+    document.getElementById('session-grid').style.display = 'none';
+    document.getElementById('session-pill').style.display = 'flex';
+    document.getElementById('session-pill-name').textContent = session.name;
+    document.getElementById('conditioning-form').style.display = 'block';
+    document.getElementById('workout-logger').style.display = 'none';
+    return;
   }
 
   // Check if ANY session is currently in progress today (completed_at IS NULL).
@@ -328,25 +430,14 @@ async function selectSession(session, btn) {
       if (!confirm(`You have an in-progress ${existingName} session. Start ${session.name} instead? (${existingName} will stay saved, you can resume it later.)`)) {
         return;
       }
-      // User confirmed — create fresh workout row for new session immediately (not conditioning).
-      if (session.id !== 'conditioning') {
-        currentWorkoutId = await createWorkoutRow(session.id);
-        currentWorkoutHasSets = false;
-        if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return; }
-      } else {
-        currentWorkoutId = null;
-        currentWorkoutHasSets = false;
-      }
-    }
-  } else {
-    if (session.id !== 'conditioning') {
       currentWorkoutId = await createWorkoutRow(session.id);
       currentWorkoutHasSets = false;
       if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return; }
-    } else {
-      currentWorkoutId = null;
-      currentWorkoutHasSets = false;
     }
+  } else {
+    currentWorkoutId = await createWorkoutRow(session.id);
+    currentWorkoutHasSets = false;
+    if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return; }
   }
 
   selectedSession = session;
@@ -354,20 +445,11 @@ async function selectSession(session, btn) {
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
 
-  if (session.id === 'conditioning') {
-    document.getElementById('session-grid').style.display = 'none';
-document.getElementById('session-pill').style.display = 'flex';
-document.getElementById('session-pill-name').textContent = session.name;
-document.getElementById('conditioning-form').style.display = 'block';
-document.getElementById('workout-logger').style.display = 'none';
-    return;
-  }
-
   document.getElementById('session-grid').style.display = 'none';
-document.getElementById('session-pill').style.display = 'flex';
-document.getElementById('session-pill-name').textContent = session.name;
-document.getElementById('conditioning-form').style.display = 'none';
-document.getElementById('workout-logger').style.display = 'block';
+  document.getElementById('session-pill').style.display = 'flex';
+  document.getElementById('session-pill-name').textContent = session.name;
+  document.getElementById('conditioning-form').style.display = 'none';
+  document.getElementById('workout-logger').style.display = 'block';
   buildWorkoutLogger(session);
 }
 
@@ -665,8 +747,8 @@ function selectEditVariation(exName, variation, btn) {
     }
   }
 }
-// Called when "Log Workout" title is tapped — warns if data exists, then resets back to grid
-function resetSessionSelection() {
+// Called when "Log Workout" title is tapped — warns if data exists, then resets back to programme/session grid
+function resetSessionSelection(toProgrammePicker = false) {
   if (selectedSession) {
     const hasData = selectedSession.exercises?.some(ex => {
       for (let i = 1; i <= ex.sets; i++) {
@@ -687,13 +769,18 @@ function resetSessionSelection() {
   selectedSession = null;
   currentWorkoutId = null;
   localStorage.removeItem('workout_draft');
+
   document.getElementById('session-grid').style.display = 'grid';
   document.getElementById('session-pill').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'none';
-  document.getElementById('session-grid').style.display = 'grid';
-document.getElementById('session-pill').style.display = 'none';
   document.getElementById('conditioning-form').style.display = 'none';
-  buildSessionGrid();
+
+  if (toProgrammePicker) {
+    selectedProgramme = null;
+    buildSessionGrid();
+  } else {
+    buildSessionGrid(selectedProgramme);
+  }
 }
 
 // ─── SAVE WORKOUT ─────────────────────────────────────────
@@ -709,25 +796,54 @@ async function saveWorkout() {
   localStorage.removeItem('workout_draft');
   currentWorkoutHasSets = false;
   currentWorkoutId = null;
-  buildSessionGrid();
+  document.getElementById('session-grid').style.display = 'grid';
+  buildSessionGrid(selectedProgramme);
   document.getElementById('workout-logger').style.display = 'none';
   document.getElementById('conditioning-form').style.display = 'none';
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   selectedSession = null;
 }
 
-// ─── SAVE CONDITIONING ────────────────────────────────────
+// ─── SAVE CONDITIONING / CV + PUMP ────────────────────────
 async function saveConditioning() {
-  const activity = document.getElementById('cond-activity').value.trim();
-  if (!activity) { showToast('Add an activity first', 'error'); return; }
+  const pumpFocus = document.getElementById('cond-pump-focus').value;
+  const pumpMethod = document.getElementById('cond-pump-method').value.trim();
+  const activity = document.getElementById('cond-activity').value;
+  const duration = parseInt(document.getElementById('cond-duration').value) || null;
+  const intensity = document.getElementById('cond-intensity').value;
+  const notes = document.getElementById('cond-notes').value.trim();
+
+  if (!activity) { showToast('Add a cardio type first', 'error'); return; }
+
+  const summary = [
+    `Pump: ${pumpFocus}${pumpMethod ? ` — ${pumpMethod}` : ''}`,
+    `Cardio: ${activity}${duration ? ` — ${duration} mins` : ''} — ${intensity}`,
+    notes ? `Notes: ${notes}` : ''
+  ].filter(Boolean).join('\n');
+
   await sb('conditioning_logs', 'POST', {
     date: todayStr(),
     activity,
-    duration_mins: parseInt(document.getElementById('cond-duration').value) || null,
-    notes: document.getElementById('cond-notes').value || null
+    duration_mins: duration,
+    notes: summary
   });
-  showToast('Conditioning logged!', 'success');
-  ['cond-activity','cond-duration','cond-notes'].forEach(id => document.getElementById(id).value = '');
+
+  const workoutId = await createWorkoutRow('cv-pump');
+  if (workoutId) {
+    await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${workoutId}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: summary, completed_at: new Date().toISOString() })
+    });
+  }
+
+  showToast('CV + Pump logged!', 'success');
+  ['cond-pump-method','cond-duration','cond-notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('session-grid').style.display = 'grid';
+  document.getElementById('session-pill').style.display = 'none';
+  document.getElementById('conditioning-form').style.display = 'none';
+  selectedSession = null;
+  buildSessionGrid(selectedProgramme);
 }
 
 // ─── DAILY LOG ────────────────────────────────────────────
@@ -1138,6 +1254,7 @@ function showPage(name) {
     document.getElementById('session-grid').style.display = 'grid';
     document.getElementById('session-pill').style.display = 'none';
     document.getElementById('workout-logger').style.display = 'none';
+    document.getElementById('conditioning-form').style.display = 'none';
   }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -1344,7 +1461,7 @@ async function deleteWorkout(workoutId) {
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
   });
   showToast('Workout deleted', 'success');
-  buildSessionGrid();
+  buildSessionGrid(selectedProgramme);
   loadHistory();
 }
 
