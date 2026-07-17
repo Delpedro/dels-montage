@@ -241,9 +241,10 @@ async function autoCloseStaleWorkouts() {
 async function initApp(page = 'home') {
   const now = new Date();
   document.getElementById('topbar-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  document.getElementById('log-date').max = todayStr();
   await autoCloseStaleWorkouts();  // Clean up orphans from >24hrs ago before rendering the session grid
   buildSessionGrid();
-  loadTodayLog();
+  loadDailyLog();
   showPage(page);
 }
 
@@ -847,14 +848,15 @@ async function saveConditioning() {
 }
 
 // ─── DAILY LOG ────────────────────────────────────────────
-async function loadTodayLog() {
+async function loadDailyLog(date = todayStr()) {
+  document.getElementById('log-date').value = date;
   document.getElementById('log-weight').value = '';
   document.getElementById('log-steps').value = '';
   document.getElementById('log-cals').value = '';
   document.getElementById('log-fasting').value = '';
   document.getElementById('log-notes').value = '';
   setEnergy(0);
-  const logs = await sb(`daily_logs?date=eq.${todayStr()}&select=*`);
+  const logs = await sb(`daily_logs?date=eq.${date}&select=*`);
   if (logs && logs.length > 0) {
     const l = logs[0];
     if (l.weight_kg) document.getElementById('log-weight').value = l.weight_kg;
@@ -867,8 +869,9 @@ async function loadTodayLog() {
 }
 
 async function saveDailyLog() {
+  const date = document.getElementById('log-date').value || todayStr();
   const data = {
-    date: todayStr(),
+    date,
     weight_kg: parseFloat(document.getElementById('log-weight').value) || null,
     steps: parseInt(document.getElementById('log-steps').value) || null,
     calories: parseInt(document.getElementById('log-cals').value) || null,
@@ -876,9 +879,9 @@ async function saveDailyLog() {
     energy: selectedEnergy || null,
     notes: document.getElementById('log-notes').value || null
   };
-  const existing = await sb(`daily_logs?date=eq.${todayStr()}&select=id`);
+  const existing = await sb(`daily_logs?date=eq.${date}&select=id`);
   if (existing && existing.length > 0) {
-    await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${todayStr()}`, {
+    await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${date}`, {
       method: 'PATCH',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -886,7 +889,7 @@ async function saveDailyLog() {
   } else {
     await sb('daily_logs', 'POST', data);
   }
-  showToast('Check-in saved!', 'success');
+  showToast(date === todayStr() ? 'Check-in saved!' : `Check-in saved for ${date}!`, 'success');
 }
 
 function setEnergy(val) {
@@ -1269,7 +1272,7 @@ function showPage(name) {
   if (name === 'home') loadHomePage();
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
-  if (name === 'today') loadTodayLog();
+  if (name === 'today') loadDailyLog();
   }
 
 // ─── EDIT CHECK-IN MODAL ──────────────────────────────────

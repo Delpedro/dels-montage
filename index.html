@@ -76,6 +76,10 @@
   <div class="page" id="page-today">
     <div class="section-title">Daily Check-in</div>
     <div class="card">
+      <div class="field-group">
+        <label class="field-label">Date</label>
+        <input type="date" class="field-input" id="log-date" title="Check-in date" onchange="loadDailyLog(this.value)" />
+      </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
         <div class="field-group">
           <label class="field-label">Weight (kg)</label>
