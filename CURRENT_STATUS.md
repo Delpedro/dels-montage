@@ -1,5 +1,5 @@
 CURRENT STATUS — D-Log
-Last updated: Wednesday 23 April 2026
+Last updated: Friday 17 July 2026
 
 ---
 
@@ -59,13 +59,21 @@ Approach 1 is considered most reliable. Best tried together with the PWA service
 - Stats weight graph — weekly average trend instead of daily dots (gaps on skipped days look bad)
 - Graph audit — review all charts, shift from daily to weekly trend view where appropriate
 - Saturday conditioning: named exercises with variation toggle
-- Programme B (3–5 rep heavy strength) + Programme C (15–20 reps)
-- Workout types in DB — session grid needs programme picker when multiple programmes exist
+- ~~Workout types in DB — session grid needs programme picker when multiple programmes exist~~ ✅ (shipped 11 May — `TRAINING_PROGRAMMES` + `buildSessionGrid(programmeId)`, undocumented until this update)
+
+**More training programmes + freeform picker (PARKED — discussed 17 Jul, not built)**
+User's actual recent training is ad hoc (e.g. a real "total body" session: Incline Smith, Shoulder Press Smith, Lower Back Pull, Hack Squat, Dips w/ Single Cable Curl, Pulley Tricep Pushdowns w/ Bar Bicep Curls, Seated Calf Raises, Lower Leg Raises — and a leg day using supersets: Seated Calf Raise s/s Standing Single Leg Curl, Leg Press Calf Raise, Leg Press, Single-Leg RDL s/s Goblet Squat, Adductor/Abductor Machine). Plan drafted then shelved so Daily Check-in could ship first — full plan (fixed PPL + 5-day-split programmes, `EXERCISE_LIBRARY` flattened from `SESSIONS`, a "Pick Your Own" freeform session type, `beginWorkoutSession()` refactor, freeform-scoped prev-lift lookup, `openEditWorkout`/`saveEditWorkout` fallback for non-SESSIONS session types) is saved at `C:\Users\User\.claude\plans\graceful-wishing-gizmo.md` on this machine — read it before restarting this work, don't re-derive from scratch.
+
+Two open decisions surfaced but NOT resolved — ask user again next session:
+
+1. **Supersets** — no data model or UI for pairing two exercises today. User's own instinct: ship a few test programmes first, decide after seeing them in use.
+2. **New exercise cataloguing** — Lower Back Pull, Bar Bicep Curl, Dips, Goblet Squat, Single-Leg RDL, Standing Single Leg Curl, Leg Press Calf Raise, Adductor/Abductor Machine, Lower Leg Raises aren't in `SESSIONS` yet. User floated "a toggle to allow it anytime" (add-exercise-on-the-fly) but was unsure of the mechanism and worried about breaking existing patterns — needs a proper design conversation, not a guess.
 
 **Phase 2**
 - Proper Supabase auth + Vercel, user_id on all tables, RLS
 
 **Done**
+- ~~Daily Check-in date picker — backfill past days~~ ✅
 - ~~Pallof null fix in edit modal~~ ✅
 - ~~Stopwatch — inline per-exercise, wall-clock based, survives lock/background/navigation/refresh~~ ✅
 - ~~Audio beep on rest complete~~ ✅
@@ -117,6 +125,18 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 
 <details open>
 <summary>✅ Recent Bug Fixes</summary>
+
+**17 Jul — Daily Check-in date picker (DEPLOYED, UAT passed on iPhone)**
+
+Added a date field to Daily Check-in so past days can be backfilled — previously `loadTodayLog()`/`saveDailyLog()` hardcoded `todayStr()` with no way to log a missed day, and History's edit modal only PATCHes existing rows (can't create one for a day with no row).
+
+`loadTodayLog()` renamed to `loadDailyLog(date = todayStr())`, both it and `saveDailyLog()` now read/write against the date in a new `#log-date` input instead of hardcoded today. Date input capped at today (`max` attribute) to block future-dating. Defaults back to today every time the Check-in page is opened — backfilling a past day requires an explicit pick each visit, so you can't land on a stale date by accident.
+
+Also fixed on iOS Chrome: the native `<input type="date">` rendered its own pill-shaped control nested inside the app's custom `.field-input` box, producing an overlapping double-rounded-rect look. Fixed with `-webkit-appearance: none; appearance: none; color-scheme: dark;` scoped to `input[type="date"].field-input`.
+
+App is hosted on GitHub Pages (`delpedro.github.io/dels-montage/`), auto-deploys from `main` on push — confirmed via `gh api repos/Delpedro/dels-montage/pages`. `npm start` (live-server) is local-dev-only, not how the phone accesses it day to day. Note for future UAT: GitHub Pages/Fastly CDN cache is short (`max-age=600`) but browsers (especially iOS Chrome) can hold a stale cached copy well past that — use a private/incognito tab to verify a fresh deploy rather than trusting a normal tab reload.
+
+---
 
 **28 Apr — band exercise save failure + incomplete-rest save failure (DEPLOYED)**
 

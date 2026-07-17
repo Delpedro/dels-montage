@@ -84,9 +84,25 @@ Special exercise flags:
 
 Conditioning (id: `'conditioning'`) has no exercises array — shows a free-text form instead.
 
+Each session also has a `programme` field (e.g. `'upper-lower'`, `'full-body-cv'`) grouping it under a `TRAINING_PROGRAMMES` entry — see below. (Added 11 May, previously undocumented here.)
+
 ---
 
-## Workout Logging Flow (lines 287–719)
+## Programme Picker (added 11 May 2026 — not covered by the line numbers below, which predate it)
+
+`TRAINING_PROGRAMMES` — array of `{ id, name, focus }`, one entry per training programme (currently: Upper/Lower, Full Body + CV).
+
+`buildSessionGrid(programmeId = null)` is now two-mode:
+- `programmeId` falsy → renders `TRAINING_PROGRAMMES` as tiles (`showProgrammeSessions(id)` on tap), sets `selectedProgramme = null`
+- `programmeId` given → renders `SESSIONS.filter(s => s.programme === programmeId)` as session tiles, plus a "← Programmes" back tile
+
+`selectedProgramme` (module-level var) tracks which mode is active. `resetSessionSelection(toProgrammePicker)` — `true` goes all the way back to the programme picker, `false` (default, used by the pill's "change" link and the "Log Workout" title tap) stays within the current programme.
+
+More programmes (Push/Pull/Legs, a 5-day split) and a freeform "pick your own exercises" mode were discussed 17 Jul but not built — see CURRENT_STATUS.md backlog and the saved plan at `C:\Users\User\.claude\plans\graceful-wishing-gizmo.md`.
+
+---
+
+## Workout Logging Flow (lines 287–719, predates the 11 May programme picker — line numbers approximate)
 
 ### Selecting a session
 `buildSessionGrid()` (line 287) — renders session buttons, marks done ones green (only counts `completed_at IS NOT NULL`).
@@ -179,13 +195,15 @@ Timer state persisted to `sessionStorage('sw_state')` so it survives navigating 
 
 ---
 
-## Daily Check-in (lines 736–783)
+## Daily Check-in (lines ~850–900)
 
-`loadTodayLog()` (line 736) — always clears fields first, then fetches today's row and populates if found.
+`loadDailyLog(date = todayStr())` — resets `#log-date` to today, clears fields, then fetches the given date's row and populates if found. Called with no args on page nav (always resets to today first — backfilling a past day requires an explicit re-pick each visit).
 
-`saveDailyLog()` (line 755) — checks if today's row exists: PATCH if yes, POST if no.
+`saveDailyLog()` — reads the date from `#log-date` (falls back to `todayStr()` if empty), checks if a row for that date exists: PATCH if yes, POST if no. This existing PATCH/POST branching is what makes backfilling work — no separate "create" path was needed once the date stopped being hardcoded.
 
-`setEnergy(val)` (line 778) — sets `selectedEnergy`, toggles `.selected` on emoji buttons. Called with `0` to deselect all.
+`setEnergy(val)` — sets `selectedEnergy`, toggles `.selected` on emoji buttons. Called with `0` to deselect all.
+
+`index.html` `#log-date` — `<input type="date">`, `max` set to today in `initApp()` to block future-dating. Needs `-webkit-appearance:none; appearance:none; color-scheme:dark` (see CSS Layout section below) or iOS renders its own nested pill control inside `.field-input`, causing a visual double-box overlap.
 
 ---
 
@@ -241,6 +259,8 @@ Dark theme. CSS variables in `:root` for all colours.
 - `.page` — `display:none` by default; `.page.active { display:block }`
 
 **Fonts:** Bebas Neue (headings/numbers), DM Sans (body), DM Mono (set inputs, badges)
+
+**Native `<input type="date">` on iOS**: needs `-webkit-appearance:none; appearance:none; color-scheme:dark` (see `input[type="date"].field-input` in style.css) or WebKit renders its own pill-shaped control nested inside the custom `.field-input` box — visible as an overlapping double-rounded-rect.
 
 ---
 
