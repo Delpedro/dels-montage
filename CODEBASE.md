@@ -1,8 +1,8 @@
 # D-LOG Codebase Reference
 
 Single-file SPA. No framework, no build step. Two files do all the work:
-- `js/app.js` — all logic (~1638 lines)
-- `css/style.css` — all styles (~373 lines)
+- `js/app.js` — all logic (~2006 lines as of 17 Jul)
+- `css/style.css` — all styles (~394 lines as of 17 Jul)
 - `index.html` — static shell, no logic
 
 Backend is Supabase (Postgres + REST API). All DB calls go through one helper: `sb()` at line 73.
@@ -33,10 +33,11 @@ No sessions, no JWT. On login, password is SHA-256 hashed client-side and compar
 
 ```
 initApp(page = 'home')
-  └─ sets topbar date
+  └─ sets topbar date, #log-date max
   └─ autoCloseStaleWorkouts()   — closes in-progress workouts >24hrs old
+  └─ loadCustomExercises()      — merges custom_exercises into EXERCISE_LIBRARY, fire-and-forget
   └─ buildSessionGrid()
-  └─ loadTodayLog()
+  └─ loadDailyLog()
   └─ showPage(page)
 ```
 
@@ -49,7 +50,7 @@ initApp(page = 'home')
 2. Adds `.active` to `#page-{name}` and `#nav-{name}`
 3. Saves current page to `sessionStorage('del_page')` (survives reload)
 4. Resets scroll via `requestAnimationFrame` → `documentElement.scrollTop = 0; body.scrollTop = 0`
-5. Calls the loader for that page: `loadHomePage()`, `loadStats()`, `loadHistory()`, `loadTodayLog()`
+5. Calls the loader for that page: `loadHomePage()`, `loadStats()`, `loadHistory()`, `loadDailyLog()`
 
 Pages: `home`, `today`, `workout`, `stats`, `history`
 
@@ -65,6 +66,7 @@ Pages: `home`, `today`, `workout`, `stats`, `history`
 | `workout_sets` | `workout_id`, `exercise`, `set_number`, `weight`, `reps`, `variation`, `rest_seconds` | Individual sets |
 | `conditioning_logs` | `date`, `activity`, `duration_mins`, `notes` | Saturday cardio |
 | `quotes` | `quote`, `author` | Home page quote |
+| `custom_exercises` | `name` (unique) | Names typed into Open Workout's "+ Type a new exercise…" — added 17 Jul, manual `create table` (see Open Workout section) |
 
 `completed_at = null` means a workout is in-progress. `autoCloseStaleWorkouts()` (line 179) stamps these with `now` if they're >24hrs old.
 
@@ -98,7 +100,9 @@ Each session also has a `programme` field (e.g. `'upper-lower'`, `'full-body-cv'
 
 `selectedProgramme` (module-level var) tracks which mode is active. `resetSessionSelection(toProgrammePicker)` — `true` goes all the way back to the programme picker, `false` (default, used by the pill's "change" link and the "Log Workout" title tap) stays within the current programme.
 
-More programmes (Push/Pull/Legs, a 5-day split) and a freeform "pick your own exercises" mode were discussed 17 Jul but not built — see CURRENT_STATUS.md backlog and the saved plan at `C:\Users\User\.claude\plans\graceful-wishing-gizmo.md`.
+An **"Open Workout"** tile also sits on this top-level screen, alongside the `TRAINING_PROGRAMMES` cards — it's not a programme (no sub-sessions), tapping it goes straight into the logger. See the dedicated Open Workout section below.
+
+Push/Pull/Legs and a 5-day split (additional *fixed* programmes) were discussed 17 Jul but not built — see CURRENT_STATUS.md backlog. (Note: the plan file previously referenced here has since been overwritten with the Open Workout plan — there's no saved plan for this anymore.)
 
 ---
 
@@ -107,27 +111,35 @@ More programmes (Push/Pull/Legs, a 5-day split) and a freeform "pick your own ex
 ### Selecting a session
 `buildSessionGrid()` (line 287) — renders session buttons, marks done ones green (only counts `completed_at IS NOT NULL`).
 
-`selectSession(session, btn)` (line 306):
+`selectSession(session, btn)` (~line 415, since the 17 Jul refactor below):
+1. Handles the cardio (`cv-pump`) special case directly (no workout row)
+2. Otherwise delegates the in-progress/resume/warn-and-switch/row-creation logic to `beginWorkoutSession(session)` (see below)
+3. Hides grid, shows session pill + workout logger (or conditioning form)
+4. Calls `buildWorkoutLogger(session)`
+
+`beginWorkoutSession(session)` (~line 425, extracted 17 Jul so Open Workout's `startOpenWorkout()` can reuse it):
 1. Checks for in-progress workout today (`completed_at IS NULL`)
 2. If same session → adopt existing `currentWorkoutId` (resume), set `currentWorkoutHasSets = true`
-3. If different session → warn user, then call `createWorkoutRow()` for the new session
+3. If different session → warn user (via `sessionDisplayName()`), then call `createWorkoutRow()` for the new session
 4. If no in-progress → call `createWorkoutRow()` for fresh start
-5. For conditioning sessions: skip workout row creation (`currentWorkoutId = null`)
-6. If `createWorkoutRow()` returns null (network/DB failure) → show error toast, abort
-7. Hides grid, shows session pill + workout logger (or conditioning form)
-8. Calls `buildWorkoutLogger(session)`
+5. If `createWorkoutRow()` returns null (network/DB failure) → show error toast, return `false`
+6. On success: sets `selectedSession`, resets `selectedVariations`, returns `true`
 
 `createWorkoutRow(sessionId)` (line 89):
 - POSTs to `workouts` with `Prefer: return=representation` — gets the new row's `id` back directly (no follow-up GET)
 - Returns the UUID on success, `null` on failure
 
 ### Building the logger
-`buildWorkoutLogger(session)` (line 375):
-1. Fetches last 2 workouts for this session type to get previous set data
-2. Builds HTML: one `.exercise-block` per exercise, each with N set rows
-3. Set row layout (CSS grid): `[set#] [weight input] [reps input] [prev badge]`
+`renderExerciseBlock(ex, session)` (~line 519, extracted 17 Jul) — builds the HTML for one exercise block (header, variation toggle, set rows, Mark Done button, and a "✕" remove button if `session.id === 'open'`). Pure function of `ex` + the module-level `previousSets{}` — reused for fixed-session rendering, Open Workout's initial render, and dynamic append via the Add Exercise dropdown.
+
+`loadPreviousSetsForSession(session)` (~line 598) — populates `previousSets{}`. Fixed sessions: last workout of that `session_type`. Open Workout: delegates to `fetchOpenPreviousSets()` (see Open Workout section) — scoped to past Open Workouts only.
+
+`buildWorkoutLogger(session)` (~line 655):
+1. For Open Workout: merges in any exercises the draft remembers but the DB doesn't have saved sets for yet (`peekDraftOpenExercises()`) — covers a refresh before Mark Done
+2. Calls `loadPreviousSetsForSession(session)`
+3. Builds HTML via `renderExerciseBlock()` per exercise; for Open Workout, appends the Add Exercise row too
 4. Calls `restoreDraft(session)` to repopulate any saved inputs
-5. If `currentWorkoutId` exists (resume): fetches saved sets (weight, reps, rest_seconds), paints rest lines, fills empty inputs from DB, marks completed exercises green
+5. If `currentWorkoutId` exists (resume): fetches saved sets (weight, reps, rest_seconds), paints rest lines, fills empty inputs from DB, marks completed exercises green (and hides their "✕" remove button)
 
 ### Marking an exercise done
 `completeExercise(exName)` (line 591):
@@ -152,9 +164,36 @@ More programmes (Push/Pull/Legs, a 5-day split) and a freeform "pick your own ex
 - Clears draft, rebuilds session grid
 
 ### Draft auto-save
-`saveDraft(sessionId)` (line 511) — called on every input event. Serialises all set inputs + notes + `pendingRest` to `localStorage('workout_draft')`. Expires after 24hrs.
+`saveDraft(sessionId)` (line 511) — called on every input event. Serialises all set inputs + notes + `pendingRest` to `localStorage('workout_draft')`. For Open Workout, also saves `draft.openExercises` (the list of exercise names added so far) — DB reconstruction alone only knows about *saved* sets, so a refresh before Mark Done would otherwise lose an added-but-empty block. Expires after 24hrs.
 
 `restoreDraft(session)` (line 532) — called at end of `buildWorkoutLogger`. Reads draft, checks sessionId matches, populates inputs and rest lines.
+
+---
+
+## Open Workout (added 17 Jul 2026)
+
+An alternative to the fixed `SESSIONS` templates — pick exercises from a dropdown as you go, instead of following a pre-built list. `'open'` is deliberately **not** added to `SESSIONS`; its exercise list is per-workout, not a template, so `SESSIONS.find(s => s.id === 'open')` correctly returns `undefined` everywhere and the code paths below handle that explicitly.
+
+**`EXERCISE_LIBRARY`** (line 107, `buildExerciseLibrary()`) — flattens `SESSIONS[].exercises` deduped by name (first occurrence wins), keyed by name. `loadCustomExercises()` (line 117) merges in `custom_exercises` rows at app init (fire-and-forget, not awaited — see `initApp`). Custom entries get a default shape (`sets:3, reps:'8–12', rest:'90s'`, no variations/band/bodyweight).
+
+**Entry point**: a tile on the top-level programme picker (see Programme Picker section) calls `startOpenWorkout()` (line 720):
+1. Builds `{ id: 'open', name: 'Open Workout', exercises: [] }`, calls `beginWorkoutSession()`
+2. If resuming an in-progress Open Workout, fetches its saved `workout_sets` and rebuilds the exercise list via `reconstructSessionFromSets()`
+3. Shows the logger, calls `buildWorkoutLogger()` — which also merges in any draft-only (not-yet-saved) exercises before rendering
+
+**The Add Exercise dropdown**: `renderAddExerciseRow()` (line 740) + `openExerciseSelectOptionsHtml()` (line 749) build a `<select>` of `EXERCISE_LIBRARY` names not already in the session, plus "+ Type a new exercise…". `handleOpenExerciseSelect()` routes to:
+- `addOpenExercise(name)` (line 796) — looks up the def, pushes it into `selectedSession.exercises`, fetches its prev-lift data, and inserts a rendered block (`renderExerciseBlock()`) directly into the DOM just above the Add Exercise row — doesn't touch other already-filled-in blocks. Calls `saveDraft('open')` so the addition survives a refresh.
+- `promptCustomExercise()` (line 773) — `prompt()`s for a name, rejects `'`/`"`/`` ` `` (these flow into inline `onclick="...('${name}')"` handlers throughout the app — a pre-existing pattern, newly reachable now that names can be free-typed instead of only hardcoded), checks for an existing `custom_exercises` row before POSTing a new one, then calls `addOpenExercise()`.
+
+`removeOpenExercise(name)` (line 815) — the "✕" on each not-yet-Mark-Done'd block (hidden once Mark Done fires, same as the other done-state styling). Pulls the exercise back out of `selectedSession.exercises` and the DOM, re-renders the dropdown options.
+
+**Previous-lift lookup**: `fetchOpenPreviousSets(exNames)` (line 617) — deliberately scoped to past Open Workouts only (`session_type=eq.open`), not fixed-programme history for the same exercise. Fetches the last ~20 completed Open workouts, then their `workout_sets` filtered to the requested exercise names via a PostgREST `in.()` filter, keeping only the sets from the most recent workout that actually contained each exercise (a single "last Open workout" won't reliably contain every exercise picked this time, since they vary session to session).
+
+**History editing**: `openEditWorkout()`/`saveEditWorkout()` both fall back to `reconstructSessionFromSets(sets)` (line 503) when `SESSIONS.find()` comes up empty — rebuilds a synthetic `{ exercises: [...] }` from the distinct exercise names + max `set_number` actually saved, enriched via `EXERCISE_LIBRARY` for `bodyweight`/`band`/`variations` flags where the name matches. This was previously dead code (every `session_type` used to come from `SESSIONS`) — now load-bearing for Open Workout.
+
+**Display name**: `sessionDisplayName(sessionType)` (line 496) — `'open'` → `'Open Workout'`, else the usual `SESSIONS.find(...)?.name || sessionType`. Used everywhere a session name is shown (recent workouts, history cards, history search, history filter dropdown, edit modal title) so Open Workout doesn't show up as the raw string `'open'`.
+
+**Known unconfirmed risk**: if `workouts.session_type` has a dashboard-added CHECK constraint (possible, given the CLI v2.84.2 migration bug's history — see Toolchain Audit in CURRENT_STATUS.md), inserting `'open'` could 400. Not yet hit in testing as of 17 Jul, but watch for it.
 
 ---
 

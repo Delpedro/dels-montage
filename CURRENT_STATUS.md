@@ -60,19 +60,19 @@ Approach 1 is considered most reliable. Best tried together with the PWA service
 - Graph audit — review all charts, shift from daily to weekly trend view where appropriate
 - Saturday conditioning: named exercises with variation toggle
 - ~~Workout types in DB — session grid needs programme picker when multiple programmes exist~~ ✅ (shipped 11 May — `TRAINING_PROGRAMMES` + `buildSessionGrid(programmeId)`, undocumented until this update)
+- ~~Freeform "pick your own exercises" mode~~ ✅ shipped 17 Jul as **Open Workout** — see Recent Bug Fixes below. UAT pending (gym test morning of 18 Jul) — check the top of this doc / TDLR.md next session for the outcome before assuming it's solid.
 
-**More training programmes + freeform picker (PARKED — discussed 17 Jul, not built)**
-User's actual recent training is ad hoc (e.g. a real "total body" session: Incline Smith, Shoulder Press Smith, Lower Back Pull, Hack Squat, Dips w/ Single Cable Curl, Pulley Tricep Pushdowns w/ Bar Bicep Curls, Seated Calf Raises, Lower Leg Raises — and a leg day using supersets: Seated Calf Raise s/s Standing Single Leg Curl, Leg Press Calf Raise, Leg Press, Single-Leg RDL s/s Goblet Squat, Adductor/Abductor Machine). Plan drafted then shelved so Daily Check-in could ship first — full plan (fixed PPL + 5-day-split programmes, `EXERCISE_LIBRARY` flattened from `SESSIONS`, a "Pick Your Own" freeform session type, `beginWorkoutSession()` refactor, freeform-scoped prev-lift lookup, `openEditWorkout`/`saveEditWorkout` fallback for non-SESSIONS session types) is saved at `C:\Users\User\.claude\plans\graceful-wishing-gizmo.md` on this machine — read it before restarting this work, don't re-derive from scratch.
+**Push/Pull/Legs + 5-day split fixed programmes (STILL PARKED — not built)**
+Separate from Open Workout above. User wants these as additional fixed `TRAINING_PROGRAMMES` entries (pure data, same pattern as Upper/Lower and Full Body+CV — see CODEBASE.md's Programme Picker section). Not started. The plan file that used to describe this (`C:\Users\User\.claude\plans\graceful-wishing-gizmo.md`) has since been overwritten with the Open Workout plan — there is no saved plan for PPL/5-day-split anymore, it'll need re-planning from scratch if picked up.
 
-Two open decisions surfaced but NOT resolved — ask user again next session:
-
-1. **Supersets** — no data model or UI for pairing two exercises today. User's own instinct: ship a few test programmes first, decide after seeing them in use.
-2. **New exercise cataloguing** — Lower Back Pull, Bar Bicep Curl, Dips, Goblet Squat, Single-Leg RDL, Standing Single Leg Curl, Leg Press Calf Raise, Adductor/Abductor Machine, Lower Leg Raises aren't in `SESSIONS` yet. User floated "a toggle to allow it anytime" (add-exercise-on-the-fly) but was unsure of the mechanism and worried about breaking existing patterns — needs a proper design conversation, not a guess.
+**Supersets (STILL UNRESOLVED — not built)**
+No data model or UI for pairing two exercises (e.g. "Seated Calf Raise s/s Standing Single Leg Curl") today, even in Open Workout — each exercise is logged as an independent block. User's own instinct from 17 Jul: use Open Workout for a few real sessions first, decide whether supersets are worth building after seeing what's actually missing in practice. Don't build this unprompted — ask first.
 
 **Phase 2**
 - Proper Supabase auth + Vercel, user_id on all tables, RLS
 
 **Done**
+- ~~Open Workout — pick exercises from a dropdown, log as you go~~ ✅ (UAT pending — gym test 18 Jul morning)
 - ~~Daily Check-in date picker — backfill past days~~ ✅
 - ~~Pallof null fix in edit modal~~ ✅
 - ~~Stopwatch — inline per-exercise, wall-clock based, survives lock/background/navigation/refresh~~ ✅
@@ -125,6 +125,26 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 
 <details open>
 <summary>✅ Recent Bug Fixes</summary>
+
+**17 Jul — Open Workout: pick exercises from a dropdown, log as you go (DEPLOYED, UAT PENDING — gym test 18 Jul morning)**
+
+Real gym sessions had drifted away from the fixed Upper/Lower and Full Body+CV templates — user's actual recent training is ad hoc, picking whatever's relevant that day, including exercises the app didn't know about at all (Lower Back Pull, Dips, Goblet Squat, etc., named 17 Jul). Fixed-template programmes can't represent that. Full design conversation and the confirmed mechanism are in this session's transcript / the plan file used to build this (now overwritten at `C:\Users\User\.claude\plans\graceful-wishing-gizmo.md`).
+
+New "Open Workout" tile alongside the programme cards on the top-level picker (`buildSessionGrid`). Unlike every other session type, it has no fixed exercise list — the logger starts empty with an **Add Exercise** dropdown at the bottom (`renderAddExerciseRow`). Picking a name calls `addOpenExercise()`, which looks the exercise up in a new `EXERCISE_LIBRARY` (flattened + deduped from every exercise across all fixed `SESSIONS`, plus anything typed in via "+ Type a new exercise…") and inserts a normal exercise block — same sets/reps/rest/variations/weight table every other session uses — directly above the dropdown row, without touching already-filled-in blocks. A small "✕" on each not-yet-Mark-Done'd block removes a mis-pick.
+
+Typing a brand-new name POSTs it to a new `custom_exercises` Supabase table (manual `create table` run in the dashboard — same reasoning as always: the Supabase CLI v2.84.2 migration bug) so it persists into future Open Workout dropdowns from any device. Names containing `'`, `"`, or `` ` `` are rejected client-side — they'd break the inline `onclick="...('${name}')"` handlers the whole app already relies on for exercise names (pre-existing pattern, newly reachable now that names come from free-text `prompt()` instead of only hardcoded strings).
+
+`'open'` is deliberately **not** added to `SESSIONS` — its exercise list is per-workout, not a template. Two helpers make that safe: `sessionDisplayName(id)` (`'open'` → "Open Workout", else the usual `SESSIONS.find`) used everywhere a session name is displayed, and `reconstructSessionFromSets(sets)` which rebuilds an exercises list from what's actually saved in `workout_sets` — used both to resume an in-progress Open Workout and as the fallback in `openEditWorkout`/`saveEditWorkout` (which previously silently rendered nothing for any `session_type` not found in `SESSIONS` — dead code until now, since every session_type used to come from `SESSIONS`).
+
+Prev-lift badges for Open Workout exercises are scoped to past Open Workouts only (`fetchOpenPreviousSets`), not fixed-programme history for the same exercise — deliberate simplification, user's choice. A refresh mid-session before Mark Done doesn't lose an added-but-unsaved block: the draft (`saveDraft`/`localStorage`) now also remembers which exercise names were added (`draft.openExercises`), separately from DB-saved sets, and `buildWorkoutLogger` merges both sources before rendering.
+
+Also refactored: `beginWorkoutSession()` extracted from `selectSession()` (the in-progress/resume/warn-and-switch/eager-row-creation logic) so Open Workout's `startOpenWorkout()` can reuse it instead of duplicating ~30 lines of resume-sensitive logic. `renderExerciseBlock()` extracted from `buildWorkoutLogger()` so the same block-rendering code serves fixed sessions, Open Workout's initial render, and dynamic append.
+
+**Known unconfirmed risk**: same as always — if `workouts.session_type` has a dashboard-added CHECK constraint, inserting `'open'` could 400 on first save. Watch for this specifically during the 18 Jul gym UAT.
+
+**Whether the `custom_exercises` SQL was actually run before this session ended is unconfirmed** — if the "+ Type a new exercise…" flow doesn't remember a name between sessions, that's why; re-run the `create table custom_exercises (...)` SQL from earlier in this session's transcript. Nothing else about Open Workout depends on that table — logging, saving, and History all work regardless (verified: the POST failure path is silently absorbed, doesn't block `addOpenExercise`).
+
+---
 
 **17 Jul — Daily Check-in date picker (DEPLOYED, UAT passed on iPhone)**
 
