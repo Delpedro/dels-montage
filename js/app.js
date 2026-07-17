@@ -102,6 +102,27 @@ const TRAINING_PROGRAMMES = [
   }
 ];
 
+// ─── EXERCISE LIBRARY (for Open Workout's Add Exercise dropdown) ──
+// Flattened from SESSIONS, deduped by name (first occurrence wins), keyed by name for O(1) lookup.
+function buildExerciseLibrary() {
+  const map = {};
+  SESSIONS.forEach(s => {
+    (s.exercises || []).forEach(ex => { if (!map[ex.name]) map[ex.name] = ex; });
+  });
+  return map;
+}
+let EXERCISE_LIBRARY = buildExerciseLibrary();
+
+// Merges in custom_exercises rows (typed on the fly in Open Workout) — called once at app init.
+async function loadCustomExercises() {
+  const rows = await sb('custom_exercises?select=name&order=name.asc');
+  (rows || []).forEach(r => {
+    if (!EXERCISE_LIBRARY[r.name]) {
+      EXERCISE_LIBRARY[r.name] = { name: r.name, sets: 3, reps: '8–12', rest: '90s' };
+    }
+  });
+}
+
 let selectedEnergy = 0;
 let selectedSession = null;
 let selectedProgramme = null;
@@ -243,6 +264,7 @@ async function initApp(page = 'home') {
   document.getElementById('topbar-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   document.getElementById('log-date').max = todayStr();
   await autoCloseStaleWorkouts();  // Clean up orphans from >24hrs ago before rendering the session grid
+  loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
   buildSessionGrid();
   loadDailyLog();
   showPage(page);
@@ -355,6 +377,13 @@ async function buildSessionGrid(programmeId = null) {
       btn.onclick = () => showProgrammeSessions(p.id);
       grid.appendChild(btn);
     });
+
+    const openBtn = document.createElement('div');
+    openBtn.className = 'session-btn programme-btn';
+    openBtn.id = 'programme-btn-open';
+    openBtn.innerHTML = `<div class="session-name">Open Workout</div><div class="session-focus">Pick exercises as you go</div>`;
+    openBtn.onclick = () => startOpenWorkout();
+    grid.appendChild(openBtn);
     return;
   }
 
@@ -390,6 +419,44 @@ function showProgrammeSessions(programmeId) {
   buildSessionGrid(programmeId);
 }
 
+// Resolves in-progress/resume/warn-and-switch and eagerly creates the workout row.
+// Sets selectedSession/selectedVariations/currentWorkoutId/currentWorkoutHasSets on success.
+// Shared by selectSession() (fixed sessions) and startOpenWorkout() (Open Workout).
+async function beginWorkoutSession(session) {
+  // Check if ANY session is currently in progress today (completed_at IS NULL).
+  // This covers both the "resume same session" case (e.g. refreshed mid-Upper-A)
+  // AND the "switched session" case (started Upper A, now tapping Lower A).
+  const inProgress = await sb(`workouts?date=eq.${todayStr()}&completed_at=is.null&select=id,session_type`);
+
+  if (inProgress && inProgress.length > 0) {
+    const existing = inProgress[0];
+
+    if (existing.session_type === session.id) {
+      // SAME session tapped — silently adopt the existing workout row.
+      // buildWorkoutLogger + restoreDraft will rehydrate inputs & rest times.
+      currentWorkoutId = existing.id;
+      currentWorkoutHasSets = true;
+    } else {
+      // DIFFERENT session tapped — warn before abandoning the in-progress one.
+      const existingName = sessionDisplayName(existing.session_type);
+      if (!confirm(`You have an in-progress ${existingName} session. Start ${session.name} instead? (${existingName} will stay saved, you can resume it later.)`)) {
+        return false;
+      }
+      currentWorkoutId = await createWorkoutRow(session.id);
+      currentWorkoutHasSets = false;
+      if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return false; }
+    }
+  } else {
+    currentWorkoutId = await createWorkoutRow(session.id);
+    currentWorkoutHasSets = false;
+    if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return false; }
+  }
+
+  selectedSession = session;
+  selectedVariations = {};
+  return true;
+}
+
 async function selectSession(session, btn) {
   if (btn.classList.contains('done')) {
     if (!confirm(`You already logged ${session.name} today. Log again?`)) return;
@@ -411,38 +478,9 @@ async function selectSession(session, btn) {
     return;
   }
 
-  // Check if ANY session is currently in progress today (completed_at IS NULL).
-  // This covers both the "resume same session" case (e.g. refreshed mid-Upper-A)
-  // AND the "switched session" case (started Upper A, now tapping Lower A).
-  const inProgress = await sb(`workouts?date=eq.${todayStr()}&completed_at=is.null&select=id,session_type`);
+  const ok = await beginWorkoutSession(session);
+  if (!ok) return;
 
-  if (inProgress && inProgress.length > 0) {
-    const existing = inProgress[0];
-
-    if (existing.session_type === session.id) {
-      // SAME session tapped — silently adopt the existing workout row.
-      // buildWorkoutLogger + restoreDraft will rehydrate inputs & rest times.
-      currentWorkoutId = existing.id;
-      currentWorkoutHasSets = true;
-    } else {
-      // DIFFERENT session tapped — warn before abandoning the in-progress one.
-      const existingSession = SESSIONS.find(s => s.id === existing.session_type);
-      const existingName = existingSession ? existingSession.name : existing.session_type;
-      if (!confirm(`You have an in-progress ${existingName} session. Start ${session.name} instead? (${existingName} will stay saved, you can resume it later.)`)) {
-        return;
-      }
-      currentWorkoutId = await createWorkoutRow(session.id);
-      currentWorkoutHasSets = false;
-      if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return; }
-    }
-  } else {
-    currentWorkoutId = await createWorkoutRow(session.id);
-    currentWorkoutHasSets = false;
-    if (!currentWorkoutId) { showToast('Could not start session — check connection and try again', 'error'); return; }
-  }
-
-  selectedSession = session;
-  selectedVariations = {};
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
 
@@ -454,42 +492,45 @@ async function selectSession(session, btn) {
   buildWorkoutLogger(session);
 }
 
-// ─── WORKOUT LOGGER ───────────────────────────────────────
-async function buildWorkoutLogger(session) {
-  const logger = document.getElementById('workout-logger');
-  logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
+// 'open' (Open Workout) is deliberately not in SESSIONS — its exercise list is per-workout, not fixed.
+function sessionDisplayName(sessionType) {
+  if (sessionType === 'open') return 'Open Workout';
+  return SESSIONS.find(s => s.id === sessionType)?.name || sessionType;
+}
 
-  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=2&select=id,date`);
-  previousSets = {};
-  if (prevWorkouts && prevWorkouts.length > 0) {
-    const prevWorkout = prevWorkouts.find(w => w.id !== currentWorkoutId);
-    if (prevWorkout) {
-      const prevSets = await sb(`workout_sets?workout_id=eq.${prevWorkout.id}&select=exercise,set_number,weight,reps,variation&order=set_number.asc`);
-      (prevSets || []).forEach(s => {
-        if (!previousSets[s.exercise]) previousSets[s.exercise] = [];
-        previousSets[s.exercise].push({ weight: s.weight, reps: s.reps, variation: s.variation });
-      });
-    }
+// Rebuilds a { exercises: [...] } shape from actually-saved sets, for session types not in SESSIONS
+// (currently just 'open'). Used by resume (buildWorkoutLogger) and History editing.
+function reconstructSessionFromSets(sets) {
+  const byExercise = {};
+  (sets || []).forEach(s => {
+    if (!byExercise[s.exercise]) byExercise[s.exercise] = 0;
+    byExercise[s.exercise] = Math.max(byExercise[s.exercise], s.set_number);
+  });
+  const exercises = Object.keys(byExercise).map(name => {
+    const libEx = EXERCISE_LIBRARY[name];
+    return libEx ? { ...libEx, sets: byExercise[name] } : { name, sets: byExercise[name], reps: '', rest: '' };
+  });
+  return { exercises };
+}
+
+// ─── WORKOUT LOGGER ───────────────────────────────────────
+// Builds the HTML for one exercise block (header, variation toggle, set rows, Mark Done).
+// Reused for fixed-session rendering, Open Workout's initial render, and dynamic append via the Add Exercise dropdown.
+function renderExerciseBlock(ex, session) {
+  const prev = previousSets[ex.name] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
+  const prevVariation = prev[0]?.variation || '';
+  const defaultVar = ex.variations ? (prevVariation || ex.variations[0]) : null;
+  let filteredPrev = prev;
+  if (ex.variations && !ex.band && defaultVar) {
+    filteredPrev = prev.filter(p => p.variation === defaultVar);
+    if (filteredPrev.length === 0) filteredPrev = prev;
   }
 
-  let html = '';
-  session.exercises.forEach(ex => {
-    const prev = previousSets[ex.name] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
-    const prevVariation = prev[0]?.variation || '';
-    const defaultVar = ex.variations ? (prevVariation || ex.variations[0]) : null;
-    let filteredPrev = prev;
-    if (ex.variations && !ex.band && defaultVar) {
-      filteredPrev = prev.filter(p => p.variation === defaultVar);
-      if (filteredPrev.length === 0) filteredPrev = prev;
-    }
-    const prevText = filteredPrev.length > 0
-      ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
-      : 'No previous data';
-
-html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${swParseRest(ex.rest)}">
+  let html = `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${swParseRest(ex.rest)}">
       <div class="ex-top">
         <div class="ex-name-row">
           <div class="ex-name-display">${ex.name}</div>
+          ${session.id === 'open' ? `<button class="ex-remove-btn" id="remove-${ex.name}" onclick="removeOpenExercise('${ex.name}')" aria-label="Remove exercise" title="Remove">✕</button>` : ''}
           <button class="ex-watch" id="watch-${ex.name}" onclick="swTapWatch('${ex.name}')" aria-label="Rest timer">
             <svg class="ex-watch-ring" viewBox="0 0 30 30">
               <circle class="ex-watch-bg" cx="15" cy="15" r="12"></circle>
@@ -512,45 +553,128 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
         ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
       </div>`;
 
-    if (ex.variations) {
-      selectedVariations[ex.name] = defaultVar;
-      html += `<div class="variation-toggle">`;
-      ex.variations.forEach(v => {
-        const isSelected = v === defaultVar ? 'selected' : '';
-        html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${ex.name}', '${v}', this)">${v}</button>`;
-      });
-      html += `</div>`;
-      // Previous (variation): line removed — variation toggle + per-set badges carry this
-}
-    // Previous: line removed — per-set badges on the right already carry this info
+  if (ex.variations) {
+    selectedVariations[ex.name] = defaultVar;
+    html += `<div class="variation-toggle">`;
+    ex.variations.forEach(v => {
+      const isSelected = v === defaultVar ? 'selected' : '';
+      html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${ex.name}', '${v}', this)">${v}</button>`;
+    });
+    html += `</div>`;
+  }
 
-    for (let i = 1; i <= ex.sets; i++) {
-      const prevSet = filteredPrev[i-1];
-      const prevHint = prevSet ? `${ex.band ? (prevSet.variation || 'Band').split(' ').map(w => w[0]).join('') : (prevSet.weight ?? 'BW')}×${prevSet.reps}` : '—';
-      const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
+  for (let i = 1; i <= ex.sets; i++) {
+    const prevSet = filteredPrev[i-1];
+    const prevHint = prevSet ? `${ex.band ? (prevSet.variation || 'Band').split(' ').map(w => w[0]).join('') : (prevSet.weight ?? 'BW')}×${prevSet.reps}` : '—';
+    const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
 
-      let weightCol = '';
-      if (ex.bodyweight) {
-        weightCol = `<div class="set-label" id="w-${ex.name}-${i}">BW</div>`;
-      } else if (ex.variations && ex.band) {
-        weightCol = `<div class="set-label" id="w-${ex.name}-${i}">${defaultVar}</div>`;
-      } else {
-        weightCol = `<input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${session.id}')" />`;
-      }
-
-      html += `<div class="set-row">
-        <div class="set-num">${i}</div>
-        ${weightCol}
-        <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="${repPlaceholder}" inputmode="numeric" oninput="saveDraft('${session.id}')" />
-        <div class="prev-badge" id="badge-${ex.name}-${i}">${prevHint}</div>
-      </div>
-      <div class="rest-line" id="rest-${ex.name}-${i}"></div>`;
-      // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
+    let weightCol = '';
+    if (ex.bodyweight) {
+      weightCol = `<div class="set-label" id="w-${ex.name}-${i}">BW</div>`;
+    } else if (ex.variations && ex.band) {
+      weightCol = `<div class="set-label" id="w-${ex.name}-${i}">${defaultVar}</div>`;
+    } else {
+      weightCol = `<input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${session.id}')" />`;
     }
 
-    html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
-    html += `</div>`;
+    html += `<div class="set-row">
+      <div class="set-num">${i}</div>
+      ${weightCol}
+      <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="${repPlaceholder}" inputmode="numeric" oninput="saveDraft('${session.id}')" />
+      <div class="prev-badge" id="badge-${ex.name}-${i}">${prevHint}</div>
+    </div>
+    <div class="rest-line" id="rest-${ex.name}-${i}"></div>`;
+    // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
+  }
+
+  html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
+  html += `</div>`;
+  return html;
+}
+
+// Populates `previousSets` for the given session. Fixed sessions: last workout of that session_type.
+// Open Workout: scoped to past Open workouts only, per-exercise most-recent-occurrence (a single "last
+// Open workout" won't reliably contain every exercise picked this time, since they vary session to session).
+async function loadPreviousSetsForSession(session) {
+  previousSets = {};
+  if (session.id === 'open') {
+    Object.assign(previousSets, await fetchOpenPreviousSets(session.exercises.map(e => e.name)));
+    return;
+  }
+  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=2&select=id,date`);
+  if (prevWorkouts && prevWorkouts.length > 0) {
+    const prevWorkout = prevWorkouts.find(w => w.id !== currentWorkoutId);
+    if (prevWorkout) {
+      const prevSets = await sb(`workout_sets?workout_id=eq.${prevWorkout.id}&select=exercise,set_number,weight,reps,variation&order=set_number.asc`);
+      (prevSets || []).forEach(s => {
+        if (!previousSets[s.exercise]) previousSets[s.exercise] = [];
+        previousSets[s.exercise].push({ weight: s.weight, reps: s.reps, variation: s.variation });
+      });
+    }
+  }
+}
+
+async function fetchOpenPreviousSets(exNames) {
+  const result = {};
+  if (!exNames.length) return result;
+  const pastWorkouts = await sb(`workouts?session_type=eq.open&completed_at=not.is.null&order=date.desc&limit=20&select=id,date`);
+  const relevant = (pastWorkouts || []).filter(w => w.id !== currentWorkoutId);
+  if (!relevant.length) return result;
+  const idList = relevant.map(w => w.id).join(',');
+  const exFilter = encodeURIComponent(`in.(${exNames.map(n => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
+  const sets = await sb(`workout_sets?workout_id=in.(${idList})&exercise=${exFilter}&select=workout_id,exercise,set_number,weight,reps,variation`);
+  const dateById = Object.fromEntries(relevant.map(w => [w.id, w.date]));
+  const byExercise = {};
+  (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
+  Object.keys(byExercise).forEach(exName => {
+    let mostRecentWid = null;
+    byExercise[exName].forEach(s => {
+      if (!mostRecentWid || dateById[s.workout_id] > dateById[mostRecentWid]) mostRecentWid = s.workout_id;
+    });
+    result[exName] = byExercise[exName]
+      .filter(s => s.workout_id === mostRecentWid)
+      .sort((a, b) => a.set_number - b.set_number)
+      .map(s => ({ weight: s.weight, reps: s.reps, variation: s.variation }));
   });
+  return result;
+}
+
+// Reads any exercises an in-progress Open Workout draft added but hadn't Mark-Done'd yet (so a refresh
+// mid-session doesn't lose the block — DB reconstruction alone only knows about *saved* sets).
+function peekDraftOpenExercises() {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return [];
+    const draft = JSON.parse(raw);
+    if (draft.sessionId !== 'open') return [];
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return [];
+    return draft.openExercises || [];
+  } catch (e) { return []; }
+}
+
+async function buildWorkoutLogger(session) {
+  const logger = document.getElementById('workout-logger');
+  logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
+
+  if (session.id === 'open') {
+    const existingNames = new Set(session.exercises.map(e => e.name));
+    peekDraftOpenExercises().forEach(name => {
+      if (!existingNames.has(name)) {
+        session.exercises.push(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' });
+        existingNames.add(name);
+      }
+    });
+  }
+
+  await loadPreviousSetsForSession(session);
+
+  let html = '';
+  session.exercises.forEach(ex => { html += renderExerciseBlock(ex, session); });
+
+  if (session.id === 'open') {
+    if (session.exercises.length === 0) html += `<div class="empty" style="margin-bottom:0.875rem;">Tap Add Exercise below to get started</div>`;
+    html += renderAddExerciseRow();
+  }
 
   html += `<div class="field-group" style="margin-top:0.875rem;">
     <label class="field-label">Session Notes</label>
@@ -583,11 +707,118 @@ html += `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${s
         doneBtn.style.borderColor = 'var(--green)';
         doneBtn.style.color = 'var(--green)';
       }
+      const removeBtn = document.getElementById(`remove-${exName}`);
+      if (removeBtn) removeBtn.style.display = 'none';
     });
   }
 
   // Rebuild any live timer from sessionStorage (user may have navigated away + back)
   swRestoreFromStorage();
+}
+
+// ─── OPEN WORKOUT ─────────────────────────────────────────
+async function startOpenWorkout() {
+  const openSession = { id: 'open', name: 'Open Workout', exercises: [] };
+  const ok = await beginWorkoutSession(openSession);
+  if (!ok) return;
+
+  if (currentWorkoutId) {
+    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number`);
+    if (savedSets && savedSets.length > 0) {
+      openSession.exercises = reconstructSessionFromSets(savedSets).exercises;
+    }
+  }
+
+  document.getElementById('session-grid').style.display = 'none';
+  document.getElementById('session-pill').style.display = 'flex';
+  document.getElementById('session-pill-name').textContent = openSession.name;
+  document.getElementById('conditioning-form').style.display = 'none';
+  document.getElementById('workout-logger').style.display = 'block';
+  buildWorkoutLogger(openSession);
+}
+
+function renderAddExerciseRow() {
+  return `<div class="card" id="open-add-exercise-row" style="margin-bottom:0.875rem;">
+    <label class="field-label">Add Exercise</label>
+    <select class="field-input" id="open-exercise-select" onchange="handleOpenExerciseSelect(this)">
+      ${openExerciseSelectOptionsHtml()}
+    </select>
+  </div>`;
+}
+
+function openExerciseSelectOptionsHtml() {
+  const chosen = new Set((selectedSession?.exercises || []).map(e => e.name));
+  const names = Object.keys(EXERCISE_LIBRARY).filter(n => !chosen.has(n)).sort();
+  let opts = `<option value="" selected disabled>Choose an exercise…</option>`;
+  names.forEach(n => { opts += `<option value="${n}">${n}</option>`; });
+  opts += `<option value="__custom__">+ Type a new exercise…</option>`;
+  return opts;
+}
+
+function renderOpenAddExerciseOptions() {
+  const sel = document.getElementById('open-exercise-select');
+  if (sel) sel.innerHTML = openExerciseSelectOptionsHtml();
+}
+
+async function handleOpenExerciseSelect(selectEl) {
+  const val = selectEl.value;
+  if (!val) return;
+  if (val === '__custom__') {
+    await promptCustomExercise();
+  } else {
+    await addOpenExercise(val);
+  }
+}
+
+async function promptCustomExercise() {
+  const raw = prompt('Exercise name:');
+  renderOpenAddExerciseOptions();  // reset dropdown back to placeholder regardless of outcome
+  const name = raw ? raw.trim() : '';
+  if (!name) return;
+  // Exercise names flow straight into inline onclick="...('${name}')" handlers throughout the app
+  // (existing pattern, not new to Open Workout) — quote characters would break the generated HTML.
+  if (/['"`]/.test(name)) {
+    showToast(`Avoid quotes/apostrophes in exercise names — try again without them`, 'error');
+    return;
+  }
+  if (EXERCISE_LIBRARY[name] || (selectedSession?.exercises || []).some(e => e.name === name)) {
+    showToast(`${name} already exists — pick it from the dropdown`, 'error');
+    return;
+  }
+  const existing = await sb(`custom_exercises?name=eq.${encodeURIComponent(name)}&select=id`);
+  if (!existing || existing.length === 0) {
+    await sb('custom_exercises', 'POST', { name });
+  }
+  EXERCISE_LIBRARY[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
+  await addOpenExercise(name);
+}
+
+async function addOpenExercise(name) {
+  if (!selectedSession || selectedSession.exercises.some(e => e.name === name)) return;
+  const def = EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' };
+  selectedSession.exercises.push(def);
+
+  const emptyMsg = document.querySelector('#workout-logger .empty');
+  if (emptyMsg) emptyMsg.remove();
+
+  const fetched = await fetchOpenPreviousSets([name]);
+  Object.assign(previousSets, fetched);
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderExerciseBlock(def, selectedSession);
+  const addRow = document.getElementById('open-add-exercise-row');
+  addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
+  renderOpenAddExerciseOptions();
+  saveDraft('open');
+}
+
+function removeOpenExercise(name) {
+  if (!selectedSession) return;
+  selectedSession.exercises = selectedSession.exercises.filter(e => e.name !== name);
+  const block = document.getElementById(`block-${name}`);
+  if (block) block.remove();
+  renderOpenAddExerciseOptions();
+  saveDraft('open');
 }
 
 // ─── DRAFT AUTO-SAVE ─────────────────────────────────────
@@ -609,6 +840,9 @@ function saveDraft(sessionId) {
       if (w || r) draft.sets[`${ex.name}-${i}`] = { w, r };
     }
   });
+  // Open Workout's exercise list is per-workout, not a fixed template — remember which ones were
+  // added so a refresh mid-session doesn't lose a block that hasn't been Mark Done'd (and saved) yet.
+  if (selectedSession.id === 'open') draft.openExercises = selectedSession.exercises.map(e => e.name);
   localStorage.setItem('workout_draft', JSON.stringify(draft));
 }
 
@@ -936,10 +1170,9 @@ async function loadStats() {
   const rw = document.getElementById('recent-workouts');
   if (!recent || recent.length === 0) { rw.innerHTML = '<div class="empty">No workouts logged yet</div>'; return; }
   rw.innerHTML = recent.map(w => {
-    const s = SESSIONS.find(s => s.id === w.session_type);
     return `<div class="history-item">
       <div class="history-date">${new Date(w.date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'short'})}</div>
-      <div class="history-title">${s ? s.name : w.session_type}</div>
+      <div class="history-title">${sessionDisplayName(w.session_type)}</div>
       ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:3px;">${w.notes}</div>` : ''}
     </div>`;
   }).join('');
@@ -1083,7 +1316,7 @@ function filterHistoryData() {
   if (historySearchTerm) {
     const search = historySearchTerm.toLowerCase();
     filteredLogs = filteredLogs.filter(l => (l.notes && l.notes.toLowerCase().includes(search)));
-    filteredWorkouts = filteredWorkouts.filter(w => (w.notes && w.notes.toLowerCase().includes(search)) || SESSIONS.find(s => s.id === w.session_type)?.name.toLowerCase().includes(search));
+    filteredWorkouts = filteredWorkouts.filter(w => (w.notes && w.notes.toLowerCase().includes(search)) || sessionDisplayName(w.session_type).toLowerCase().includes(search));
   }
   
   if (historyTab === 'workouts') return { logs: [], workouts: filteredWorkouts };
@@ -1114,6 +1347,7 @@ function renderHistoryPage() {
         ${SESSIONS.filter(s => s.id !== 'conditioning').map(s =>
           `<option value="${s.id}" ${historyWorkoutFilter === s.id ? 'selected' : ''}>${s.name}</option>`
         ).join('')}
+        <option value="open" ${historyWorkoutFilter === 'open' ? 'selected' : ''}>Open Workout</option>
       </select>
     </div>
 
@@ -1164,10 +1398,9 @@ function renderHistoryPage() {
         </div>`;
       } else {
         const w = item.data;
-        const s = SESSIONS.find(s => s.id === w.session_type);
         html += `<div class="history-card" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
           <div class="history-workout-head">
-<div class="history-card-label" style="color:var(--amber);">${s ? s.name : w.session_type}</div>
+<div class="history-card-label" style="color:var(--amber);">${sessionDisplayName(w.session_type)}</div>
             
             <span class="history-card-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
           </div>
@@ -1332,8 +1565,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
   editingWorkoutId = workoutId;
   editingSessionType = sessionType;
   editSelectedVariations = {};
-  const s = SESSIONS.find(s => s.id === sessionType);
-  document.getElementById('edit-workout-title').textContent = s ? s.name : sessionType;
+  document.getElementById('edit-workout-title').textContent = sessionDisplayName(sessionType);
   document.getElementById('edit-workout-notes').value = notes || '';
 
   const sets = await sb(`workout_sets?workout_id=eq.${workoutId}&order=set_number.asc&select=*`);
@@ -1342,6 +1574,10 @@ async function openEditWorkout(workoutId, sessionType, notes) {
     if (!setsByExercise[set.exercise]) setsByExercise[set.exercise] = [];
     setsByExercise[set.exercise].push(set);
   });
+
+  // 'open' (Open Workout) isn't in SESSIONS — its exercise list is per-workout, so reconstruct it
+  // from what was actually saved (same approach used to resume an in-progress Open Workout).
+  const s = SESSIONS.find(s => s.id === sessionType) || reconstructSessionFromSets(sets);
 
   let html = '';
   if (s) {
@@ -1409,10 +1645,11 @@ async function saveEditWorkout() {
     body: JSON.stringify({ notes })
   });
 
-  const s = SESSIONS.find(s => s.id === editingSessionType);
-  if (!s) { showToast('Workout updated!', 'success'); closeEditWorkout(); loadHistory(); return; }
-
   const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=exercise.asc,set_number.asc`);
+
+  // 'open' (Open Workout) isn't in SESSIONS — reconstruct its exercise list from what's already saved,
+  // same as openEditWorkout() does when building the form.
+  const s = SESSIONS.find(s => s.id === editingSessionType) || reconstructSessionFromSets(existingSets);
 
   for (const ex of s.exercises) {
     for (let i = 1; i <= ex.sets; i++) {

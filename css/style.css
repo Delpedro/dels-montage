@@ -183,6 +183,26 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 }
 .ex-watch:active { transform: scale(0.9); }
 
+/* Open Workout: exercise name grows to fill the row, pushing the remove/watch buttons right */
+.ex-name-row .ex-name-display { flex: 1; min-width: 0; margin-bottom: 0; }
+.ex-remove-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.ex-remove-btn:active { background: rgba(255, 255, 255, 0.06); }
+
 .ex-watch-ring {
   position: absolute;
   inset: 2px;
