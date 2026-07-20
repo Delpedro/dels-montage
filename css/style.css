@@ -234,8 +234,8 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .ex-watch-icon { width: 15px; height: 15px; }
 
 /* RUNNING state */
-.ex-watch.running .ex-watch-fill { opacity: 1; }
-.ex-watch.running .ex-watch-inner { color: var(--accent); }
+.ex-watch.running .ex-watch-fill { opacity: 1; stroke: var(--red); }
+.ex-watch.running .ex-watch-inner { color: var(--red); }
 .ex-watch.running .ex-watch-icon { display: none; }
 .ex-watch.running .ex-watch-time { display: block; }
 
