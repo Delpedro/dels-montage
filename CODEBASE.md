@@ -1,7 +1,7 @@
 # D-LOG Codebase Reference
 
 Single-file SPA. No framework, no build step. Two files do all the work:
-- `js/app.js` — all logic (~2006 lines as of 17 Jul)
+- `js/app.js` — all logic (~2195 lines as of 20 Jul)
 - `css/style.css` — all styles (~394 lines as of 17 Jul)
 - `index.html` — static shell, no logic
 
@@ -61,10 +61,11 @@ Pages: `home`, `today`, `workout`, `stats`, `history`
 | Table | Key columns | Used for |
 |---|---|---|
 | `app_user` | `email`, `password_hash` | Auth only |
-| `daily_logs` | `date`, `weight_kg`, `steps`, `calories`, `fasting_hours`, `energy`, `notes` | Daily check-in |
+| `daily_logs` | `date`, `weight_kg`, `steps`, `calories`, `fasting_hours`, `protein_g`, `carbs_g`, `fat_g`, `fibre_g`, `energy`, `notes` | Daily check-in. `fasting_hours` is hidden from the UI (20 Jul) but the column and old rows are untouched — see Fasting section below |
 | `workouts` | `id`, `date`, `session_type`, `notes`, `completed_at` | Workout sessions |
 | `workout_sets` | `workout_id`, `exercise`, `set_number`, `weight`, `reps`, `variation`, `rest_seconds` | Individual sets |
-| `conditioning_logs` | `date`, `activity`, `duration_mins`, `notes` | Saturday cardio |
+| `cardio_logs` | `workout_id`, `activity`, `duration_mins`, `distance`, `floors`, `incline`, `speed_kmh` | Structured cardio logged after weights (20 Jul) — see Cardio Section below. Separate from `conditioning_logs` |
+| `conditioning_logs` | `date`, `activity`, `duration_mins`, `notes` | Saturday cardio (CV + Pump's free-text form only) |
 | `quotes` | `quote`, `author` | Home page quote |
 | `custom_exercises` | `name` (unique) | Names typed into Open Workout's "+ Type a new exercise…" — added 17 Jul, manual `create table` (see Open Workout section) |
 
@@ -197,6 +198,30 @@ An alternative to the fixed `SESSIONS` templates — pick exercises from a dropd
 
 ---
 
+## Cardio Section (added 20 Jul 2026)
+
+Optional structured cardio, logged at the bottom of every workout logger — below the exercises, above Session Notes — for cardio done after weights (stairmaster, treadmill, bike, rower, ski erg, skipping, HIIT). Separate from the `cv-pump` "CV + Pump" session's pre-existing free-text conditioning form (`conditioning_logs` table) — that session never reaches `buildWorkoutLogger` (see Workout Logging Flow above), so it's untouched and the two systems don't overlap.
+
+**`CARDIO_ACTIVITIES`** — config object (near `SESSIONS`) naming which fields each activity needs: duration is universal; `distance` (km for Bike, meters for Rower/Ski Erg), `floors` (Stepper), `incline`+`speed` (Treadmill). HIIT additionally gets `presets: [5,10,15]` for quick-pick duration chips.
+
+**Rendering**: `renderCardioSection(session)` builds the "Cardio (optional)" heading + already-added entries (`session.cardioEntries`, initialized to `[]` in `buildWorkoutLogger`) + an "Add Cardio" `<select>`. Unlike Open Workout's Add Exercise dropdown, this one does **not** filter out already-picked activities — the same activity can be logged more than once in a session (e.g. two separate bike intervals). `renderCardioEntryBlock(entry, sessionId)` renders one activity's fields plus an `.ex-remove-btn` "✕" (reused as-is from Open Workout).
+
+`handleAddCardio()` → `addCardioEntry(activity, values?)` (pushes into `selectedSession.cardioEntries`, inserts the block above the Add Cardio row — `values` is used on restore, see Draft below) / `removeCardioEntry(id)`, mirroring `addOpenExercise()`/`removeOpenExercise()`.
+
+**Saving — deliberately not incremental**: unlike exercises (Mark Done saves immediately), cardio entries are only ever read live from their inputs and POSTed once, in `saveWorkout()`, via the new `collectCardioRows()` helper (skips any entry left completely empty). No delete-before-resave logic exists for cardio because nothing is written to `cardio_logs` until that single final save — there's no "already saved, now re-editing" case to handle.
+
+**Draft persistence**: `saveDraft()`/`restoreDraft()` gained a `draft.cardio` array (activity + current field values per entry), same idea as `draft.openExercises` — protects added-but-unsaved cardio blocks from a mid-session refresh. Restoring replays `addCardioEntry(activity, values)` for each saved entry.
+
+**History display**: `loadHistory()` batch-fetches `cardio_logs` for all visible workouts into `window._cardioByWorkout` (same one-call-not-per-card pattern as `window._setsByWorkout`). The workout history card renders one extra summary line under the top-3-lifts line via `formatCardioEntry()`, e.g. `Treadmill 20min, 6% @ 6km/h`. No edit-modal support for cardio yet — deleting/redoing the workout is the fallback if an entry needs correcting.
+
+---
+
+## Fasting — hidden from UI (20 Jul 2026)
+
+Not being tracked currently. The `fasting_hours` column, all past rows, and every JS read/write path (`loadDailyLog`, `saveDailyLog`, `openEditLog`, `saveEditLog`) are untouched — only the UI is hidden, via `style="display:none"` on: the Fasting `field-group` on Today's Daily Check-in, the Fasting `field-group` in the Edit Daily Log modal, and `#tile-fasting` on the Stats page (its `switchChart('fasting')` chart type still works in code, just unreachable from the UI now). The History daily-log card's fasting pill was removed from rendering entirely (not just hidden) since it's built dynamically per-row rather than being a static element. Fully reversible — remove the `display:none`s (and re-add the History pill line) to bring it back.
+
+---
+
 ## Rest Timer / Stopwatch (lines ~1350–1638)
 
 Per-exercise watch button (`.ex-watch`) inside each exercise tile. SVG ring shows progress toward the target rest duration.
@@ -239,6 +264,8 @@ Timer state persisted to `sessionStorage('sw_state')` so it survives navigating 
 `loadDailyLog(date = todayStr())` — resets `#log-date` to today, clears fields, then fetches the given date's row and populates if found. Called with no args on page nav (always resets to today first — backfilling a past day requires an explicit re-pick each visit).
 
 `saveDailyLog()` — reads the date from `#log-date` (falls back to `todayStr()` if empty), checks if a row for that date exists: PATCH if yes, POST if no. This existing PATCH/POST branching is what makes backfilling work — no separate "create" path was needed once the date stopped being hardcoded.
+
+**Nutrition (added 20 Jul)**: `protein_g`/`carbs_g`/`fat_g`/`fibre_g` (grams) sit alongside `calories`, same read/write pattern, manual entry — MyFitnessPal has no usable public API for a personal app (third-party access discontinued 2018), so there's no auto-import path. Mirrored in the Edit Daily Log modal (`edit-protein`/etc.) and shown as extra pills on the History daily-log card.
 
 `setEnergy(val)` — sets `selectedEnergy`, toggles `.selected` on emoji buttons. Called with `0` to deselect all.
 

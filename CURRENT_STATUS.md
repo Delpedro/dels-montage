@@ -37,6 +37,7 @@ Approach 1 is considered most reliable. Best tried together with the PWA service
 
 **Bugs**
 - ~~Login page scroll bug — iOS Chrome + Safari, fresh load scrolled past greeting~~ ✅ FIXED session 7
+- **History edit-workout modal shows nothing about cardio.** Found during 20 Jul UAT: tapping a workout card in History opens the edit modal, which only knows about `workout_sets` (exercises) — it has no awareness of `cardio_logs` at all, so a session with cardio entries shows no trace of them once you tap in (the History **card** itself still shows the one-line cardio summary correctly — this is specifically the modal). This was a deliberate scope cut when cardio tracking was built (see Cardio Section in CODEBASE.md) — user confirmed 20 Jul it's fine to leave as-is for now, full triage/fix deferred to a dedicated session. When picked up: decide whether the fix is read-only display (simplest — fetch `cardio_logs` for `editingWorkoutId` and render a summary in the modal) or full edit/delete support (bigger — would need modal-side state like `editSelectedVariations` and its own save path).
 - **Variation toggle — prev badges don't update when switching variation.** Badges are computed once at render time for the default variation. Switching to e.g. "New Leg Extension" shows `—` even though that variation has prior data. `selectVariation()` needs to re-compute and re-render the right-side badges for the selected variation on toggle.
 - History filters don't persist across visits — should remember last state between tab changes
 - Bottom nav layout bug on scroll (Chrome iOS)
@@ -57,8 +58,9 @@ Approach 1 is considered most reliable. Best tried together with the PWA service
 - Stats "Recent Workouts" → show lifts not session descriptions
 - Stats: exercise picker — progressive overload chart for a chosen lift
 - Adherence score on home page (e.g. "3/4 sessions, 5/7 step target")
-- Protein/carbs/fat on daily check-in + Supabase columns
+- ~~Protein/carbs/fat/fibre on daily check-in + Supabase columns~~ ✅ (shipped 20 Jul, manual entry — MyFitnessPal API isn't usable for a personal app, see Recent Bug Fixes) — UAT pending
 - Weekly nutrition summary in Stats
+- Cardio edit-modal support (currently no way to edit a saved cardio entry — delete/redo the workout instead)
 - Stats weight graph — weekly average trend instead of daily dots (gaps on skipped days look bad)
 - Graph audit — review all charts, shift from daily to weekly trend view where appropriate
 - Saturday conditioning: named exercises with variation toggle
@@ -98,7 +100,8 @@ No data model or UI for pairing two exercises (e.g. "Seated Calf Raise s/s Stand
 <details>
 <summary>🔧 Toolchain Audit (dedicated session — do this before next bigger feature work)</summary>
 
-- Supabase CLI v2.84.2 is buggy — db push silently records a migration as applied but skips executing the SQL body. Had to run migration via Supabase dashboard SQL editor instead on 20 Apr. Update to v2.90.0 (tarball already downloaded).
+- Supabase CLI v2.84.2 is buggy — `db push` silently records a migration as applied but skips executing the SQL body. Had to run migration via Supabase dashboard SQL editor instead on 20 Apr. Update to v2.90.0 (tarball already downloaded).
+- **Found 20 Jul: `supabase db query --linked -f <file.sql>` is a working alternative to `db push`.** It executes SQL directly against the linked remote project via the Management API and doesn't touch migration tracking at all, so the `db push` bug doesn't apply. The CLI is already authenticated and already linked to this project (`mltikqmwwlgyzogrgemr` / Delboy Fitness — confirmed via `supabase projects list`), so this can be run directly instead of pasting SQL into the dashboard by hand. Verified working: used for the cardio_logs/nutrition-columns migration this session, confirmed via `information_schema.columns` query afterward. Prefer this over the dashboard for future schema changes.
 - Supabase CLI installed at C:\WINDOWS\system32\supabase.exe — bad practice, should be relocated to a proper tools folder or installed via package manager.
 - General audit: npm global packages, Docker status, VS Code extensions.
 
@@ -128,6 +131,22 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 
 <details open>
 <summary>✅ Recent Bug Fixes</summary>
+
+**20 Jul — Cardio tracking + hide fasting + nutrition macros (DEPLOYED, UAT PENDING)**
+
+Three related changes from the same session, all in `js/app.js` + `index.html`:
+
+1. **Cardio tracking** — new "Cardio (optional)" section at the bottom of every workout logger (below the exercises, above Session Notes), for cardio done after weights: Skipping, HIIT (with 5/10/15 min quick-pick chips), Bike, Rower, Ski Erg, Stepper, Treadmill, each with its own relevant fields (duration always; distance/floors/incline+speed as applicable — see CODEBASE.md's new Cardio Section for the full field list and units). Multiple entries per session are allowed, including repeats of the same activity. Modeled on Open Workout's Add Exercise pattern (`CARDIO_ACTIVITIES` config, `renderCardioSection`/`renderCardioEntryBlock`, `addCardioEntry`/`removeCardioEntry`). Unlike exercises, entries aren't saved incrementally — they're read live and POSTed once to a new `cardio_logs` table inside `saveWorkout()`. Draft-persisted like Open Workout's exercise list, so a refresh mid-session doesn't lose an added-but-unsaved entry. History workout cards now show a one-line cardio summary. This is fully separate from the existing Saturday "CV + Pump" free-text conditioning form (`conditioning_logs`) — that session never reaches the workout logger, so it's untouched.
+
+2. **Fasting hidden** — not being tracked right now. Hidden (not deleted) from Daily Check-in, the Edit Daily Log modal, and the Stats tile/chart via `display:none`; the History daily-log card's fasting pill was removed from rendering. `fasting_hours` column and all past rows are untouched, and every JS read/write path still works — fully reversible by removing the `display:none`s.
+
+3. **Nutrition macros** — `protein_g`/`carbs_g`/`fat_g`/`fibre_g` (grams) added next to Calories on Daily Check-in and the Edit modal, manual entry. MyFitnessPal has no usable public API for a personal single-user app — third-party access was discontinued in 2018, it's enterprise-partner-only now, and unofficial scraper libraries violate their ToS and require logging in with real credentials — so there's no auto-import path here.
+
+Migration (4 new `daily_logs` columns + new `cardio_logs` table) run and verified against the live project on 20 Jul via `supabase db query --linked -f migration.sql` — see Toolchain Audit above for why this is now the preferred way to run schema changes on this project instead of the dashboard SQL editor.
+
+**UAT 20 Jul**: user tested on the live server. One issue found — see Backlog → Bugs → "History edit-workout modal shows nothing about cardio." Everything else (logging cardio entries, Daily Check-in macro fields, fasting hidden) not reported as broken. Full bug triage deferred to a dedicated session per user.
+
+---
 
 **20 Jul — Rest-timer watch ring: red while counting down (DEPLOYED)**
 
