@@ -123,6 +123,19 @@ async function loadCustomExercises() {
   });
 }
 
+// ─── CARDIO ACTIVITIES (for the Cardio section on the workout logger) ──
+// fields lists which inputs to render, in order. Units: distance is km for Bike, meters for Rower/Ski Erg.
+const CARDIO_ACTIVITIES = {
+  'Skipping':  { fields: ['duration'] },
+  'HIIT':      { fields: ['duration'], presets: [5, 10, 15] },
+  'Bike':      { fields: ['duration', 'distance'], distanceLabel: 'Distance (km)' },
+  'Rower':     { fields: ['duration', 'distance'], distanceLabel: 'Distance (m)' },
+  'Ski Erg':   { fields: ['duration', 'distance'], distanceLabel: 'Distance (m)' },
+  'Stepper':   { fields: ['duration', 'floors'] },
+  'Treadmill': { fields: ['duration', 'incline', 'speed'] }
+};
+let cardioEntryCounter = 0;
+
 let selectedEnergy = 0;
 let selectedSession = null;
 let selectedProgramme = null;
@@ -656,6 +669,8 @@ async function buildWorkoutLogger(session) {
   const logger = document.getElementById('workout-logger');
   logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
 
+  if (!session.cardioEntries) session.cardioEntries = [];
+
   if (session.id === 'open') {
     const existingNames = new Set(session.exercises.map(e => e.name));
     peekDraftOpenExercises().forEach(name => {
@@ -675,6 +690,8 @@ async function buildWorkoutLogger(session) {
     if (session.exercises.length === 0) html += `<div class="empty" style="margin-bottom:0.875rem;">Tap Add Exercise below to get started</div>`;
     html += renderAddExerciseRow();
   }
+
+  html += renderCardioSection(session);
 
   html += `<div class="field-group" style="margin-top:0.875rem;">
     <label class="field-label">Session Notes</label>
@@ -821,6 +838,103 @@ function removeOpenExercise(name) {
   saveDraft('open');
 }
 
+// ─── CARDIO SECTION ───────────────────────────────────────
+// Optional cardio logged after the weights, at the bottom of any workout logger (not CV + Pump,
+// which never reaches buildWorkoutLogger). Multiple entries allowed, including repeats of the
+// same activity (e.g. two separate bike intervals). Unlike exercises, entries aren't saved
+// incrementally — they're read live from their inputs and POSTed once, in saveWorkout().
+const CARDIO_FIELD_LABELS = { duration: 'Duration (min)', floors: 'Floors', incline: 'Incline (%)', speed: 'Speed (km/h)' };
+
+// One-line summary for a saved cardio_logs row, used in History workout cards.
+function formatCardioEntry(c) {
+  const details = [];
+  if (c.duration_mins != null) details.push(`${c.duration_mins}min`);
+  if (c.distance != null) details.push(`${c.distance}${c.activity === 'Bike' ? 'km' : 'm'}`);
+  if (c.floors != null) details.push(`${c.floors} floors`);
+  if (c.incline != null) details.push(`${c.incline}%`);
+  if (c.speed_kmh != null) details.push(`${c.speed_kmh}km/h`);
+  return details.length ? `${c.activity} ${details.join(', ')}` : c.activity;
+}
+
+function renderCardioSection(session) {
+  const entries = session.cardioEntries || [];
+  return `<div class="section-title" style="font-size:16px;margin-top:0.875rem;margin-bottom:0.5rem;">Cardio (optional)</div>
+    <div id="cardio-list">${entries.map(e => renderCardioEntryBlock(e, session.id)).join('')}</div>
+    <div class="card" id="add-cardio-row" style="margin-bottom:0.875rem;">
+      <label class="field-label">Add Cardio</label>
+      <select class="field-input" id="cardio-activity-select" onchange="handleAddCardio(this)">
+        <option value="" selected disabled>Choose an activity…</option>
+        ${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${a}</option>`).join('')}
+      </select>
+    </div>`;
+}
+
+function renderCardioEntryBlock(entry, sessionId) {
+  const def = CARDIO_ACTIVITIES[entry.activity];
+  if (!def) return '';
+  const fields = def.fields.map(f => {
+    const label = f === 'distance' ? (def.distanceLabel || 'Distance') : CARDIO_FIELD_LABELS[f];
+    return `<div class="field-group">
+      <label class="field-label">${label}</label>
+      <input type="number" step="0.1" class="field-input" id="cardio-${entry.id}-${f}" oninput="saveDraft('${sessionId}')" />
+    </div>`;
+  }).join('');
+  const presets = def.presets ? `<div class="variation-toggle" style="margin-top:6px;">
+      ${def.presets.map(p => `<button class="var-btn" type="button" onclick="setCardioPreset(${entry.id}, ${p}, '${sessionId}')">${p}m</button>`).join('')}
+    </div>` : '';
+  return `<div class="card cardio-block" id="cardio-block-${entry.id}" style="margin-bottom:0.875rem;">
+    <div class="ex-name-row">
+      <div class="ex-name-display">${entry.activity}</div>
+      <button class="ex-remove-btn" onclick="removeCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
+    ${presets}
+  </div>`;
+}
+
+function handleAddCardio(selectEl) {
+  const activity = selectEl.value;
+  if (!activity) return;
+  addCardioEntry(activity);
+  selectEl.value = '';
+}
+
+// values (optional) restores a previously-drafted entry's field contents after re-render.
+function addCardioEntry(activity, values) {
+  if (!selectedSession || !CARDIO_ACTIVITIES[activity]) return null;
+  if (!selectedSession.cardioEntries) selectedSession.cardioEntries = [];
+  const id = cardioEntryCounter++;
+  selectedSession.cardioEntries.push({ id, activity });
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderCardioEntryBlock({ id, activity }, selectedSession.id);
+  const addRow = document.getElementById('add-cardio-row');
+  addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
+
+  if (values) {
+    Object.keys(values).forEach(f => {
+      const el = document.getElementById(`cardio-${id}-${f}`);
+      if (el && values[f] != null && values[f] !== '') el.value = values[f];
+    });
+  }
+  saveDraft(selectedSession.id);
+  return id;
+}
+
+function removeCardioEntry(id) {
+  if (!selectedSession) return;
+  selectedSession.cardioEntries = (selectedSession.cardioEntries || []).filter(e => e.id !== id);
+  const block = document.getElementById(`cardio-block-${id}`);
+  if (block) block.remove();
+  saveDraft(selectedSession.id);
+}
+
+function setCardioPreset(id, minutes, sessionId) {
+  const el = document.getElementById(`cardio-${id}-duration`);
+  if (el) el.value = minutes;
+  saveDraft(sessionId);
+}
+
 // ─── DRAFT AUTO-SAVE ─────────────────────────────────────
 function saveDraft(sessionId) {
   if (!selectedSession) return;
@@ -843,6 +957,17 @@ function saveDraft(sessionId) {
   // Open Workout's exercise list is per-workout, not a fixed template — remember which ones were
   // added so a refresh mid-session doesn't lose a block that hasn't been Mark Done'd (and saved) yet.
   if (selectedSession.id === 'open') draft.openExercises = selectedSession.exercises.map(e => e.name);
+  // Cardio entries are never saved to the DB until Save Workout — remember the whole list + their
+  // current field values so a refresh mid-session doesn't lose them.
+  draft.cardio = (selectedSession.cardioEntries || []).map(e => {
+    const def = CARDIO_ACTIVITIES[e.activity];
+    const values = {};
+    (def?.fields || []).forEach(f => {
+      const el = document.getElementById(`cardio-${e.id}-${f}`);
+      if (el && el.value) values[f] = el.value;
+    });
+    return { activity: e.activity, values };
+  });
   localStorage.setItem('workout_draft', JSON.stringify(draft));
 }
 
@@ -865,6 +990,11 @@ function restoreDraft(session) {
       }
     });
     if (draft.notes) document.getElementById('workout-notes').value = draft.notes;
+
+    // Restore cardio entries (never DB-saved until Save Workout, so the draft is the only copy)
+    if (draft.cardio && draft.cardio.length) {
+      draft.cardio.forEach(c => addCardioEntry(c.activity, c.values));
+    }
 
     // Restore rest times: rebuild pendingRest + repaint the "↳ Rest m:ss" lines
     if (draft.pendingRest) {
@@ -1019,9 +1149,32 @@ function resetSessionSelection(toProgrammePicker = false) {
 }
 
 // ─── SAVE WORKOUT ─────────────────────────────────────────
+// Reads cardio entries live from their inputs (not the draft) and maps them to cardio_logs columns.
+// Skipped entirely if an entry was added but never filled in.
+function collectCardioRows() {
+  const rows = [];
+  (selectedSession?.cardioEntries || []).forEach(e => {
+    const def = CARDIO_ACTIVITIES[e.activity];
+    if (!def) return;
+    const row = { workout_id: currentWorkoutId, activity: e.activity };
+    let hasData = false;
+    def.fields.forEach(f => {
+      const el = document.getElementById(`cardio-${e.id}-${f}`);
+      const val = el && el.value !== '' ? parseFloat(el.value) : null;
+      if (val != null) hasData = true;
+      const col = f === 'duration' ? 'duration_mins' : f === 'speed' ? 'speed_kmh' : f;
+      row[col] = val;
+    });
+    if (hasData) rows.push(row);
+  });
+  return rows;
+}
+
 async function saveWorkout() {
   if (!selectedSession || !currentWorkoutId) return;
   const notes = document.getElementById('workout-notes')?.value || '';
+  const cardioRows = collectCardioRows();
+  if (cardioRows.length) await sb('cardio_logs', 'POST', cardioRows);
   await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
     method: 'PATCH',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
@@ -1088,6 +1241,10 @@ async function loadDailyLog(date = todayStr()) {
   document.getElementById('log-steps').value = '';
   document.getElementById('log-cals').value = '';
   document.getElementById('log-fasting').value = '';
+  document.getElementById('log-protein').value = '';
+  document.getElementById('log-carbs').value = '';
+  document.getElementById('log-fat').value = '';
+  document.getElementById('log-fibre').value = '';
   document.getElementById('log-notes').value = '';
   setEnergy(0);
   const logs = await sb(`daily_logs?date=eq.${date}&select=*`);
@@ -1097,6 +1254,10 @@ async function loadDailyLog(date = todayStr()) {
     if (l.steps) document.getElementById('log-steps').value = l.steps;
     if (l.calories) document.getElementById('log-cals').value = l.calories;
     if (l.fasting_hours) document.getElementById('log-fasting').value = l.fasting_hours;
+    if (l.protein_g) document.getElementById('log-protein').value = l.protein_g;
+    if (l.carbs_g) document.getElementById('log-carbs').value = l.carbs_g;
+    if (l.fat_g) document.getElementById('log-fat').value = l.fat_g;
+    if (l.fibre_g) document.getElementById('log-fibre').value = l.fibre_g;
     if (l.energy) setEnergy(l.energy);
     if (l.notes) document.getElementById('log-notes').value = l.notes;
   }
@@ -1110,6 +1271,10 @@ async function saveDailyLog() {
     steps: parseInt(document.getElementById('log-steps').value) || null,
     calories: parseInt(document.getElementById('log-cals').value) || null,
     fasting_hours: parseFloat(document.getElementById('log-fasting').value) || null,
+    protein_g: parseFloat(document.getElementById('log-protein').value) || null,
+    carbs_g: parseFloat(document.getElementById('log-carbs').value) || null,
+    fat_g: parseFloat(document.getElementById('log-fat').value) || null,
+    fibre_g: parseFloat(document.getElementById('log-fibre').value) || null,
     energy: selectedEnergy || null,
     notes: document.getElementById('log-notes').value || null
   };
@@ -1280,6 +1445,15 @@ window._setsByWorkout = {};
   if (!window._setsByWorkout[s.workout_id]) window._setsByWorkout[s.workout_id] = [];
   window._setsByWorkout[s.workout_id].push(s);
 });
+// Same batched-fetch pattern for cardio entries
+const allCardio = workoutIds.length
+  ? await sb(`cardio_logs?workout_id=in.(${workoutIds})&select=workout_id,activity,duration_mins,distance,floors,incline,speed_kmh`)
+  : [];
+window._cardioByWorkout = {};
+(allCardio || []).forEach(c => {
+  if (!window._cardioByWorkout[c.workout_id]) window._cardioByWorkout[c.workout_id] = [];
+  window._cardioByWorkout[c.workout_id].push(c);
+});
   historyPage = 1;
   historyTab = 'all';
   historyDateRange = 'all';
@@ -1389,8 +1563,11 @@ function renderHistoryPage() {
           <div class="history-stats">
             ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
             ${l.calories ? `<span class="pill pill-cals">${l.calories} kcal</span>` : ''}
-            ${l.fasting_hours ? `<span class="pill pill-sets">${l.fasting_hours}h fast</span>` : ''}
             ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
+            ${l.protein_g ? `<span class="pill pill-reps">${l.protein_g}g protein</span>` : ''}
+            ${l.carbs_g ? `<span class="pill pill-sets">${l.carbs_g}g carbs</span>` : ''}
+            ${l.fat_g ? `<span class="pill pill-cals">${l.fat_g}g fat</span>` : ''}
+            ${l.fibre_g ? `<span class="pill pill-rest">${l.fibre_g}g fibre</span>` : ''}
             ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
           </div>
           ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
@@ -1415,7 +1592,11 @@ ${(() => {
   }
   return top3.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:6px;">${top3.map(s => `${s.exercise} ${s.weight}×${s.reps}`).join(' / ')}</div>` : '';
 })()}
-          
+${(() => {
+  const cardio = window._cardioByWorkout[w.id] || [];
+  return cardio.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:4px;">${cardio.map(formatCardioEntry).join(' / ')}</div>` : '';
+})()}
+
         </div>`;
       }
     });
@@ -1521,6 +1702,10 @@ function openEditLog(l) {
   document.getElementById('edit-fasting').value = l.fasting_hours || '';
   document.getElementById('edit-cals').value = l.calories || '';
   document.getElementById('edit-steps').value = l.steps || '';
+  document.getElementById('edit-protein').value = l.protein_g || '';
+  document.getElementById('edit-carbs').value = l.carbs_g || '';
+  document.getElementById('edit-fat').value = l.fat_g || '';
+  document.getElementById('edit-fibre').value = l.fibre_g || '';
   document.getElementById('edit-notes').value = l.notes || '';
   setEditEnergy(editingEnergy);
   document.getElementById('edit-modal').style.display = 'block';
@@ -1548,6 +1733,10 @@ async function saveEditLog() {
       fasting_hours: parseFloat(document.getElementById('edit-fasting').value) || null,
       calories: parseInt(document.getElementById('edit-cals').value) || null,
       steps: parseInt(document.getElementById('edit-steps').value) || null,
+      protein_g: parseFloat(document.getElementById('edit-protein').value) || null,
+      carbs_g: parseFloat(document.getElementById('edit-carbs').value) || null,
+      fat_g: parseFloat(document.getElementById('edit-fat').value) || null,
+      fibre_g: parseFloat(document.getElementById('edit-fibre').value) || null,
       energy: editingEnergy || null,
       notes: document.getElementById('edit-notes').value || null
     })
