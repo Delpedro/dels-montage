@@ -12,7 +12,7 @@ const SESSIONS = [
     exercises: [
       { name: 'Incline Chest Press', sets: 3, reps: '6–10', rest: '180s', note: 'Start lighter than you think', variations: ['Smith', 'DB'], aliases: ['Smith Machine Incline Press'] },
       { name: 'Machine Chest Press', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'DB'], aliases: ['Machine Shoulder Press'] },
+      { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'Smith', 'DB'], aliases: ['Machine Shoulder Press'] },
       { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', variations: ['DB', 'Machine'] },
       { name: 'Overhead Cable Tricep Ext', sets: 3, reps: '10–15', rest: '60s' },
       { name: 'Tricep Pushdown', sets: 3, reps: '12–15', rest: '60s', note: 'Rope — neutral grip' },
@@ -79,7 +79,7 @@ const SESSIONS = [
     id: 'full-body-c', name: 'Full Body C', focus: 'Balanced performance', programme: 'full-body-cv',
     exercises: [
       { name: 'Leg Press', sets: 3, reps: '8–12', rest: '180s', note: 'Controlled depth' },
-      { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'DB'], aliases: ['Machine Shoulder Press'] },
+      { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'Smith', 'DB'], aliases: ['Machine Shoulder Press'] },
       { name: 'Seated Cable Row', sets: 3, reps: '10–12', rest: '75s', note: 'Not rope attachment' },
       { name: 'Machine Chest Press', sets: 2, reps: '10–12', rest: '90s' },
       { name: 'Incline Single Cable Curl', sets: 2, reps: '12–15', rest: '60s' },

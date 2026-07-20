@@ -43,6 +43,7 @@ Approach 1 is considered most reliable. Best tried together with the PWA service
 
 **Quick wins**
 - App name — "D-Log" is placeholder, needs a proper name
+- ~~Shoulder Press — 3rd variation option~~ ✅ (Machine / DB → Machine / Smith / DB, both Upper A and Full Body C)
 - ~~Smith Machine Incline — variation toggle~~ ✅ (renamed → Incline Chest Press, variations: Smith / DB)
 - ~~Lateral Raise — variation toggle (Machine / DBs)~~ ✅
 - Display rest_seconds in workout history cards
@@ -125,6 +126,12 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 
 <details open>
 <summary>✅ Recent Bug Fixes</summary>
+
+**20 Jul — Shoulder Press: 3rd variation option (DEPLOYED)**
+
+Added `'Smith'` to Shoulder Press's `variations` array (was `['Machine', 'DB']`, now `['Machine', 'Smith', 'DB']`) at both occurrences in `SESSIONS` — Upper A (`js/app.js:15`) and Full Body C (`js/app.js:82`). `EXERCISE_LIBRARY` (Open Workout's Add Exercise dropdown) is built by flattening `SESSIONS`, so it picked up the 3rd option automatically — no separate edit needed there. Variation-toggle rendering (`renderExerciseBlock`, edit modal) and `.variation-toggle`/`.var-btn` CSS (`flex:1`, `gap:6px`) are both generic over array length, already used by 3-variation exercises elsewhere (none currently, but nothing hardcoded to 2) — no code changes needed beyond the data.
+
+---
 
 **17 Jul — Open Workout: pick exercises from a dropdown, log as you go (DEPLOYED, UAT PENDING — gym test 18 Jul morning)**
 
