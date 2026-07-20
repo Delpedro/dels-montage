@@ -1,5 +1,5 @@
 CURRENT STATUS — D-Log
-Last updated: Friday 17 July 2026
+Last updated: Monday 20 July 2026
 
 ---
 
@@ -45,6 +45,7 @@ Approach 1 is considered most reliable. Best tried together with the PWA service
 **Quick wins**
 - App name — "D-Log" is placeholder, needs a proper name
 - ~~Shoulder Press — 3rd variation option~~ ✅ (Machine / DB → Machine / Smith / DB, both Upper A and Full Body C)
+- ~~Rest-timer watch ring — counting-down color~~ ✅ (orange → red while running; green at target unchanged)
 - ~~Smith Machine Incline — variation toggle~~ ✅ (renamed → Incline Chest Press, variations: Smith / DB)
 - ~~Lateral Raise — variation toggle (Machine / DBs)~~ ✅
 - Display rest_seconds in workout history cards
@@ -127,6 +128,12 @@ App started as a personal tool but is growing fast. Plan: ship multiple-programm
 
 <details open>
 <summary>✅ Recent Bug Fixes</summary>
+
+**20 Jul — Rest-timer watch ring: red while counting down (DEPLOYED)**
+
+`.ex-watch.running` (`css/style.css:237-238`) used `var(--accent)` (orange) for the ring stroke and inner time text while a rest was in progress. Switched both to the existing `var(--red)` variable (`#e05555`, already defined at line 5, unused elsewhere on this component). `.ex-watch.done` (green, target reached) is untouched — it's declared after `.running` in the stylesheet so it still wins once `pct >= 1` adds the `done` class alongside `running` (`swRenderWatch`, `js/app.js:1838`).
+
+---
 
 **20 Jul — Shoulder Press: 3rd variation option (DEPLOYED)**
 
