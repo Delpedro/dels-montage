@@ -167,7 +167,13 @@ async function sb(path, method = 'GET', body = null) {
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
-  if (method === 'GET') return res.json();
+  if (method === 'GET') {
+    if (!res.ok) {
+      console.error(`sb() GET failed (${res.status}): ${path}`);
+      return [];
+    }
+    return res.json();
+  }
   return res;
 }
 
