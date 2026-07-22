@@ -2255,6 +2255,7 @@ async function swStop() {
   swActiveExercise = null;
   sessionStorage.removeItem('sw_state');
   swVibrate(10);
+  swRenderWatch(exName);   // snap the ring back to idle now — don't wait on the network save below
 
   // Save the rest to the last typed set for THIS exercise
   const target = swFindLastTypedSetForExercise(exName);
@@ -2263,8 +2264,6 @@ async function swStop() {
     swPaintRestLine(target.exName, target.setNum, elapsed);
     swFlashWatch(exName);
     saveDraft(selectedSession?.id);   // persist rest to localStorage so it survives reload
-  } else {
-    swRenderWatch(exName);
   }
 }
 
