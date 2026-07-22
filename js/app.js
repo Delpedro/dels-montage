@@ -134,6 +134,10 @@ const CARDIO_ACTIVITIES = {
   'Stepper':   { fields: ['duration', 'floors'] },
   'Treadmill': { fields: ['duration', 'incline', 'speed'] }
 };
+// The 'Stepper' key is the DB/lookup value (already stored on existing cardio_logs rows) — only the
+// user-facing label changes here, so old rows keep matching CARDIO_ACTIVITIES and stay editable.
+const CARDIO_DISPLAY_NAMES = { 'Stepper': 'Stairmaster' };
+function cardioDisplayName(activity) { return CARDIO_DISPLAY_NAMES[activity] || activity; }
 let cardioEntryCounter = 0;
 
 let selectedEnergy = 0;
@@ -853,7 +857,8 @@ function formatCardioEntry(c) {
   if (c.floors != null) details.push(`${c.floors} floors`);
   if (c.incline != null) details.push(`${c.incline}% incline`);
   if (c.speed_kmh != null) details.push(`${c.speed_kmh}km/h speed`);
-  return details.length ? `${c.activity} ${details.join(', ')}` : c.activity;
+  const name = cardioDisplayName(c.activity);
+  return details.length ? `${name} ${details.join(', ')}` : name;
 }
 
 function renderCardioSection(session) {
@@ -864,7 +869,7 @@ function renderCardioSection(session) {
       <label class="field-label">Add Cardio</label>
       <select class="field-input" id="cardio-activity-select" onchange="handleAddCardio(this)">
         <option value="" selected disabled>Choose an activity…</option>
-        ${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${a}</option>`).join('')}
+        ${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${cardioDisplayName(a)}</option>`).join('')}
       </select>
     </div>`;
 }
@@ -884,7 +889,7 @@ function renderCardioEntryBlock(entry, sessionId) {
     </div>` : '';
   return `<div class="card cardio-block" id="cardio-block-${entry.id}" style="margin-bottom:0.875rem;">
     <div class="ex-name-row">
-      <div class="ex-name-display">${entry.activity}</div>
+      <div class="ex-name-display">${cardioDisplayName(entry.activity)}</div>
       <button class="ex-remove-btn" onclick="removeCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
     </div>
     <div style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
@@ -1787,7 +1792,7 @@ function renderEditCardioEntryBlock(entry) {
     </div>` : '';
   return `<div class="card cardio-block" id="ecardio-block-${entry.id}" style="margin-bottom:0.875rem;">
     <div class="ex-name-row">
-      <div class="ex-name-display">${entry.activity}</div>
+      <div class="ex-name-display">${cardioDisplayName(entry.activity)}</div>
       <button class="ex-remove-btn" onclick="removeEditCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
     </div>
     <div style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
@@ -1847,7 +1852,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
     });
   });
   const cardioSelectEl = document.getElementById('edit-cardio-activity-select');
-  cardioSelectEl.innerHTML = `<option value="" selected disabled>Choose an activity…</option>${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${a}</option>`).join('')}`;
+  cardioSelectEl.innerHTML = `<option value="" selected disabled>Choose an activity…</option>${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${cardioDisplayName(a)}</option>`).join('')}`;
 
   const sets = await sb(`workout_sets?workout_id=eq.${workoutId}&order=set_number.asc&select=*`);
   const setsByExercise = {};
