@@ -615,7 +615,9 @@ function renderExerciseBlock(ex, session) {
   return html;
 }
 
-// Populates `previousSets` for the given session. Fixed sessions: last workout of that session_type.
+// Populates `previousSets` for the given session. Fixed sessions: scans the last 10 workouts of that
+// session_type, per-exercise-per-variation most-recent-occurrence (a variation toggled less often than
+// others would otherwise lose its prior-set history to whichever variation was used most recently).
 // Open Workout: scoped to past Open workouts only, per-exercise most-recent-occurrence (a single "last
 // Open workout" won't reliably contain every exercise picked this time, since they vary session to session).
 async function loadPreviousSetsForSession(session) {
@@ -624,17 +626,40 @@ async function loadPreviousSetsForSession(session) {
     Object.assign(previousSets, await fetchOpenPreviousSets(session.exercises.map(e => e.name)));
     return;
   }
-  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=2&select=id,date`);
-  if (prevWorkouts && prevWorkouts.length > 0) {
-    const prevWorkout = prevWorkouts.find(w => w.id !== currentWorkoutId);
-    if (prevWorkout) {
-      const prevSets = await sb(`workout_sets?workout_id=eq.${prevWorkout.id}&select=exercise,set_number,weight,reps,variation&order=set_number.asc`);
-      (prevSets || []).forEach(s => {
-        if (!previousSets[s.exercise]) previousSets[s.exercise] = [];
-        previousSets[s.exercise].push({ weight: s.weight, reps: s.reps, variation: s.variation });
-      });
-    }
-  }
+  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=10&select=id,date`);
+  const candidates = (prevWorkouts || []).filter(w => w.id !== currentWorkoutId);
+  if (!candidates.length) return;
+  const dateById = Object.fromEntries(candidates.map(w => [w.id, w.date]));
+  const idList = candidates.map(w => w.id).join(',');
+  const sets = await sb(`workout_sets?workout_id=in.(${idList})&select=workout_id,exercise,set_number,weight,reps,variation`);
+  const byExercise = {};
+  (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
+
+  // Per exercise: anchor on its own most recent workout (any variation, for the default toggle),
+  // then backfill any other variation from its own most recent occurrence further back — a variation
+  // not used last time out shouldn't lose its prior-set history just because it wasn't logged most recently.
+  Object.entries(byExercise).forEach(([exName, exSets]) => {
+    let mostRecentWid = null;
+    exSets.forEach(s => {
+      if (!mostRecentWid || dateById[s.workout_id] > dateById[mostRecentWid]) mostRecentWid = s.workout_id;
+    });
+    const primary = exSets.filter(s => s.workout_id === mostRecentWid).sort((a, b) => a.set_number - b.set_number);
+    const seenVariations = new Set(primary.map(s => s.variation || ''));
+    const rows = primary.map(s => ({ weight: s.weight, reps: s.reps, variation: s.variation }));
+
+    const byVariation = {};
+    exSets.filter(s => s.workout_id !== mostRecentWid && !seenVariations.has(s.variation || ''))
+      .forEach(s => { (byVariation[s.variation || ''] ||= []).push(s); });
+    Object.values(byVariation).forEach(group => {
+      let wid = null;
+      group.forEach(s => { if (!wid || dateById[s.workout_id] > dateById[wid]) wid = s.workout_id; });
+      rows.push(...group.filter(s => s.workout_id === wid)
+        .sort((a, b) => a.set_number - b.set_number)
+        .map(s => ({ weight: s.weight, reps: s.reps, variation: s.variation })));
+    });
+
+    previousSets[exName] = rows;
+  });
 }
 
 async function fetchOpenPreviousSets(exNames) {
@@ -1031,7 +1056,8 @@ function selectVariation(exName, variation, btn) {
       if (wEl) wEl.textContent = variation;
     }
   } else {
-    const filteredPrev = (previousSets[exName] || []).filter(p => p.variation === variation);
+    const prev = previousSets[exName] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
+    const filteredPrev = prev.filter(p => p.variation === variation);
     const prevText = filteredPrev.length > 0
       ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
       : 'No previous data';
