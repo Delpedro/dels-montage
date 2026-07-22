@@ -851,8 +851,8 @@ function formatCardioEntry(c) {
   if (c.duration_mins != null) details.push(`${c.duration_mins}min`);
   if (c.distance != null) details.push(`${c.distance}${c.activity === 'Bike' ? 'km' : 'm'}`);
   if (c.floors != null) details.push(`${c.floors} floors`);
-  if (c.incline != null) details.push(`${c.incline}%`);
-  if (c.speed_kmh != null) details.push(`${c.speed_kmh}km/h`);
+  if (c.incline != null) details.push(`${c.incline}% incline`);
+  if (c.speed_kmh != null) details.push(`${c.speed_kmh}km/h speed`);
   return details.length ? `${c.activity} ${details.join(', ')}` : c.activity;
 }
 
@@ -1766,6 +1766,59 @@ async function saveEditLog() {
 // ─── EDIT WORKOUT MODAL ───────────────────────────────────
 let editingWorkoutId = null;
 let editingSessionType = null;
+// Cardio in the edit modal, mirroring the live logger's cardioEntries but tracked against DB rows:
+// dbId set = existing cardio_logs row (PATCH on save), dbId null = new entry (POST on save).
+let editCardioEntries = [];
+let editCardioCounter = 0;
+let editRemovedCardioIds = [];
+
+function renderEditCardioEntryBlock(entry) {
+  const def = CARDIO_ACTIVITIES[entry.activity];
+  if (!def) return '';
+  const fields = def.fields.map(f => {
+    const label = f === 'distance' ? (def.distanceLabel || 'Distance') : CARDIO_FIELD_LABELS[f];
+    return `<div class="field-group">
+      <label class="field-label">${label}</label>
+      <input type="number" step="0.1" class="field-input" id="ecardio-${entry.id}-${f}" />
+    </div>`;
+  }).join('');
+  const presets = def.presets ? `<div class="variation-toggle" style="margin-top:6px;">
+      ${def.presets.map(p => `<button class="var-btn" type="button" onclick="setEditCardioPreset(${entry.id}, ${p})">${p}m</button>`).join('')}
+    </div>` : '';
+  return `<div class="card cardio-block" id="ecardio-block-${entry.id}" style="margin-bottom:0.875rem;">
+    <div class="ex-name-row">
+      <div class="ex-name-display">${entry.activity}</div>
+      <button class="ex-remove-btn" onclick="removeEditCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
+    ${presets}
+  </div>`;
+}
+
+function setEditCardioPreset(id, minutes) {
+  const el = document.getElementById(`ecardio-${id}-duration`);
+  if (el) el.value = minutes;
+}
+
+function handleAddEditCardio(selectEl) {
+  const activity = selectEl.value;
+  if (!activity || !CARDIO_ACTIVITIES[activity]) return;
+  const id = editCardioCounter++;
+  editCardioEntries.push({ id, dbId: null, activity });
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderEditCardioEntryBlock({ id, activity });
+  const addRow = document.getElementById('edit-add-cardio-row');
+  addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
+  selectEl.value = '';
+}
+
+function removeEditCardioEntry(id) {
+  const entry = editCardioEntries.find(e => e.id === id);
+  if (entry && entry.dbId) editRemovedCardioIds.push(entry.dbId);
+  editCardioEntries = editCardioEntries.filter(e => e.id !== id);
+  const block = document.getElementById(`ecardio-block-${id}`);
+  if (block) block.remove();
+}
 
 async function openEditWorkout(workoutId, sessionType, notes) {
   editingWorkoutId = workoutId;
@@ -1773,6 +1826,28 @@ async function openEditWorkout(workoutId, sessionType, notes) {
   editSelectedVariations = {};
   document.getElementById('edit-workout-title').textContent = sessionDisplayName(sessionType);
   document.getElementById('edit-workout-notes').value = notes || '';
+
+  editCardioEntries = [];
+  editCardioCounter = 0;
+  editRemovedCardioIds = [];
+  const cardioListEl = document.getElementById('edit-cardio-list');
+  cardioListEl.innerHTML = '';
+  const cardioRows = await sb(`cardio_logs?workout_id=eq.${workoutId}&select=*`);
+  (cardioRows || []).forEach(row => {
+    const id = editCardioCounter++;
+    editCardioEntries.push({ id, dbId: row.id, activity: row.activity });
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = renderEditCardioEntryBlock({ id, activity: row.activity });
+    cardioListEl.appendChild(wrapper.firstElementChild);
+    const def = CARDIO_ACTIVITIES[row.activity];
+    (def?.fields || []).forEach(f => {
+      const col = f === 'duration' ? 'duration_mins' : f === 'speed' ? 'speed_kmh' : f;
+      const el = document.getElementById(`ecardio-${id}-${f}`);
+      if (el && row[col] != null) el.value = row[col];
+    });
+  });
+  const cardioSelectEl = document.getElementById('edit-cardio-activity-select');
+  cardioSelectEl.innerHTML = `<option value="" selected disabled>Choose an activity…</option>${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${a}</option>`).join('')}`;
 
   const sets = await sb(`workout_sets?workout_id=eq.${workoutId}&order=set_number.asc&select=*`);
   const setsByExercise = {};
@@ -1839,6 +1914,8 @@ async function openEditWorkout(workoutId, sessionType, notes) {
 function closeEditWorkout() {
   document.getElementById('edit-workout-modal').style.display = 'none';
   editingWorkoutId = null;
+  editCardioEntries = [];
+  editRemovedCardioIds = [];
 }
 
 async function saveEditWorkout() {
@@ -1890,6 +1967,39 @@ async function saveEditWorkout() {
       }
     }
   }
+
+  // Cardio: delete removed rows, PATCH existing ones, POST new ones.
+  for (const dbId of editRemovedCardioIds) {
+    await fetch(`${SUPABASE_URL}/rest/v1/cardio_logs?id=eq.${dbId}`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+  }
+  for (const entry of editCardioEntries) {
+    const def = CARDIO_ACTIVITIES[entry.activity];
+    if (!def) continue;
+    const row = { workout_id: editingWorkoutId, activity: entry.activity };
+    CARDIO_ALL_COLUMNS.forEach(col => { row[col] = null; });
+    let hasData = false;
+    def.fields.forEach(f => {
+      const el = document.getElementById(`ecardio-${entry.id}-${f}`);
+      const val = el && el.value !== '' ? parseFloat(el.value) : null;
+      if (val != null) hasData = true;
+      const col = f === 'duration' ? 'duration_mins' : f === 'speed' ? 'speed_kmh' : f;
+      row[col] = val;
+    });
+    if (!hasData) continue;
+    if (entry.dbId) {
+      await fetch(`${SUPABASE_URL}/rest/v1/cardio_logs?id=eq.${entry.dbId}`, {
+        method: 'PATCH',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(row)
+      });
+    } else {
+      await sb('cardio_logs', 'POST', row);
+    }
+  }
+
   showToast('Workout updated!', 'success');
   closeEditWorkout();
   loadHistory();

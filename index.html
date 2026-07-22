@@ -323,6 +323,14 @@
     </div>
     <div class="card" style="border:none; padding:0;">
       <div id="edit-workout-sets" style="margin-bottom:0.875rem;"></div>
+      <div class="section-title" style="font-size:16px;margin-bottom:0.5rem;">Cardio (optional)</div>
+      <div id="edit-cardio-list"></div>
+      <div class="card" id="edit-add-cardio-row" style="margin-bottom:0.875rem;">
+        <label class="field-label">Add Cardio</label>
+        <select class="field-input" id="edit-cardio-activity-select" onchange="handleAddEditCardio(this)">
+          <option value="" selected disabled>Choose an activity…</option>
+        </select>
+      </div>
       <div class="field-group">
         <label class="field-label">Notes</label>
         <textarea class="field-input" id="edit-workout-notes" placeholder="How was it..."></textarea>
