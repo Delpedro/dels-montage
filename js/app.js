@@ -1151,12 +1151,17 @@ function resetSessionSelection(toProgrammePicker = false) {
 // ─── SAVE WORKOUT ─────────────────────────────────────────
 // Reads cardio entries live from their inputs (not the draft) and maps them to cardio_logs columns.
 // Skipped entirely if an entry was added but never filled in.
+// Every row always carries the full column set (unused ones as null) — PostgREST's bulk insert
+// rejects a batch whose objects have different keys (PGRST102 "All object keys must match"), which
+// silently dropped every cardio row whenever a session logged two different activity types together.
+const CARDIO_ALL_COLUMNS = ['duration_mins', 'distance', 'floors', 'incline', 'speed_kmh'];
 function collectCardioRows() {
   const rows = [];
   (selectedSession?.cardioEntries || []).forEach(e => {
     const def = CARDIO_ACTIVITIES[e.activity];
     if (!def) return;
     const row = { workout_id: currentWorkoutId, activity: e.activity };
+    CARDIO_ALL_COLUMNS.forEach(col => { row[col] = null; });
     let hasData = false;
     def.fields.forEach(f => {
       const el = document.getElementById(`cardio-${e.id}-${f}`);
@@ -1173,8 +1178,20 @@ function collectCardioRows() {
 async function saveWorkout() {
   if (!selectedSession || !currentWorkoutId) return;
   const notes = document.getElementById('workout-notes')?.value || '';
+  const cardioEntryCount = (selectedSession.cardioEntries || []).length;
   const cardioRows = collectCardioRows();
-  if (cardioRows.length) await sb('cardio_logs', 'POST', cardioRows);
+  // An entry exists (user picked an activity) but produced no data — every field read back empty.
+  // Warn instead of silently dropping it, since this exact silent-drop cost two days of cardio data.
+  if (cardioEntryCount > 0 && cardioRows.length === 0) {
+    if (!confirm('Cardio entries look empty — fill in at least one field per entry, or remove them with ✕. Save the rest of the workout without cardio?')) return;
+  }
+  if (cardioRows.length) {
+    const cardioRes = await sb('cardio_logs', 'POST', cardioRows);
+    if (!cardioRes.ok) {
+      showToast(`Cardio save failed (${cardioRes.status}) — rest of workout not saved either, tap Save Workout again`, 'error');
+      return;
+    }
+  }
   await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
     method: 'PATCH',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
