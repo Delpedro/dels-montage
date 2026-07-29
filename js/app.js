@@ -25,7 +25,7 @@ const SESSIONS = [
       { name: 'Leg Extension', sets: 3, reps: '10–12', rest: '60s', variations: ['Leg Extension', 'New Leg Extension'] },
       { name: 'Lying Leg Curl', sets: 3, reps: '8–12', rest: '75s' },
       { name: 'Walking Lunge', sets: 3, reps: '6 steps each way', rest: '75s', note: 'BW or light DBs — walk forward then back' },
-      { name: 'Seated Calf Raise', sets: 3, reps: '10–12', rest: '60s' },
+      { name: 'Seated Calf Raise', sets: 3, reps: '10–12', rest: '60s', variations: ['Old Mach', 'New Mach'] },
       { name: 'Pallof Press', sets: 4, reps: '12 each side', rest: '45s', note: 'Core — hernia safe', variations: ['Red Band', 'Yellow Band'], band: true },
     ]
   },
@@ -48,7 +48,7 @@ const SESSIONS = [
       { name: 'Leg Press', sets: 3, reps: '8–12', rest: '180s', note: 'Higher feet — glute bias' },
       { name: 'Leg Curl', sets: 3, reps: '10–12', rest: '60s' },
       { name: 'Hip Thrusts', sets: 3, reps: '10–15', rest: '75s', variations: ['Hip Machine', 'Booty Hip Machine'], aliases: ['Hip Thrust Machine'] },
-      { name: 'Seated Calf Raise', sets: 3, reps: '8–12', rest: '60s' },
+      { name: 'Seated Calf Raise', sets: 3, reps: '8–12', rest: '60s', variations: ['Old Mach', 'New Mach'] },
       { name: 'Dead Bug', sets: 3, reps: '10 each', rest: '45s', note: 'Core — hernia safe', bodyweight: true },
       { name: 'Cable Woodchop', sets: 3, reps: '12 each', rest: '45s', note: 'Core — hernia safe', variations: ['Cable', 'KG'] },
     ]
@@ -61,7 +61,7 @@ const SESSIONS = [
       { name: 'Chest Supported Row', sets: 3, reps: '8–12', rest: '90s' },
       { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', variations: ['DB', 'Machine'] },
       { name: 'Tricep Pushdown', sets: 2, reps: '10–15', rest: '60s', note: 'Controlled reps — no ego' },
-      { name: 'Seated Calf Raise', sets: 3, reps: '10–15', rest: '60s' },
+      { name: 'Seated Calf Raise', sets: 3, reps: '10–15', rest: '60s', variations: ['Old Mach', 'New Mach'] },
     ]
   },
   {
@@ -537,6 +537,32 @@ function reconstructSessionFromSets(sets) {
 }
 
 // ─── WORKOUT LOGGER ───────────────────────────────────────
+// Builds one set row (weight/reps inputs + previous-set badge + rest line). Shared by
+// renderExerciseBlock's initial render and addOpenSetRow's dynamic append, so both stay in sync.
+function renderSetRow(ex, i, prevSet, sessionId, defaultVar) {
+  const prevHint = prevSet ? `${ex.band ? (prevSet.variation || 'Band').split(' ').map(w => w[0]).join('') : (prevSet.weight ?? 'BW')}×${prevSet.reps}` : '—';
+  const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
+
+  let weightCol = '';
+  if (ex.bodyweight) {
+    weightCol = `<div class="set-label" id="w-${ex.name}-${i}">BW</div>`;
+  } else if (ex.variations && ex.band) {
+    const currentVar = selectedVariations[ex.name] || defaultVar || ex.variations[0];
+    weightCol = `<div class="set-label" id="w-${ex.name}-${i}">${currentVar}</div>`;
+  } else {
+    weightCol = `<input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${sessionId}')" />`;
+  }
+
+  return `<div class="set-row">
+      <div class="set-num">${i}</div>
+      ${weightCol}
+      <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="${repPlaceholder}" inputmode="numeric" oninput="saveDraft('${sessionId}')" />
+      <div class="prev-badge" id="badge-${ex.name}-${i}">${prevHint}</div>
+    </div>
+    <div class="rest-line" id="rest-${ex.name}-${i}"></div>`;
+    // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
+}
+
 // Builds the HTML for one exercise block (header, variation toggle, set rows, Mark Done).
 // Reused for fixed-session rendering, Open Workout's initial render, and dynamic append via the Add Exercise dropdown.
 function renderExerciseBlock(ex, session) {
@@ -569,7 +595,7 @@ function renderExerciseBlock(ex, session) {
           </button>
         </div>
         <div class="ex-pills">
-          <span class="pill pill-sets">${ex.sets} sets</span>
+          <span class="pill pill-sets" id="sets-pill-${ex.name}">${ex.sets} sets</span>
           <span class="pill pill-reps">${ex.reps}</span>
           <span class="pill pill-rest">${ex.rest}</span>
         </div>
@@ -587,27 +613,14 @@ function renderExerciseBlock(ex, session) {
   }
 
   for (let i = 1; i <= ex.sets; i++) {
-    const prevSet = filteredPrev[i-1];
-    const prevHint = prevSet ? `${ex.band ? (prevSet.variation || 'Band').split(' ').map(w => w[0]).join('') : (prevSet.weight ?? 'BW')}×${prevSet.reps}` : '—';
-    const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
+    html += renderSetRow(ex, i, filteredPrev[i-1], session.id, defaultVar);
+  }
 
-    let weightCol = '';
-    if (ex.bodyweight) {
-      weightCol = `<div class="set-label" id="w-${ex.name}-${i}">BW</div>`;
-    } else if (ex.variations && ex.band) {
-      weightCol = `<div class="set-label" id="w-${ex.name}-${i}">${defaultVar}</div>`;
-    } else {
-      weightCol = `<input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${session.id}')" />`;
-    }
-
-    html += `<div class="set-row">
-      <div class="set-num">${i}</div>
-      ${weightCol}
-      <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="${repPlaceholder}" inputmode="numeric" oninput="saveDraft('${session.id}')" />
-      <div class="prev-badge" id="badge-${ex.name}-${i}">${prevHint}</div>
-    </div>
-    <div class="rest-line" id="rest-${ex.name}-${i}"></div>`;
-    // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
+  if (session.id === 'open') {
+    html += `<div class="set-row-controls" id="set-controls-${ex.name}" style="display:flex;gap:8px;margin-top:8px;">
+      <button type="button" class="btn btn-outline" style="flex:1;" onclick="addOpenSetRow('${ex.name}')">+ Add Set</button>
+      <button type="button" class="btn btn-outline" style="flex:1;" onclick="removeOpenSetRow('${ex.name}')">− Remove Set</button>
+    </div>`;
   }
 
   html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
@@ -700,6 +713,19 @@ function peekDraftOpenExercises() {
   } catch (e) { return []; }
 }
 
+// Per-exercise set-row counts saved by saveDraft, so a mid-session refresh doesn't lose rows
+// added/removed via addOpenSetRow/removeOpenSetRow before the exercise was Mark Done'd.
+function peekDraftSetCounts() {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return {};
+    const draft = JSON.parse(raw);
+    if (draft.sessionId !== 'open') return {};
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return {};
+    return draft.openSetCounts || {};
+  } catch (e) { return {}; }
+}
+
 async function buildWorkoutLogger(session) {
   const logger = document.getElementById('workout-logger');
   logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
@@ -710,10 +736,12 @@ async function buildWorkoutLogger(session) {
     const existingNames = new Set(session.exercises.map(e => e.name));
     peekDraftOpenExercises().forEach(name => {
       if (!existingNames.has(name)) {
-        session.exercises.push(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' });
+        session.exercises.push({ ...(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' }) });
         existingNames.add(name);
       }
     });
+    const savedCounts = peekDraftSetCounts();
+    session.exercises.forEach(ex => { if (savedCounts[ex.name]) ex.sets = savedCounts[ex.name]; });
   }
 
   await loadPreviousSetsForSession(session);
@@ -847,7 +875,9 @@ async function promptCustomExercise() {
 
 async function addOpenExercise(name) {
   if (!selectedSession || selectedSession.exercises.some(e => e.name === name)) return;
-  const def = EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' };
+  // Clone (not the shared EXERCISE_LIBRARY object) — addOpenSetRow/removeOpenSetRow mutate ex.sets
+  // per-instance, which must not leak into the shared template used by every future workout.
+  const def = { ...(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' }) };
   selectedSession.exercises.push(def);
 
   const emptyMsg = document.querySelector('#workout-logger .empty');
@@ -870,6 +900,37 @@ function removeOpenExercise(name) {
   const block = document.getElementById(`block-${name}`);
   if (block) block.remove();
   renderOpenAddExerciseOptions();
+  saveDraft('open');
+}
+
+// Open Workout only — appends one more set row (mutates this exercise instance's own `sets`
+// count, safe since addOpenExercise clones it off the shared EXERCISE_LIBRARY template).
+function addOpenSetRow(exName) {
+  const ex = selectedSession?.exercises.find(e => e.name === exName);
+  if (!ex) return;
+  ex.sets += 1;
+  const controls = document.getElementById(`set-controls-${exName}`);
+  if (controls) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = renderSetRow(ex, ex.sets, null, 'open', selectedVariations[exName]);
+    while (wrapper.firstChild) controls.parentNode.insertBefore(wrapper.firstChild, controls);
+  }
+  const pill = document.getElementById(`sets-pill-${exName}`);
+  if (pill) pill.textContent = `${ex.sets} sets`;
+  saveDraft('open');
+}
+
+// Open Workout only — removes the last set row. Keeps at least one row per exercise (to remove
+// the whole exercise, use the ✕ button instead).
+function removeOpenSetRow(exName) {
+  const ex = selectedSession?.exercises.find(e => e.name === exName);
+  if (!ex || ex.sets <= 1) return;
+  const i = ex.sets;
+  document.getElementById(`w-${exName}-${i}`)?.closest('.set-row')?.remove();
+  document.getElementById(`rest-${exName}-${i}`)?.remove();
+  ex.sets -= 1;
+  const pill = document.getElementById(`sets-pill-${exName}`);
+  if (pill) pill.textContent = `${ex.sets} sets`;
   saveDraft('open');
 }
 
@@ -992,7 +1053,13 @@ function saveDraft(sessionId) {
   });
   // Open Workout's exercise list is per-workout, not a fixed template — remember which ones were
   // added so a refresh mid-session doesn't lose a block that hasn't been Mark Done'd (and saved) yet.
-  if (selectedSession.id === 'open') draft.openExercises = selectedSession.exercises.map(e => e.name);
+  if (selectedSession.id === 'open') {
+    draft.openExercises = selectedSession.exercises.map(e => e.name);
+    // Also remember each exercise's current (possibly add/remove-Set-adjusted) row count, so a
+    // refresh mid-session doesn't shrink it back to the exercise library's default.
+    draft.openSetCounts = {};
+    selectedSession.exercises.forEach(e => { draft.openSetCounts[e.name] = e.sets; });
+  }
   // Cardio entries are never saved to the DB until Save Workout — remember the whole list + their
   // current field values so a refresh mid-session doesn't lose them.
   draft.cardio = (selectedSession.cardioEntries || []).map(e => {
