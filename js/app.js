@@ -204,8 +204,19 @@ async function handleLogin() {
   const pw = document.getElementById('login-password').value;
   if (!email || !pw) return;
   const hash = await sha256(pw);
-  const users = await sb(`app_user?email=eq.${encodeURIComponent(email)}&password_hash=eq.${hash}&select=id`);
-  if (users && users.length > 0) {
+  // Verified server-side via the login() RPC (SECURITY DEFINER) — app_user itself has no
+  // anon-readable policy, so credentials can't be dumped directly via the REST API.
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/login`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ p_email: email, p_password_hash: hash })
+  });
+  const ok = res.ok && await res.json();
+  if (ok) {
     sessionStorage.setItem('del_auth', '1');
     sessionStorage.setItem('del_page', 'home');
     document.documentElement.classList.remove('login-active');
