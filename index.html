@@ -57,6 +57,17 @@
         <div class="landing-stat-label">avg steps</div>
       </div>
     </div>
+    <div class="landing-section-label">This week's averages</div>
+    <div class="landing-stats landing-stats-2">
+      <div class="landing-stat">
+        <div class="landing-stat-value stat-accent" id="home-avg-weight">--</div>
+        <div class="landing-stat-label">avg kg</div>
+      </div>
+      <div class="landing-stat">
+        <div class="landing-stat-value stat-amber" id="home-avg-cals">--</div>
+        <div class="landing-stat-label">avg cals</div>
+      </div>
+    </div>
     <div class="week-strip" id="home-week-strip"></div>
     <div class="landing-actions">
       <div class="landing-btn primary" onclick="showPage('today')">
@@ -336,6 +347,25 @@
         <textarea class="field-input" id="edit-workout-notes" placeholder="How was it..."></textarea>
       </div>
       <button class="btn btn-save btn-full" onclick="saveEditWorkout()">Save Changes</button>
+    </div>
+  </div>
+</div>
+<!-- EDIT SESSION TEMPLATE MODAL -->
+<div id="edit-session-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
+  <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+      <div style="font-family:'Bebas Neue',sans-serif; font-size:20px;" id="edit-session-title">Edit Session</div>
+      <button onclick="closeSessionEditor()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;">✕</button>
+    </div>
+    <div class="card" style="border:none; padding:0;">
+      <div id="edit-session-exercises" style="margin-bottom:0.875rem;"></div>
+      <div class="card" id="edit-session-add-row-wrap" style="margin-bottom:0.875rem;">
+        <label class="field-label">Add Exercise</label>
+        <select class="field-input" id="edit-session-add-row" onchange="handleTemplateExerciseSelect(this)">
+          <option value="" selected disabled>Add an exercise…</option>
+        </select>
+      </div>
+      <button class="btn btn-save btn-full" onclick="saveSessionTemplate()">Save Changes</button>
     </div>
   </div>
 </div>

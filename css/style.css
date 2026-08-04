@@ -60,7 +60,9 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .energy-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); }
 
 .session-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
-.session-btn { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 0.875rem; text-align: left; cursor: pointer; transition: all 0.15s; }
+.session-btn { position: relative; background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 0.875rem; text-align: left; cursor: pointer; transition: all 0.15s; }
+.session-edit-btn { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--accent); background: var(--bg2); color: var(--accent); font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+.session-edit-btn:active { background: rgba(232,93,47,0.16); }
 .session-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.1); }
 .session-btn.done { border-color: var(--green); background: rgba(76,175,125,0.08); }
 .session-day { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
@@ -141,6 +143,8 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .quote-text { font-size: 14px; color: var(--text); line-height: 1.5; font-style: italic; }
 .quote-author { font-size: 11px; color: var(--muted); margin-top: 6px; }
 .landing-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 1.25rem; }
+.landing-stats-2 { grid-template-columns: repeat(2, 1fr); margin-bottom: 1.25rem; }
+.landing-section-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: -0.5rem 0 0.5rem; }
 .landing-stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; text-align: center; }
 .landing-stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 24px; line-height: 1; }
 .landing-stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
@@ -393,3 +397,27 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 }
 
 .pill-cals { background: rgba(240,160,80,0.15); color: var(--amber); }
+
+/* ─── SESSION TEMPLATE EDITOR ─────────────────────────────── */
+.template-ex-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--bg3); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+.template-ex-name { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; }
+.template-ex-controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.template-ex-btn { width: 26px; height: 26px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; border-radius: 6px; }
+.template-ex-btn:disabled { opacity: 0.3; cursor: default; }
+.template-ex-sets { font-size: 11px; color: var(--muted2); font-family: 'DM Mono', monospace; width: 48px; text-align: center; }
+
+.edit-template-link { display: block; text-align: center; font-size: 12px; font-weight: 600; color: var(--accent); background: rgba(232,93,47,0.08); border: 1px solid var(--accent); border-radius: 8px; padding: 9px; margin-bottom: 0.75rem; cursor: pointer; }
+.edit-template-link:active { background: rgba(232,93,47,0.16); }
+
+/* ─── LAST TIME CARD ──────────────────────────────────────── */
+.last-time-card { padding: 0.75rem 0.875rem; }
+.last-time-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted2); }
+.last-time-chevron { transition: transform 0.15s; color: var(--muted); }
+.last-time-card.expanded .last-time-chevron { transform: rotate(180deg); }
+.last-time-body { display: none; margin-top: 0.75rem; }
+.last-time-card.expanded .last-time-body { display: block; }
+.last-time-row { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 5px 0; border-top: 1px solid var(--border); }
+.last-time-row:first-child { border-top: none; }
+.last-time-ex { color: var(--text); }
+.last-time-var { color: var(--muted); font-weight: 400; }
+.last-time-sets { color: var(--muted2); font-family: 'DM Mono', monospace; text-align: right; flex-shrink: 0; }

@@ -6,88 +6,39 @@ window.addEventListener('scroll', () => {
 const SUPABASE_URL = 'https://mltikqmwwlgyzogrgemr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_2BQBFSox7bL1X2TlSlbOYA_hn8FcPmy';
 
-const SESSIONS = [
-  {
-    id: 'upper-a', day: 'Monday', name: 'Upper A', focus: 'Push focus', programme: 'upper-lower',
-    exercises: [
-      { name: 'Incline Chest Press', sets: 3, reps: '6–10', rest: '180s', note: 'Start lighter than you think', variations: ['Smith', 'DB'], aliases: ['Smith Machine Incline Press'] },
-      { name: 'Machine Chest Press', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'Smith', 'DB'], aliases: ['Machine Shoulder Press'] },
-      { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', variations: ['DB', 'Machine'] },
-      { name: 'Overhead Cable Tricep Ext', sets: 3, reps: '10–15', rest: '60s' },
-      { name: 'Tricep Pushdown', sets: 3, reps: '12–15', rest: '60s', note: 'Rope — neutral grip' },
-    ]
-  },
-  {
-    id: 'lower-a', day: 'Tuesday', name: 'Lower A', focus: 'Quad focus + core', programme: 'upper-lower',
-    exercises: [
-      { name: 'Hack Squat / Leg Press', sets: 3, reps: '8–12', rest: '180s', variations: ['Hack Squat', 'Leg Press'] },
-      { name: 'Leg Extension', sets: 3, reps: '10–12', rest: '60s', variations: ['Leg Extension', 'New Leg Extension'] },
-      { name: 'Lying Leg Curl', sets: 3, reps: '8–12', rest: '75s' },
-      { name: 'Walking Lunge', sets: 3, reps: '6 steps each way', rest: '75s', note: 'BW or light DBs — walk forward then back' },
-      { name: 'Seated Calf Raise', sets: 3, reps: '10–12', rest: '60s', variations: ['Old Mach', 'New Mach'] },
-      { name: 'Pallof Press', sets: 4, reps: '12 each side', rest: '45s', note: 'Core — hernia safe', variations: ['Red Band', 'Yellow Band'], band: true },
-    ]
-  },
-  {
-    id: 'upper-b', day: 'Thursday', name: 'Upper B', focus: 'Pull focus', programme: 'upper-lower',
-    exercises: [
-      { name: 'Lat Pulldown', sets: 3, reps: '8–12', rest: '90s', note: 'Neutral grip' },
-      { name: 'Chest Supported Row', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Seated Cable Row', sets: 3, reps: '10–12', rest: '75s', note: 'Not rope attachment' },
-      { name: 'Face Pull', sets: 3, reps: '12–15', rest: '60s', note: "Don't skip this" },
-      { name: 'Straight Arm Pulldown', sets: 3, reps: '12–15', rest: '60s' },
-      { name: 'Hammer Curl', sets: 3, reps: '10–12', rest: '75s', note: '12 reps each side/arm — neutral grip' },
-      { name: 'Incline Single Cable Curl', sets: 3, reps: '12–15', rest: '60s' },
-    ]
-  },
-  {
-    id: 'lower-b', day: 'Friday', name: 'Lower B', focus: 'Posterior chain + core', programme: 'upper-lower',
-    exercises: [
-      { name: 'Smith RDL', sets: 3, reps: '6–10', rest: '120s', note: 'Hernia safe' },
-      { name: 'Leg Press', sets: 3, reps: '8–12', rest: '180s', note: 'Higher feet — glute bias' },
-      { name: 'Leg Curl', sets: 3, reps: '10–12', rest: '60s' },
-      { name: 'Hip Thrusts', sets: 3, reps: '10–15', rest: '75s', variations: ['Hip Machine', 'Booty Hip Machine'], aliases: ['Hip Thrust Machine'] },
-      { name: 'Seated Calf Raise', sets: 3, reps: '8–12', rest: '60s', variations: ['Old Mach', 'New Mach'] },
-      { name: 'Dead Bug', sets: 3, reps: '10 each', rest: '45s', note: 'Core — hernia safe', bodyweight: true },
-      { name: 'Cable Woodchop', sets: 3, reps: '12 each', rest: '45s', note: 'Core — hernia safe', variations: ['Cable', 'KG'] },
-    ]
-  },
-  {
-    id: 'full-body-a', name: 'Full Body A', focus: 'Squat + push bias', programme: 'full-body-cv',
-    exercises: [
-      { name: 'Hack Squat / Leg Press', sets: 3, reps: '6–10', rest: '180s', variations: ['Hack Squat', 'Leg Press'] },
-      { name: 'Incline Chest Press', sets: 3, reps: '6–10', rest: '150s', variations: ['Smith', 'DB'], aliases: ['Smith Machine Incline Press'] },
-      { name: 'Chest Supported Row', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Lateral Raise', sets: 3, reps: '12–15', rest: '60s', variations: ['DB', 'Machine'] },
-      { name: 'Tricep Pushdown', sets: 2, reps: '10–15', rest: '60s', note: 'Controlled reps — no ego' },
-      { name: 'Seated Calf Raise', sets: 3, reps: '10–15', rest: '60s', variations: ['Old Mach', 'New Mach'] },
-    ]
-  },
-  {
-    id: 'full-body-b', name: 'Full Body B', focus: 'Hinge + pull bias', programme: 'full-body-cv',
-    exercises: [
-      { name: 'Smith RDL', sets: 3, reps: '6–10', rest: '150s', note: 'Hernia safe' },
-      { name: 'Machine Chest Press', sets: 3, reps: '8–12', rest: '90s' },
-      { name: 'Lat Pulldown', sets: 3, reps: '8–12', rest: '90s', note: 'Neutral grip' },
-      { name: 'Face Pull', sets: 3, reps: '12–15', rest: '60s', note: 'Rear delts + shoulder health' },
-      { name: 'Hammer Curl', sets: 2, reps: '10–12', rest: '60s', note: '12 reps each side/arm — neutral grip' },
-      { name: 'Dead Bug', sets: 3, reps: '10 each', rest: '45s', note: 'Core — hernia safe', bodyweight: true },
-    ]
-  },
-  {
-    id: 'full-body-c', name: 'Full Body C', focus: 'Balanced performance', programme: 'full-body-cv',
-    exercises: [
-      { name: 'Leg Press', sets: 3, reps: '8–12', rest: '180s', note: 'Controlled depth' },
-      { name: 'Shoulder Press', sets: 3, reps: '8–12', rest: '90s', variations: ['Machine', 'Smith', 'DB'], aliases: ['Machine Shoulder Press'] },
-      { name: 'Seated Cable Row', sets: 3, reps: '10–12', rest: '75s', note: 'Not rope attachment' },
-      { name: 'Machine Chest Press', sets: 2, reps: '10–12', rest: '90s' },
-      { name: 'Incline Single Cable Curl', sets: 2, reps: '12–15', rest: '60s' },
-      { name: 'Lying Leg Curl', sets: 3, reps: '10–12', rest: '60s' },
-    ]
-  },
-  { id: 'cv-pump', name: 'CV + Pump', focus: 'One weak-point lift + cardio', programme: 'full-body-cv', cardio: true }
-];
+// Loaded from Supabase (session_templates + session_exercises) at app init — see loadSessionTemplates().
+// Was previously a hardcoded literal here; moved to the DB so fixed-session templates (exercise list,
+// order, set counts) can be edited permanently in-app via the template editor.
+let SESSIONS = [];
+
+// Fetches session_templates + session_exercises and rebuilds SESSIONS in the same shape the rest of
+// the app already expects. Must be awaited before anything that reads SESSIONS (buildExerciseLibrary,
+// buildSessionGrid, etc.) — called from initApp() before those run.
+async function loadSessionTemplates() {
+  const [templates, exercises] = await Promise.all([
+    sb('session_templates?order=sort_order.asc&select=*'),
+    sb('session_exercises?order=sort_order.asc&select=*')
+  ]);
+  const exByTemplate = {};
+  (exercises || []).forEach(row => {
+    const ex = { name: row.name, sets: row.sets, reps: row.reps, rest: row.rest };
+    if (row.note) ex.note = row.note;
+    if (row.variations) ex.variations = row.variations;
+    if (row.aliases) ex.aliases = row.aliases;
+    if (row.band) ex.band = true;
+    if (row.bodyweight) ex.bodyweight = true;
+    (exByTemplate[row.session_id] ||= []).push(ex);
+  });
+  SESSIONS = (templates || []).map(t => {
+    const session = {
+      id: t.id, name: t.name, focus: t.focus, programme: t.programme,
+      exercises: exByTemplate[t.id] || []
+    };
+    if (t.day) session.day = t.day;
+    if (t.cardio) session.cardio = true;
+    return session;
+  });
+}
 
 const TRAINING_PROGRAMMES = [
   {
@@ -111,7 +62,7 @@ function buildExerciseLibrary() {
   });
   return map;
 }
-let EXERCISE_LIBRARY = buildExerciseLibrary();
+let EXERCISE_LIBRARY = {};  // populated after loadSessionTemplates() resolves — see initApp()
 
 // Merges in custom_exercises rows (typed on the fly in Open Workout) — called once at app init.
 async function loadCustomExercises() {
@@ -298,6 +249,8 @@ async function initApp(page = 'home') {
   document.getElementById('topbar-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   document.getElementById('log-date').max = todayStr();
   await autoCloseStaleWorkouts();  // Clean up orphans from >24hrs ago before rendering the session grid
+  await loadSessionTemplates();  // Fixed-session templates now live in Supabase, not a hardcoded array — must resolve before anything reads SESSIONS
+  EXERCISE_LIBRARY = buildExerciseLibrary();
   loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
   buildSessionGrid();
   loadDailyLog();
@@ -345,6 +298,16 @@ async function loadHomePage() {
   const stepsArr = (weekLogs || []).filter(l => l.steps).map(l => l.steps);
   const avgSteps = stepsArr.length ? Math.round(stepsArr.reduce((a,b)=>a+b,0)/stepsArr.length) : null;
   document.getElementById('home-steps').textContent = avgSteps ? avgSteps.toLocaleString() : '--';
+
+  // This week (Mon-today), same boundary as the sessions/week tile above — separate from the
+  // rolling-7-day steps average, which pre-dates this and is left as-is to avoid regressions.
+  const thisWeekLogs = await sb(`daily_logs?date=gte.${getWeekStart()}&select=weight_kg,calories`);
+  const weightArr = (thisWeekLogs || []).filter(l => l.weight_kg != null).map(l => l.weight_kg);
+  const calsArr = (thisWeekLogs || []).filter(l => l.calories != null).map(l => l.calories);
+  const avgWeight = weightArr.length ? (weightArr.reduce((a,b)=>a+b,0)/weightArr.length).toFixed(1) : null;
+  const avgCals = calsArr.length ? Math.round(calsArr.reduce((a,b)=>a+b,0)/calsArr.length) : null;
+  document.getElementById('home-avg-weight').textContent = avgWeight ?? '--';
+  document.getElementById('home-avg-cals').textContent = avgCals ? avgCals.toLocaleString() : '--';
 
   // Always rebuild — buildWeekStrip clears innerHTML first, so no risk of duplicates
   buildWeekStrip('home-week-strip');
@@ -442,7 +405,8 @@ async function buildSessionGrid(programmeId = null) {
     btn.className = 'session-btn';
     btn.id = `session-btn-${s.id}`;
     if (doneTodaySessions.has(s.id)) btn.classList.add('done');
-    btn.innerHTML = `<div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>${doneTodaySessions.has(s.id) ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
+    const editBtn = s.cardio ? '' : `<button class="session-edit-btn" aria-label="Edit ${s.name} template" title="Edit template" onclick="event.stopPropagation(); openSessionEditor('${s.id}')">✎</button>`;
+    btn.innerHTML = `${editBtn}<div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>${doneTodaySessions.has(s.id) ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
     btn.onclick = () => selectSession(s, btn);
     grid.appendChild(btn);
   });
@@ -451,6 +415,136 @@ async function buildSessionGrid(programmeId = null) {
 function showProgrammeSessions(programmeId) {
   selectedProgramme = programmeId;
   buildSessionGrid(programmeId);
+}
+
+// ─── SESSION TEMPLATE EDITOR ────────────────────────────────
+// Permanent reorder / add / remove exercises / add-remove sets for a fixed session (Upper A, etc).
+// Works on a cloned buffer (editingTemplateExercises) — nothing touches the live SESSIONS/DB until Save.
+let editingTemplateSessionId = null;
+let editingTemplateExercises = [];
+
+function openSessionEditor(sessionId) {
+  const session = getSessionById(sessionId);
+  if (!session) return;
+  editingTemplateSessionId = sessionId;
+  editingTemplateExercises = session.exercises.map(e => ({ ...e }));
+  document.getElementById('edit-session-title').textContent = `Edit ${session.name}`;
+  renderTemplateEditorRows();
+  document.getElementById('edit-session-modal').style.display = 'block';
+}
+
+function closeSessionEditor() {
+  document.getElementById('edit-session-modal').style.display = 'none';
+  editingTemplateSessionId = null;
+  editingTemplateExercises = [];
+}
+
+function renderTemplateEditorRows() {
+  const list = document.getElementById('edit-session-exercises');
+  list.innerHTML = editingTemplateExercises.map((ex, i) => `
+    <div class="template-ex-row">
+      <div class="template-ex-name">${ex.name}</div>
+      <div class="template-ex-controls">
+        <button type="button" class="btn btn-outline template-ex-btn" ${i === 0 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, -1)" aria-label="Move up">↑</button>
+        <button type="button" class="btn btn-outline template-ex-btn" ${i === editingTemplateExercises.length - 1 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, 1)" aria-label="Move down">↓</button>
+        <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets(${i}, -1)" aria-label="Remove set">−</button>
+        <span class="template-ex-sets">${ex.sets} sets</span>
+        <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets(${i}, 1)" aria-label="Add set">+</button>
+        <button type="button" class="ex-remove-btn" onclick="removeTemplateExercise(${i})" aria-label="Remove exercise" title="Remove">✕</button>
+      </div>
+    </div>`).join('') || '<div class="empty">No exercises — add one below</div>';
+  const addRow = document.getElementById('edit-session-add-row');
+  if (addRow) addRow.innerHTML = templateAddExerciseOptionsHtml();
+}
+
+function moveTemplateExercise(index, dir) {
+  const target = index + dir;
+  if (target < 0 || target >= editingTemplateExercises.length) return;
+  [editingTemplateExercises[index], editingTemplateExercises[target]] = [editingTemplateExercises[target], editingTemplateExercises[index]];
+  renderTemplateEditorRows();
+}
+
+function changeTemplateExerciseSets(index, delta) {
+  const ex = editingTemplateExercises[index];
+  if (!ex) return;
+  ex.sets = Math.max(1, ex.sets + delta);
+  renderTemplateEditorRows();
+}
+
+function removeTemplateExercise(index) {
+  editingTemplateExercises.splice(index, 1);
+  renderTemplateEditorRows();
+}
+
+function templateAddExerciseOptionsHtml() {
+  const chosen = new Set(editingTemplateExercises.map(e => e.name));
+  const names = Object.keys(EXERCISE_LIBRARY).filter(n => !chosen.has(n)).sort();
+  let opts = `<option value="" selected disabled>Add an exercise…</option>`;
+  names.forEach(n => { opts += `<option value="${n}">${n}</option>`; });
+  opts += `<option value="__custom__">+ Type a new exercise…</option>`;
+  return opts;
+}
+
+async function handleTemplateExerciseSelect(selectEl) {
+  const val = selectEl.value;
+  if (!val) return;
+  if (val === '__custom__') {
+    await promptTemplateCustomExercise();
+  } else {
+    addTemplateExercise(val);
+  }
+}
+
+function addTemplateExercise(name) {
+  if (editingTemplateExercises.some(e => e.name === name)) return;
+  editingTemplateExercises.push({ ...(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' }) });
+  renderTemplateEditorRows();
+}
+
+// Same validation/persistence as Open Workout's promptCustomExercise() — names flow into inline
+// onclick handlers throughout the app, so quote characters are rejected client-side.
+async function promptTemplateCustomExercise() {
+  const raw = prompt('Exercise name:');
+  renderTemplateEditorRows();  // reset dropdown back to placeholder regardless of outcome
+  const name = raw ? raw.trim() : '';
+  if (!name) return;
+  if (/['"`]/.test(name)) {
+    showToast(`Avoid quotes/apostrophes in exercise names — try again without them`, 'error');
+    return;
+  }
+  if (EXERCISE_LIBRARY[name] || editingTemplateExercises.some(e => e.name === name)) {
+    showToast(`${name} already exists — pick it from the dropdown`, 'error');
+    return;
+  }
+  const existing = await sb(`custom_exercises?name=eq.${encodeURIComponent(name)}&select=id`);
+  if (!existing || existing.length === 0) {
+    await sb('custom_exercises', 'POST', { name });
+  }
+  EXERCISE_LIBRARY[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
+  addTemplateExercise(name);
+}
+
+// Delete-all-then-reinsert for this session's exercises — same idiom completeExercise() already
+// uses for idempotent re-saves, and far simpler than diffing individual reorder/add/remove ops.
+async function saveSessionTemplate() {
+  if (!editingTemplateSessionId) return;
+  const id = editingTemplateSessionId;
+  const delRes = await sb(`session_exercises?session_id=eq.${id}`, 'DELETE');
+  if (!delRes.ok) { showToast(`Save failed (${delRes.status})`, 'error'); return; }
+  const rows = editingTemplateExercises.map((ex, i) => ({
+    session_id: id, name: ex.name, sets: ex.sets, reps: ex.reps, rest: ex.rest,
+    note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
+    band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i
+  }));
+  if (rows.length) {
+    const postRes = await sb('session_exercises', 'POST', rows);
+    if (!postRes.ok) { showToast(`Save failed (${postRes.status})`, 'error'); return; }
+  }
+  await loadSessionTemplates();
+  EXERCISE_LIBRARY = buildExerciseLibrary();
+  closeSessionEditor();
+  showToast('Template updated', 'success');
+  buildSessionGrid(selectedProgramme);
 }
 
 // Resolves in-progress/resume/warn-and-switch and eagerly creates the workout row.
@@ -711,6 +805,45 @@ async function fetchOpenPreviousSets(exNames) {
   return result;
 }
 
+// "Last time you did this session" full snapshot — fixed sessions only (Open Workout already has its
+// own per-exercise previousSets scoping via fetchOpenPreviousSets, and CV+Pump never reaches
+// buildWorkoutLogger). Unlike previousSets (which independently resolves each exercise's own most
+// recent occurrence across the last 10 workouts), this is deliberately one single most-recent workout,
+// so the whole card reflects exactly one prior session rather than a blend.
+async function fetchLastSessionSnapshot(session) {
+  const last = await sb(`workouts?session_type=eq.${session.id}&completed_at=not.is.null&order=date.desc&limit=1&select=id,date`);
+  const candidates = (last || []).filter(w => w.id !== currentWorkoutId);
+  if (!candidates.length) return null;
+  const workout = candidates[0];
+  const sets = await sb(`workout_sets?workout_id=eq.${workout.id}&order=set_number.asc&select=exercise,set_number,weight,reps,variation`);
+  const byExercise = {};
+  (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
+  return { date: workout.date, exercises: byExercise };
+}
+
+function renderLastTimeCard(snapshot, session) {
+  if (!snapshot) return '';
+  const dateStr = new Date(snapshot.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+  const rows = session.exercises.map(ex => {
+    const sets = snapshot.exercises[ex.name] || (ex.aliases || []).flatMap(a => snapshot.exercises[a] || []);
+    if (!sets.length) return '';
+    const variationTag = sets[0].variation ? ` <span class="last-time-var">(${sets[0].variation})</span>` : '';
+    const setsStr = sets.map(s => {
+      const label = ex.band ? (s.variation || 'Band').split(' ').map(w => w[0]).join('') : (s.weight ?? 'BW');
+      return `${label}×${s.reps}`;
+    }).join(', ');
+    return `<div class="last-time-row"><span class="last-time-ex">${ex.name}${variationTag}</span><span class="last-time-sets">${setsStr}</span></div>`;
+  }).join('');
+  if (!rows) return '';
+  return `<div class="card last-time-card" id="last-time-card">
+    <div class="last-time-header" onclick="document.getElementById('last-time-card').classList.toggle('expanded')">
+      <span>📅 Last time — ${dateStr}</span>
+      <span class="last-time-chevron">▾</span>
+    </div>
+    <div class="last-time-body">${rows}</div>
+  </div>`;
+}
+
 // Reads any exercises an in-progress Open Workout draft added but hadn't Mark-Done'd yet (so a refresh
 // mid-session doesn't lose the block — DB reconstruction alone only knows about *saved* sets).
 function peekDraftOpenExercises() {
@@ -758,6 +891,11 @@ async function buildWorkoutLogger(session) {
   await loadPreviousSetsForSession(session);
 
   let html = '';
+  if (session.id !== 'open' && !session.cardio) {
+    html += `<div class="edit-template-link" onclick="openSessionEditor('${session.id}')">✎ Reorder / add / remove exercises for this session</div>`;
+    const lastTimeSnapshot = await fetchLastSessionSnapshot(session);
+    html += renderLastTimeCard(lastTimeSnapshot, session);
+  }
   session.exercises.forEach(ex => { html += renderExerciseBlock(ex, session); });
 
   if (session.id === 'open') {
