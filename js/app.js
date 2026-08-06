@@ -96,6 +96,9 @@ let selectedSession = null;
 let selectedProgramme = null;
 let previousSets = {};
 let selectedVariations = {};
+// Names removed via the ✕ button on a fixed session's live logger (one-off, today-only swap —
+// never written back to the template). Reset whenever a new session is selected.
+let removedSessionExercises = [];
 let editSelectedVariations = {};
 let mainChart = null;
 let currentChartType = 'weight';
@@ -582,6 +585,7 @@ async function beginWorkoutSession(session) {
 
   selectedSession = session;
   selectedVariations = {};
+  removedSessionExercises = [];
   return true;
 }
 
@@ -606,7 +610,13 @@ async function selectSession(session, btn) {
     return;
   }
 
-  const ok = await beginWorkoutSession(session);
+  // Clone before mutating — `session` here is the live SESSIONS array element (see buildSessionGrid),
+  // and the live logger now allows a one-off add/remove exercise for today only (same mechanic Open
+  // Workout already had). Mutating the shared object directly would silently edit the template in
+  // memory for the rest of the browser session.
+  const sessionCopy = { ...session, exercises: session.exercises.map(ex => ({ ...ex })) };
+
+  const ok = await beginWorkoutSession(sessionCopy);
   if (!ok) return;
 
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
@@ -614,10 +624,10 @@ async function selectSession(session, btn) {
 
   document.getElementById('session-grid').style.display = 'none';
   document.getElementById('session-pill').style.display = 'flex';
-  document.getElementById('session-pill-name').textContent = session.name;
+  document.getElementById('session-pill-name').textContent = sessionCopy.name;
   document.getElementById('conditioning-form').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'block';
-  buildWorkoutLogger(session);
+  buildWorkoutLogger(sessionCopy);
 }
 
 // 'open' (Open Workout) is deliberately not in SESSIONS — its exercise list is per-workout, not fixed.
@@ -684,7 +694,7 @@ function renderExerciseBlock(ex, session) {
       <div class="ex-top">
         <div class="ex-name-row">
           <div class="ex-name-display">${ex.name}</div>
-          ${session.id === 'open' ? `<button class="ex-remove-btn" id="remove-${ex.name}" onclick="removeOpenExercise('${ex.name}')" aria-label="Remove exercise" title="Remove">✕</button>` : ''}
+          <button class="ex-remove-btn" id="remove-${ex.name}" onclick="removeOpenExercise('${ex.name}')" aria-label="Remove exercise" title="Remove for today">✕</button>
           <button class="ex-watch" id="watch-${ex.name}" onclick="swTapWatch('${ex.name}')" aria-label="Rest timer">
             <svg class="ex-watch-ring" viewBox="0 0 30 30">
               <circle class="ex-watch-bg" cx="15" cy="15" r="12"></circle>
@@ -844,27 +854,41 @@ function renderLastTimeCard(snapshot, session) {
   </div>`;
 }
 
-// Reads any exercises an in-progress Open Workout draft added but hadn't Mark-Done'd yet (so a refresh
+// Reads any exercises an in-progress session's draft added but hadn't Mark-Done'd yet (so a refresh
 // mid-session doesn't lose the block — DB reconstruction alone only knows about *saved* sets).
-function peekDraftOpenExercises() {
+// Used by both Open Workout (per-workout exercise list) and fixed sessions (one-off today-only adds).
+function peekDraftOpenExercises(sessionId) {
   try {
     const raw = localStorage.getItem('workout_draft');
     if (!raw) return [];
     const draft = JSON.parse(raw);
-    if (draft.sessionId !== 'open') return [];
+    if (draft.sessionId !== sessionId) return [];
     if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return [];
     return draft.openExercises || [];
   } catch (e) { return []; }
 }
 
+// Exercises removed via the ✕ button on a fixed session's live logger (one-off, today-only —
+// never written to the template), so a mid-session refresh doesn't bring them back.
+function peekDraftRemovedExercises(sessionId) {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return [];
+    const draft = JSON.parse(raw);
+    if (draft.sessionId !== sessionId) return [];
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return [];
+    return draft.removedExercises || [];
+  } catch (e) { return []; }
+}
+
 // Per-exercise set-row counts saved by saveDraft, so a mid-session refresh doesn't lose rows
 // added/removed via addOpenSetRow/removeOpenSetRow before the exercise was Mark Done'd.
-function peekDraftSetCounts() {
+function peekDraftSetCounts(sessionId) {
   try {
     const raw = localStorage.getItem('workout_draft');
     if (!raw) return {};
     const draft = JSON.parse(raw);
-    if (draft.sessionId !== 'open') return {};
+    if (draft.sessionId !== sessionId) return {};
     if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return {};
     return draft.openSetCounts || {};
   } catch (e) { return {}; }
@@ -876,15 +900,23 @@ async function buildWorkoutLogger(session) {
 
   if (!session.cardioEntries) session.cardioEntries = [];
 
-  if (session.id === 'open') {
+  // Re-hydrate any one-off add/remove made before a mid-session refresh — Open Workout's exercise
+  // list is per-workout by design; fixed sessions get the same "today only" flexibility here too
+  // (never written back to the template — see selectSession's clone-before-mutate + the ✎ template
+  // editor for permanent changes).
+  if (!session.cardio) {
+    const removedNames = new Set(peekDraftRemovedExercises(session.id));
+    removedSessionExercises = Array.from(removedNames);
+    session.exercises = session.exercises.filter(e => !removedNames.has(e.name));
+
     const existingNames = new Set(session.exercises.map(e => e.name));
-    peekDraftOpenExercises().forEach(name => {
-      if (!existingNames.has(name)) {
+    peekDraftOpenExercises(session.id).forEach(name => {
+      if (!existingNames.has(name) && !removedNames.has(name)) {
         session.exercises.push({ ...(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' }) });
         existingNames.add(name);
       }
     });
-    const savedCounts = peekDraftSetCounts();
+    const savedCounts = peekDraftSetCounts(session.id);
     session.exercises.forEach(ex => { if (savedCounts[ex.name]) ex.sets = savedCounts[ex.name]; });
   }
 
@@ -898,7 +930,7 @@ async function buildWorkoutLogger(session) {
   }
   session.exercises.forEach(ex => { html += renderExerciseBlock(ex, session); });
 
-  if (session.id === 'open') {
+  if (!session.cardio) {
     if (session.exercises.length === 0) html += `<div class="empty" style="margin-bottom:0.875rem;">Tap Add Exercise below to get started</div>`;
     html += renderAddExerciseRow();
   }
@@ -1040,16 +1072,20 @@ async function addOpenExercise(name) {
   const addRow = document.getElementById('open-add-exercise-row');
   addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
   renderOpenAddExerciseOptions();
-  saveDraft('open');
+  removedSessionExercises = removedSessionExercises.filter(n => n !== name);
+  saveDraft(selectedSession.id);
 }
 
+// Removes an exercise for this workout only — never touches the permanent template (see ✎ Session
+// Template Editor for that). Works on both Open Workout and fixed sessions.
 function removeOpenExercise(name) {
   if (!selectedSession) return;
   selectedSession.exercises = selectedSession.exercises.filter(e => e.name !== name);
+  if (!removedSessionExercises.includes(name)) removedSessionExercises.push(name);
   const block = document.getElementById(`block-${name}`);
   if (block) block.remove();
   renderOpenAddExerciseOptions();
-  saveDraft('open');
+  saveDraft(selectedSession.id);
 }
 
 // Open Workout only — appends one more set row (mutates this exercise instance's own `sets`
@@ -1200,14 +1236,17 @@ function saveDraft(sessionId) {
       if (w || r) draft.sets[`${ex.name}-${i}`] = { w, r };
     }
   });
-  // Open Workout's exercise list is per-workout, not a fixed template — remember which ones were
-  // added so a refresh mid-session doesn't lose a block that hasn't been Mark Done'd (and saved) yet.
-  if (selectedSession.id === 'open') {
+  // Open Workout's exercise list is per-workout, not a fixed template; fixed sessions now also allow
+  // a one-off today-only add/remove (see selectSession/removeOpenExercise) — remember both so a
+  // refresh mid-session doesn't lose a block that hasn't been Mark Done'd (and saved) yet, or bring
+  // back one that was just removed.
+  if (!selectedSession.cardio) {
     draft.openExercises = selectedSession.exercises.map(e => e.name);
     // Also remember each exercise's current (possibly add/remove-Set-adjusted) row count, so a
     // refresh mid-session doesn't shrink it back to the exercise library's default.
     draft.openSetCounts = {};
     selectedSession.exercises.forEach(e => { draft.openSetCounts[e.name] = e.sets; });
+    draft.removedExercises = removedSessionExercises;
   }
   // Cardio entries are never saved to the DB until Save Workout — remember the whole list + their
   // current field values so a refresh mid-session doesn't lose them.
@@ -1273,7 +1312,8 @@ function selectVariation(exName, variation, btn) {
     }
   } else {
     const prev = previousSets[exName] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
-    const filteredPrev = prev.filter(p => p.variation === variation);
+    let filteredPrev = prev.filter(p => p.variation === variation);
+    if (filteredPrev.length === 0) filteredPrev = prev;
     const prevText = filteredPrev.length > 0
       ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
       : 'No previous data';
@@ -2111,7 +2151,21 @@ async function openEditWorkout(workoutId, sessionType, notes) {
 
   // 'open' (Open Workout) isn't in SESSIONS — its exercise list is per-workout, so reconstruct it
   // from what was actually saved (same approach used to resume an in-progress Open Workout).
-  const s = SESSIONS.find(s => s.id === sessionType) || reconstructSessionFromSets(sets);
+  const template = SESSIONS.find(s => s.id === sessionType);
+  const s = template ? { ...template, exercises: template.exercises.map(ex => ({ ...ex })) } : reconstructSessionFromSets(sets);
+  if (template) {
+    // Fixed sessions now allow a one-off today-only exercise swap in the live logger (never written
+    // back to the template) — merge in anything actually saved that isn't in the template so it's
+    // still editable from History, same reconstruction addOpenExercise's dropdown already relies on.
+    const known = new Set(s.exercises.map(e => e.name));
+    Object.keys(setsByExercise).forEach(name => {
+      if (!known.has(name)) {
+        const maxSet = Math.max(...setsByExercise[name].map(st => st.set_number));
+        const libEx = EXERCISE_LIBRARY[name];
+        s.exercises.push(libEx ? { ...libEx, sets: maxSet } : { name, sets: maxSet, reps: '', rest: '' });
+      }
+    });
+  }
 
   let html = '';
   if (s) {
@@ -2185,7 +2239,23 @@ async function saveEditWorkout() {
 
   // 'open' (Open Workout) isn't in SESSIONS — reconstruct its exercise list from what's already saved,
   // same as openEditWorkout() does when building the form.
-  const s = SESSIONS.find(s => s.id === editingSessionType) || reconstructSessionFromSets(existingSets);
+  const editTemplate = SESSIONS.find(s => s.id === editingSessionType);
+  const s = editTemplate ? { ...editTemplate, exercises: editTemplate.exercises.map(ex => ({ ...ex })) } : reconstructSessionFromSets(existingSets);
+  if (editTemplate) {
+    // Mirror openEditWorkout()'s merge — a one-off today-only exercise swap means the saved sets
+    // can include an exercise not in the template, and its inputs (`ew-...`) only exist in the DOM
+    // if it's in this loop too.
+    const known = new Set(s.exercises.map(e => e.name));
+    const byName = {};
+    (existingSets || []).forEach(st => { (byName[st.exercise] ||= []).push(st); });
+    Object.keys(byName).forEach(name => {
+      if (!known.has(name)) {
+        const maxSet = Math.max(...byName[name].map(st => st.set_number));
+        const libEx = EXERCISE_LIBRARY[name];
+        s.exercises.push(libEx ? { ...libEx, sets: maxSet } : { name, sets: maxSet, reps: '', rest: '' });
+      }
+    });
+  }
 
   for (const ex of s.exercises) {
     for (let i = 1; i <= ex.sets; i++) {
