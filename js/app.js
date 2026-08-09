@@ -1,3 +1,7 @@
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+}
+
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 window.addEventListener('scroll', () => {
   if (document.documentElement.classList.contains('login-active')) window.scrollTo(0, 0);
