@@ -1716,20 +1716,6 @@ function switchChart(type) {
   const wrap = document.querySelector('.chart-wrap');
   if (!wrap) return;
 
-  const progressSelect = document.getElementById('progress-exercise-select');
-  if (type === 'progress') {
-    progressSelect.style.display = 'block';
-    loadProgressExercises();
-    document.getElementById('chart-title').textContent = 'Progress';
-    if (progressSelect.value) {
-      loadProgressChart(progressSelect.value);
-    } else {
-      wrap.innerHTML = '<div class="empty">Pick an exercise to see its trend</div>';
-    }
-    return;
-  }
-  progressSelect.style.display = 'none';
-
   if (!wrap.querySelector('canvas')) {
     wrap.innerHTML = '<canvas id="main-chart" role="img"></canvas>';
   }
@@ -1790,58 +1776,6 @@ function switchChart(type) {
       scales: {
         x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#222' } },
         y: { ticks: { color: '#666', font: { size: 10 }, callback: yCallback }, grid: { color: '#222' } }
-      }
-    }
-  });
-}
-
-function loadProgressExercises() {
-  const select = document.getElementById('progress-exercise-select');
-  if (select.options.length > 1) return;
-  const names = Object.keys(EXERCISE_LIBRARY).sort();
-  select.innerHTML = '<option value="" selected disabled>Choose an exercise…</option>' +
-    names.map(n => `<option value="${n}">${n}</option>`).join('');
-}
-
-async function loadProgressChart(exerciseName) {
-  const wrap = document.querySelector('.chart-wrap');
-  if (mainChart) { mainChart.destroy(); mainChart = null; }
-  const ex = EXERCISE_LIBRARY[exerciseName];
-  const names = [exerciseName, ...((ex && ex.aliases) || [])].map(n => `"${n}"`).join(',');
-  const sets = await sb(`workout_sets?exercise=in.(${names})&weight=not.is.null&select=workout_id,weight`);
-  if (!sets || sets.length === 0) {
-    wrap.innerHTML = '<div class="empty">No logged sets for this exercise yet</div>';
-    document.getElementById('chart-title').textContent = `${exerciseName} Progress`;
-    return;
-  }
-  const workoutIds = [...new Set(sets.map(s => s.workout_id))].map(id => `"${id}"`).join(',');
-  const workouts = await sb(`workouts?id=in.(${workoutIds})&select=id,date`);
-  const dateById = {};
-  (workouts || []).forEach(w => dateById[w.id] = w.date);
-  const byDate = {};
-  sets.forEach(s => {
-    const date = dateById[s.workout_id];
-    if (!date) return;
-    const w = parseFloat(s.weight);
-    if (!byDate[date] || w > byDate[date]) byDate[date] = w;
-  });
-  const dates = Object.keys(byDate).sort();
-  const labels = dates.map(d => new Date(d).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
-  const data = dates.map(d => byDate[d]);
-  document.getElementById('chart-title').textContent = `${exerciseName} — Top Set Trend`;
-  wrap.innerHTML = '<canvas id="main-chart" role="img"></canvas>';
-  mainChart = new Chart(document.getElementById('main-chart'), {
-    type: 'line',
-    data: { labels, datasets: [{
-      data, borderColor: '#4a9eff', backgroundColor: '#4a9eff1a', borderWidth: 2,
-      pointBackgroundColor: '#4a9eff', pointRadius: 4, fill: true, tension: 0.3
-    }] },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#222' } },
-        y: { ticks: { color: '#666', font: { size: 10 }, callback: v => v + 'kg' }, grid: { color: '#222' } }
       }
     }
   });

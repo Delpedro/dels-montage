@@ -203,16 +203,9 @@
         <div class="stat-label">Avg Steps</div>
         <div class="stat-value stat-amber" id="stat-steps">--</div>
       </div>
-      <div class="stat-card" id="tile-progress" onclick="switchChart('progress')" style="grid-column: span 2;">
-        <div class="stat-label">Progress</div>
-        <div class="stat-value stat-blue" id="stat-progress">📈</div>
-      </div>
     </div>
     <div class="card">
       <div class="chart-title" id="chart-title">Weight Trend (last 14 days)</div>
-      <select class="field-input" id="progress-exercise-select" style="display:none; margin-bottom:0.75rem;" onchange="loadProgressChart(this.value)">
-        <option value="" selected disabled>Choose an exercise…</option>
-      </select>
       <div class="chart-wrap"><canvas id="main-chart" role="img"></canvas></div>
     </div>
     <div class="card">
