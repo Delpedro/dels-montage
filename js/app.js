@@ -261,8 +261,15 @@ async function initApp(page = 'home') {
   showPage(page);
 }
 
+// Local-timezone YYYY-MM-DD. Never use toISOString() for a date key — it converts to UTC first,
+// so during BST anything between 00:00 and 01:00 comes out stamped as the previous day.
+function dateStr(d = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 function todayStr() {
-  return new Date().toISOString().split('T')[0];
+  return dateStr();
 }
 
 function getGreeting() {
@@ -298,7 +305,7 @@ async function loadHomePage() {
   document.getElementById('home-sessions').textContent = (weekWorkouts || []).length;
 
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekLogs = await sb(`daily_logs?date=gte.${weekAgo.toISOString().split('T')[0]}&select=steps`);
+  const weekLogs = await sb(`daily_logs?date=gte.${dateStr(weekAgo)}&select=steps`);
   const stepsArr = (weekLogs || []).filter(l => l.steps).map(l => l.steps);
   const avgSteps = stepsArr.length ? Math.round(stepsArr.reduce((a,b)=>a+b,0)/stepsArr.length) : null;
   document.getElementById('home-steps').textContent = avgSteps ? avgSteps.toLocaleString() : '--';
@@ -317,17 +324,26 @@ async function loadHomePage() {
   buildWeekStrip('home-week-strip');
 }
 
+// Monday-anchored. Everything week-shaped in the app (sessions/week, weekly averages, the
+// History "This Week" filter, the week strip) goes through this one boundary.
 function getWeekStart() {
   const d = new Date();
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return d.toISOString().split('T')[0];
+  d.setDate(d.getDate() - weekIndex(d));
+  return dateStr(d);
+}
+
+// 0 = Monday … 6 = Sunday. getDay() is Sunday-anchored, hence the shift.
+function weekIndex(d) {
+  return (d.getDay() + 6) % 7;
 }
 
 // ─── WEEK STRIP ───────────────────────────────────────────
 async function buildWeekStrip(containerId = 'home-week-strip') {
-  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  // Mon–Sun, matching getWeekStart() — the strip used to run Sun–Sat, so it disagreed with
+  // every other "this week" in the app about which days counted.
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const today = new Date();
-  const dow = today.getDay();
+  const dow = weekIndex(today);
   const strip = document.getElementById(containerId);
   if (!strip) return;
 
@@ -335,7 +351,7 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   for (let i = 0; i < 7; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() - dow + i);
-    weekDates.push(d.toISOString().split('T')[0]);
+    weekDates.push(dateStr(d));
   }
 
   const workouts = await sb(`workouts?date=gte.${weekDates[0]}&date=lte.${weekDates[6]}&select=date`);
@@ -1693,9 +1709,9 @@ function clearCheckinFields() {
 // The old Chart.js tile-switcher was removed — see CODEBASE.md for what went and why.
 async function loadStats() {
   const since = new Date(); since.setDate(since.getDate() - 21);
-  const sinceStr = since.toISOString().split('T')[0];
+  const sinceStr = dateStr(since);
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekAgoStr = weekAgo.toISOString().split('T')[0];
+  const weekAgoStr = dateStr(weekAgo);
 
   const [weightLogs, weekLogs, allWorkouts] = await Promise.all([
     sb(`daily_logs?date=gte.${sinceStr}&order=date.asc&select=date,weight_kg`),
@@ -1959,7 +1975,7 @@ function getDateRangeFilter() {
     startDate = new Date(today);
     startDate.setMonth(today.getMonth() - 1);
   }
-  return startDate.toISOString().split('T')[0];
+  return dateStr(startDate);
 }
 
 function filterHistoryData() {
