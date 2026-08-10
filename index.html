@@ -186,31 +186,39 @@
   <!-- STATS -->
   <div class="page" id="page-stats">
     <div class="section-title">Stats</div>
+    <div class="stats-hero">
+      <div class="stats-hero-val" id="stats-hero-weight">--<span class="stats-hero-unit">kg</span></div>
+      <div class="stats-hero-sub" id="stats-hero-delta"></div>
+    </div>
+    <div class="stats-chart" id="stats-weight-chart"></div>
     <div class="stat-grid">
-      <div class="stat-card active" id="tile-weight" onclick="switchChart('weight')">
-        <div class="stat-label">Current Weight</div>
-        <div class="stat-value stat-accent" id="stat-weight">--<span class="stat-unit">kg</span></div>
-      </div>
-      <div class="stat-card" id="tile-sessions" onclick="switchChart('sessions')">
+      <div class="stat-card" id="tile-sessions">
         <div class="stat-label">Sessions This Week</div>
         <div class="stat-value stat-green" id="stat-sessions">--</div>
       </div>
-      <div class="stat-card" id="tile-fasting" onclick="switchChart('fasting')" style="display:none;">
-        <div class="stat-label">Avg Fasting</div>
-        <div class="stat-value stat-blue" id="stat-fasting">--<span class="stat-unit">hrs</span></div>
-      </div>
-      <div class="stat-card" id="tile-steps" onclick="switchChart('steps')" style="grid-column: span 2;">
+      <div class="stat-card" id="tile-steps">
         <div class="stat-label">Avg Steps</div>
         <div class="stat-value stat-amber" id="stat-steps">--</div>
       </div>
     </div>
+    <div class="landing-section-label">Daily averages &middot; 7 days</div>
     <div class="card">
-      <div class="chart-title" id="chart-title">Weight Trend (last 14 days)</div>
-      <div class="chart-wrap"><canvas id="main-chart" role="img"></canvas></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Recent Workouts</div>
-      <div id="recent-workouts"><div class="loading">Loading...</div></div>
+      <div class="macro-grid">
+        <div class="macro-tile">
+          <div class="macro-tile-val stat-green" id="macro-protein">--</div>
+          <div class="macro-tile-label">Protein g</div>
+        </div>
+        <div class="macro-tile">
+          <div class="macro-tile-val stat-blue" id="macro-carbs">--</div>
+          <div class="macro-tile-label">Carbs g</div>
+        </div>
+        <div class="macro-tile">
+          <div class="macro-tile-val stat-amber" id="macro-fat">--</div>
+          <div class="macro-tile-label">Fat g</div>
+        </div>
+      </div>
+      <div class="macro-bar" id="macro-bar"></div>
+      <div class="macro-key" id="macro-key"></div>
     </div>
   </div>
 
@@ -248,6 +256,10 @@
       <button onclick="closeCheckinModal()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;">✕</button>
     </div>
     <div class="card" style="border:none; padding:0;">
+      <div class="quick-row">
+        <button type="button" class="quick-btn" onclick="fillFromYesterday()">Same as yesterday</button>
+        <button type="button" class="quick-btn ghost" onclick="clearCheckinFields()">Clear</button>
+      </div>
       <div class="field-group">
         <label class="field-label">Date</label>
         <input type="date" class="field-input" id="log-date" title="Check-in date" onchange="loadDailyLog(this.value)" />
@@ -288,13 +300,9 @@
       </div>
       <div class="field-group">
         <label class="field-label">Energy</label>
-        <div class="energy-picker" id="energy-picker">
-          <button class="energy-btn" data-val="1" onclick="setEnergy(1)">😴</button>
-          <button class="energy-btn" data-val="2" onclick="setEnergy(2)">😑</button>
-          <button class="energy-btn" data-val="3" onclick="setEnergy(3)">🙂</button>
-          <button class="energy-btn" data-val="4" onclick="setEnergy(4)">😤</button>
-          <button class="energy-btn" data-val="5" onclick="setEnergy(5)">🔥</button>
-        </div>
+        <input type="range" class="energy-range" id="log-energy" min="0" max="5" step="1" value="0"
+               aria-label="Energy level" oninput="setEnergy(parseInt(this.value))" />
+        <div class="energy-labels"><span>flat</span><b id="log-energy-word">—</b><span>flying</span></div>
       </div>
       <div class="field-group">
         <label class="field-label">Notes</label>
@@ -349,13 +357,9 @@
       </div>
       <div class="field-group">
         <label class="field-label">Energy</label>
-        <div class="energy-picker" id="edit-energy-picker">
-          <button class="energy-btn" data-val="1" onclick="setEditEnergy(1)">😴</button>
-          <button class="energy-btn" data-val="2" onclick="setEditEnergy(2)">😑</button>
-          <button class="energy-btn" data-val="3" onclick="setEditEnergy(3)">🙂</button>
-          <button class="energy-btn" data-val="4" onclick="setEditEnergy(4)">😤</button>
-          <button class="energy-btn" data-val="5" onclick="setEditEnergy(5)">🔥</button>
-        </div>
+        <input type="range" class="energy-range" id="edit-energy" min="0" max="5" step="1" value="0"
+               aria-label="Energy level" oninput="setEditEnergy(parseInt(this.value))" />
+        <div class="energy-labels"><span>flat</span><b id="edit-energy-word">—</b><span>flying</span></div>
       </div>
       <div class="field-group">
         <label class="field-label">Notes</label>
@@ -412,7 +416,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

@@ -104,9 +104,6 @@ let selectedVariations = {};
 // never written back to the template). Reset whenever a new session is selected.
 let removedSessionExercises = [];
 let editSelectedVariations = {};
-let mainChart = null;
-let currentChartType = 'weight';
-let statsData = {};
 let currentPage = 'home';
 let currentWorkoutId = null;
 let currentWorkoutHasSets = false;
@@ -1655,130 +1652,174 @@ async function saveDailyLog() {
   renderCheckinSummary();
 }
 
+// Energy is stored 1–5 in the DB; 0 is the slider's "not set" position and saves as null.
+const ENERGY_WORDS = ['—', 'Flat', 'Low', 'OK', 'Good', 'Strong'];
+
 function setEnergy(val) {
   selectedEnergy = val;
-  document.querySelectorAll('.energy-btn').forEach(b => {
-    b.classList.toggle('selected', parseInt(b.dataset.val) === val);
-  });
+  const slider = document.getElementById('log-energy');
+  const word = document.getElementById('log-energy-word');
+  if (slider) slider.value = val;
+  if (word) word.textContent = ENERGY_WORDS[val] || '—';
+}
+
+// Copies the most recent earlier check-in into the form — the macros are hand-relayed
+// from MyFitnessPal daily and rarely move much, so this is usually 90% right.
+async function fillFromYesterday() {
+  const date = document.getElementById('log-date').value || todayStr();
+  const prev = await sb(`daily_logs?date=lt.${date}&order=date.desc&limit=1&select=*`);
+  if (!prev || !prev.length) { showToast('No earlier check-in to copy', 'error'); return; }
+  const l = prev[0];
+  const set = (id, v) => { document.getElementById(id).value = (v === null || v === undefined) ? '' : v; };
+  set('log-weight', l.weight_kg);
+  set('log-steps', l.steps);
+  set('log-cals', l.calories);
+  set('log-protein', l.protein_g);
+  set('log-carbs', l.carbs_g);
+  set('log-fat', l.fat_g);
+  set('log-fibre', l.fibre_g);
+  setEnergy(l.energy || 0);
+  showToast(`Copied from ${l.date}`, 'success');
+}
+
+function clearCheckinFields() {
+  ['log-weight','log-steps','log-cals','log-protein','log-carbs','log-fat','log-fibre','log-notes']
+    .forEach(id => { document.getElementById(id).value = ''; });
+  setEnergy(0);
 }
 
 // ─── STATS ────────────────────────────────────────────────
+// Redesigned 10 Aug 2026: hero weight + hand-rolled SVG trend chart + macro averages.
+// The old Chart.js tile-switcher was removed — see CODEBASE.md for what went and why.
 async function loadStats() {
-  const fourteenAgo = new Date(); fourteenAgo.setDate(fourteenAgo.getDate() - 14);
-  const fourteenAgoStr = fourteenAgo.toISOString().split('T')[0];
-  const [latest, weightLogs, recentLogs, allWorkouts, recent] = await Promise.all([
-    sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),
-    sb(`daily_logs?date=gte.${fourteenAgoStr}&order=date.asc&select=date,weight_kg`),
-    sb(`daily_logs?date=gte.${fourteenAgoStr}&order=date.asc&select=date,fasting_hours,steps`),
-    sb(`workouts?date=gte.${fourteenAgoStr}&order=date.asc&select=date,session_type`),
-    sb(`workouts?order=date.desc&limit=5&select=id,date,session_type,notes`)
+  const since = new Date(); since.setDate(since.getDate() - 21);
+  const sinceStr = since.toISOString().split('T')[0];
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+  const weekAgoStr = weekAgo.toISOString().split('T')[0];
+
+  const [weightLogs, weekLogs, allWorkouts] = await Promise.all([
+    sb(`daily_logs?date=gte.${sinceStr}&order=date.asc&select=date,weight_kg`),
+    sb(`daily_logs?date=gte.${weekAgoStr}&order=date.asc&select=date,steps,calories,protein_g,carbs_g,fat_g`),
+    sb(`workouts?date=gte.${sinceStr}&order=date.asc&select=date,session_type`)
   ]);
 
-  if (latest && latest[0]?.weight_kg) {
-    document.getElementById('stat-weight').innerHTML = `${latest[0].weight_kg}<span class="stat-unit">kg</span>`;
-  }
+  // Only days with an actual weigh-in — skipped days are dropped entirely so the
+  // line never shows a hole (user weighs in ~5 days a week, not 7).
+  const points = (weightLogs || [])
+    .filter(l => l.weight_kg !== null && l.weight_kg !== undefined)
+    .map(l => ({ date: l.date, v: parseFloat(l.weight_kg) }))
+    .slice(-12);
+
+  renderWeightHero(points);
+  renderWeightChart(points);
+
   const weekSessions = (allWorkouts || []).filter(w => w.date >= getWeekStart());
   document.getElementById('stat-sessions').textContent = weekSessions.length;
 
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekAgoStr = weekAgo.toISOString().split('T')[0];
-  const recentWeekLogs = (recentLogs || []).filter(l => l.date >= weekAgoStr);
-  const fv = recentWeekLogs.filter(l => l.fasting_hours).map(l => l.fasting_hours);
-  const sv = recentWeekLogs.filter(l => l.steps).map(l => l.steps);
-  if (fv.length) document.getElementById('stat-fasting').innerHTML = `${(fv.reduce((a,b)=>a+b,0)/fv.length).toFixed(1)}<span class="stat-unit">hrs</span>`;
-  if (sv.length) document.getElementById('stat-steps').textContent = Math.round(sv.reduce((a,b)=>a+b,0)/sv.length).toLocaleString();
+  const sv = (weekLogs || []).filter(l => l.steps).map(l => l.steps);
+  document.getElementById('stat-steps').textContent =
+    sv.length ? Math.round(sv.reduce((a, b) => a + b, 0) / sv.length).toLocaleString() : '--';
 
-  statsData = {
-    weight: weightLogs || [],
-    fasting: recentLogs || [],
-    steps: recentLogs || [],
-    sessions: allWorkouts || []
-  };
-  switchChart(currentChartType);
-
-  const rw = document.getElementById('recent-workouts');
-  if (!recent || recent.length === 0) { rw.innerHTML = '<div class="empty">No workouts logged yet</div>'; return; }
-  rw.innerHTML = recent.map(w => {
-    return `<div class="history-item" style="cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
-      <div class="history-date">${new Date(w.date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'short'})}</div>
-      <div class="history-title">${sessionDisplayName(w.session_type)}</div>
-      ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:3px;">${w.notes}</div>` : ''}
-    </div>`;
-  }).join('');
+  renderMacroAverages(weekLogs || []);
 }
 
-// ─── CHART SWITCHER ───────────────────────────────────────
-function switchChart(type) {
-  currentChartType = type;
-  document.querySelectorAll('.stat-card').forEach(t => t.classList.remove('active'));
-  document.getElementById(`tile-${type}`).classList.add('active');
-  if (mainChart) { mainChart.destroy(); mainChart = null; }
-  const wrap = document.querySelector('.chart-wrap');
-  if (!wrap) return;
-
-  if (!wrap.querySelector('canvas')) {
-    wrap.innerHTML = '<canvas id="main-chart" role="img"></canvas>';
+function renderWeightHero(points) {
+  const valEl = document.getElementById('stats-hero-weight');
+  const subEl = document.getElementById('stats-hero-delta');
+  if (!points.length) {
+    valEl.innerHTML = `--<span class="stats-hero-unit">kg</span>`;
+    subEl.textContent = 'No weigh-ins yet';
+    subEl.className = 'stats-hero-sub flat';
+    return;
   }
-
-  let labels = [], data = [], color = '#e85d2f', chartType = 'line', yCallback = v => v;
-
-  if (type === 'weight') {
-    const d = statsData.weight || [];
-    if (d.length === 0) { wrap.innerHTML = '<div class="empty">No weight data yet</div>'; document.getElementById('chart-title').textContent = 'Weight Trend (last 14 days)'; return; }
-    labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
-    data = d.map(x => x.weight_kg);
-    color = '#e85d2f'; yCallback = v => v + 'kg';
-    document.getElementById('chart-title').textContent = 'Weight Trend (last 14 days)';
-  } else if (type === 'sessions') {
-    const d = statsData.sessions || [];
-    if (d.length === 0) { wrap.innerHTML = '<div class="empty">No session data yet</div>'; document.getElementById('chart-title').textContent = 'Sessions (last 14 days)'; return; }
-    const byDate = {};
-    d.forEach(w => { byDate[w.date] = (byDate[w.date] || 0) + 1; });
-    labels = Object.keys(byDate).map(x => new Date(x).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
-    data = Object.values(byDate);
-    color = '#4caf7d'; chartType = 'bar';
-    document.getElementById('chart-title').textContent = 'Sessions (last 14 days)';
-  } else if (type === 'fasting') {
-    const d = (statsData.fasting || []).filter(x => x.fasting_hours);
-    if (d.length === 0) { wrap.innerHTML = '<div class="empty">No fasting data yet</div>'; document.getElementById('chart-title').textContent = 'Fasting Hours (last 14 days)'; return; }
-    labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
-    data = d.map(x => x.fasting_hours);
-    color = '#4a9eff'; yCallback = v => v + 'h';
-    document.getElementById('chart-title').textContent = 'Fasting Hours (last 14 days)';
-  } else if (type === 'steps') {
-    const d = (statsData.steps || []).filter(x => x.steps);
-    if (d.length === 0) { wrap.innerHTML = '<div class="empty">No steps data yet</div>'; document.getElementById('chart-title').textContent = 'Steps (last 14 days)'; return; }
-    labels = d.map(x => new Date(x.date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
-    data = d.map(x => x.steps);
-    color = '#f0a050'; yCallback = v => v >= 1000 ? (v/1000).toFixed(1) + 'k' : v;
-    document.getElementById('chart-title').textContent = 'Steps (last 14 days)';
+  const latest = points[points.length - 1];
+  valEl.innerHTML = `${latest.v.toFixed(1)}<span class="stats-hero-unit">kg</span>`;
+  if (points.length < 2) { subEl.textContent = ''; subEl.className = 'stats-hero-sub flat'; return; }
+  const first = points[0];
+  const diff = latest.v - first.v;
+  const days = Math.max(1, Math.round((new Date(latest.date) - new Date(first.date)) / 86400000));
+  if (Math.abs(diff) < 0.05) {
+    subEl.textContent = `No change in ${days} days`;
+    subEl.className = 'stats-hero-sub flat';
+  } else {
+    const down = diff < 0;
+    subEl.textContent = `${down ? '▼' : '▲'} ${Math.abs(diff).toFixed(1)}kg in ${days} days`;
+    subEl.className = `stats-hero-sub ${down ? 'down' : 'up'}`;
   }
+}
 
-  mainChart = new Chart(document.getElementById('main-chart'), {
-    type: chartType,
-    data: {
-      labels,
-      datasets: [{
-        data,
-        borderColor: color,
-        backgroundColor: chartType === 'bar' ? color + '99' : color + '1a',
-        borderWidth: 2,
-        pointBackgroundColor: color,
-        pointRadius: chartType === 'line' ? 4 : 0,
-        fill: chartType === 'line',
-        tension: 0.3,
-        borderRadius: chartType === 'bar' ? 4 : 0
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#222' } },
-        y: { ticks: { color: '#666', font: { size: 10 }, callback: yCallback }, grid: { color: '#222' } }
-      }
-    }
-  });
+// Hand-rolled SVG rather than Chart.js so every point can carry its own value label.
+function renderWeightChart(points) {
+  const box = document.getElementById('stats-weight-chart');
+  if (points.length < 2) {
+    box.innerHTML = '<div class="empty">Not enough weigh-ins to chart yet</div>';
+    return;
+  }
+  const W = 300, TOP = 24, H = 74, L = 26, R = 278;
+  const vals = points.map(p => p.v);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const pad = Math.max(0.4, (max - min) * 0.25);   // keeps a flat week from rendering as a straight edge
+  const lo = min - pad, hi = max + pad;
+  const x = i => L + i * ((R - L) / (points.length - 1));
+  const y = v => TOP + H - ((v - lo) / (hi - lo)) * H;
+
+  const coords = points.map((p, i) => [x(i), y(p.v)]);
+  const poly = coords.map(c => `${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ');
+  const area = `M${coords[0][0].toFixed(1)},${coords[0][1].toFixed(1)} ` +
+    coords.slice(1).map(c => `L${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ') +
+    ` L${coords[coords.length-1][0].toFixed(1)},${TOP+H} L${coords[0][0].toFixed(1)},${TOP+H} Z`;
+
+  // Label every 3rd point plus the latest, so a 12-point line stays readable on a phone.
+  const labelled = i => i % 3 === 0 || i === points.length - 1;
+  const dayOf = d => String(new Date(d).getDate()).padStart(2, '0');
+
+  box.innerHTML = `<svg viewBox="0 0 ${W} 112" role="img" aria-label="Weight trend">
+    <defs><linearGradient id="wgrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e85d2f" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="#e85d2f" stop-opacity="0"/>
+    </linearGradient></defs>
+    <path d="${area}" fill="url(#wgrad)"/>
+    <polyline points="${poly}" fill="none" stroke="#e85d2f" stroke-width="2" stroke-linejoin="round"/>
+    ${coords.map((c, i) => {
+      const last = i === coords.length - 1;
+      return `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="${last ? 4 : 2.4}" fill="${last ? '#e85d2f' : '#0e0e0e'}" stroke="#e85d2f" stroke-width="1.7"/>`;
+    }).join('')}
+    ${coords.map((c, i) => labelled(i)
+      ? `<text x="${c[0].toFixed(1)}" y="${(c[1] - 8).toFixed(1)}" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" font-weight="500" fill="${i === coords.length - 1 ? '#e85d2f' : '#888'}">${points[i].v.toFixed(1)}</text>`
+      : '').join('')}
+    ${coords.map((c, i) => labelled(i)
+      ? `<text x="${c[0].toFixed(1)}" y="106" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="7" fill="#666">${dayOf(points[i].date)}</text>`
+      : '').join('')}
+  </svg>`;
+}
+
+function renderMacroAverages(logs) {
+  const avg = key => {
+    const vals = logs.filter(l => l[key] !== null && l[key] !== undefined).map(l => parseFloat(l[key]));
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
+  const p = avg('protein_g'), c = avg('carbs_g'), f = avg('fat_g');
+  const show = (id, v) => { document.getElementById(id).textContent = v === null ? '--' : Math.round(v); };
+  show('macro-protein', p);
+  show('macro-carbs', c);
+  show('macro-fat', f);
+
+  const bar = document.getElementById('macro-bar');
+  const key = document.getElementById('macro-key');
+  if (p === null || c === null || f === null) { bar.innerHTML = ''; key.innerHTML = ''; return; }
+  // Split by calories contributed, not grams — 4/4/9 kcal per gram.
+  const kcal = { p: p * 4, c: c * 4, f: f * 9 };
+  const total = kcal.p + kcal.c + kcal.f;
+  if (!total) { bar.innerHTML = ''; key.innerHTML = ''; return; }
+  const pct = v => Math.round((v / total) * 100);
+  bar.innerHTML = `
+    <i style="width:${pct(kcal.p)}%;background:var(--green);"></i>
+    <i style="width:${pct(kcal.c)}%;background:var(--blue);"></i>
+    <i style="width:${pct(kcal.f)}%;background:var(--amber);"></i>`;
+  key.innerHTML = `
+    <span><i style="background:var(--green);"></i>${pct(kcal.p)}% prot</span>
+    <span><i style="background:var(--blue);"></i>${pct(kcal.c)}% carb</span>
+    <span><i style="background:var(--amber);"></i>${pct(kcal.f)}% fat</span>`;
 }
 
 // ─── HISTORY ─────────────────────────────────────────────
@@ -1789,6 +1830,80 @@ let historyWorkoutFilter = 'all';
 let historySearchTerm = '';
 let allHistoryLogs = [];
 let allHistoryWorkouts = [];
+
+// Builds a `${workoutId}|${exercise}::${variation}` → {best, bestReps, delta, isPR, ...} map.
+// Keyed by variation as well as name because e.g. "Hack Squat / Leg Press" carries wildly
+// different loads per variation — comparing across them produces nonsense deltas/PRs.
+// "best" is the heaviest weight logged in that workout; bodyweight/band work (weight null
+// or 0) has no load to compare, so it reports reps only and never claims a delta.
+function computeExerciseProgress(workouts, setsByWorkout) {
+  const dateById = {};
+  (workouts || []).forEach(w => { dateById[w.id] = w.date; });
+
+  const byExercise = {};
+  (workouts || []).forEach(w => {
+    const perEx = {};
+    (setsByWorkout[w.id] || []).forEach(s => {
+      const key = `${s.exercise}::${s.variation || ''}`;
+      if (!perEx[key]) perEx[key] = {
+        exercise: s.exercise, variation: s.variation || null,
+        best: null, bestReps: null, rests: [], setCount: 0
+      };
+      const e = perEx[key];
+      e.setCount++;
+      const rest = parseInt(s.rest_seconds);
+      if (!isNaN(rest) && rest > 0) e.rests.push(rest);
+      const wt = parseFloat(s.weight);
+      const reps = parseInt(s.reps) || 0;
+      if (!isNaN(wt) && wt > 0) {
+        if (e.best === null || wt > e.best) { e.best = wt; e.bestReps = reps; }
+      } else if (e.best === null && reps > (e.bestReps || 0)) {
+        e.bestReps = reps;   // bodyweight/band: reps are the only progression signal
+      }
+    });
+    Object.keys(perEx).forEach(key => {
+      if (!byExercise[key]) byExercise[key] = [];
+      byExercise[key].push({ workoutId: w.id, date: dateById[w.id], ...perEx[key] });
+    });
+  });
+
+  const out = {};
+  Object.keys(byExercise).forEach(key => {
+    const list = byExercise[key].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    let runningMax = null;
+    list.forEach((entry, i) => {
+      const prev = i > 0 ? list[i - 1] : null;
+      const delta = (entry.best !== null && prev && prev.best !== null) ? entry.best - prev.best : null;
+      // First-ever occurrence isn't flagged as a PR — otherwise every old entry wears a badge.
+      const isPR = i > 0 && entry.best !== null && runningMax !== null && entry.best > runningMax;
+      if (entry.best !== null) runningMax = runningMax === null ? entry.best : Math.max(runningMax, entry.best);
+      out[`${entry.workoutId}|${key}`] = {
+        exercise: entry.exercise, variation: entry.variation,
+        best: entry.best, bestReps: entry.bestReps, delta, isPR,
+        avgRest: entry.rests.length ? Math.round(entry.rests.reduce((a, b) => a + b, 0) / entry.rests.length) : null,
+        setCount: entry.setCount
+      };
+    });
+  });
+  return out;
+}
+
+function fmtRest(seconds) {
+  if (seconds === null || seconds === undefined) return null;
+  const m = Math.floor(seconds / 60), s = seconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Renders the green/red/grey "vs last time" cell shared by workout and check-in cards.
+function deltaCell(delta, opts = {}) {
+  const { suffix = '', lowerIsBetter = false, decimals = 1 } = opts;
+  if (delta === null || delta === undefined || isNaN(delta)) return `<span class="pf-d same">—</span>`;
+  const rounded = Math.abs(delta) < 0.05 ? 0 : delta;
+  if (rounded === 0) return `<span class="pf-d same">—</span>`;
+  const good = lowerIsBetter ? rounded < 0 : rounded > 0;
+  const txt = `${rounded > 0 ? '+' : '−'}${Math.abs(rounded).toFixed(decimals).replace(/\.0$/, '')}${suffix}`;
+  return `<span class="pf-d ${good ? 'up' : 'down'}">${txt}</span>`;
+}
 
 async function loadHistory() {
   const list = document.getElementById('history-list');
@@ -1801,8 +1916,10 @@ async function loadHistory() {
   allHistoryWorkouts = workouts || [];
   // Fetch all sets for visible workouts in one batched call — not one call per card
 const workoutIds = (workouts || []).map(w => `"${w.id}"`).join(',');
+// Ordered by created_at so exercises list in the order they were actually completed
+// (workout_sets has no explicit sequence column). rest_seconds drives the rest display.
 const allSets = workoutIds.length
-  ? await sb(`workout_sets?workout_id=in.(${workoutIds})&select=workout_id,exercise,weight,reps&order=weight.desc`)
+  ? await sb(`workout_sets?workout_id=in.(${workoutIds})&select=workout_id,exercise,weight,reps,rest_seconds,set_number,variation,created_at&order=created_at.asc,set_number.asc`)
   : [];
 // Group sets by workout_id for quick lookup when rendering cards
 window._setsByWorkout = {};
@@ -1810,6 +1927,8 @@ window._setsByWorkout = {};
   if (!window._setsByWorkout[s.workout_id]) window._setsByWorkout[s.workout_id] = [];
   window._setsByWorkout[s.workout_id].push(s);
 });
+// Per-workout-per-exercise deltas vs last time + PR flags, computed once for the whole feed
+window._progress = computeExerciseProgress(allHistoryWorkouts, window._setsByWorkout);
 // Same batched-fetch pattern for cardio entries
 const allCardio = workoutIds.length
   ? await sb(`cardio_logs?workout_id=in.(${workoutIds})&select=workout_id,activity,duration_mins,distance,floors,incline,speed_kmh`)
@@ -1916,6 +2035,12 @@ function renderHistoryPage() {
     byDate[item.date].push(item);
   });
 
+  // Check-in deltas compare against the previous check-in chronologically — built from the
+  // full unfiltered set so a filtered view still shows true day-on-day changes.
+  const prevLogByDate = {};
+  const logsAsc = [...allHistoryLogs].sort((a, b) => a.date.localeCompare(b.date));
+  logsAsc.forEach((l, i) => { if (i > 0) prevLogByDate[l.date] = logsAsc[i - 1]; });
+
   Object.keys(byDate).sort((a, b) => b.localeCompare(a)).forEach(date => {
     const dateStr = new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
     html += `<div class="history-date-group"><div class="history-date-header">${dateStr}</div>`;
@@ -1923,42 +2048,71 @@ function renderHistoryPage() {
     byDate[date].forEach(item => {
       if (item.type === 'log') {
         const l = item.data;
-        html += `<div class="history-card" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
-          <div class="history-card-label">Daily Check-in</div>
-          <div class="history-stats">
-            ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
-            ${l.calories ? `<span class="pill pill-cals">${l.calories} kcal</span>` : ''}
-            ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
-            ${l.protein_g ? `<span class="pill pill-reps">${l.protein_g}g protein</span>` : ''}
-            ${l.carbs_g ? `<span class="pill pill-sets">${l.carbs_g}g carbs</span>` : ''}
-            ${l.fat_g ? `<span class="pill pill-cals">${l.fat_g}g fat</span>` : ''}
-            ${l.fibre_g ? `<span class="pill pill-rest">${l.fibre_g}g fibre</span>` : ''}
-            ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
+        const prev = prevLogByDate[l.date] || null;
+        const dnum = key => (prev && l[key] !== null && prev[key] !== null &&
+                             l[key] !== undefined && prev[key] !== undefined)
+          ? parseFloat(l[key]) - parseFloat(prev[key]) : null;
+        const row = (label, value, delta, opts) => value === null || value === undefined ? '' :
+          `<div class="pf-lift"><span class="pf-lname">${label}</span><span class="pf-lval">${value}</span>${deltaCell(delta, opts)}</div>`;
+        const footBits = [];
+        if (l.steps) footBits.push(`<span>Steps <b>${l.steps.toLocaleString()}</b></span>`);
+        if (l.energy) footBits.push(`<span>Energy <b>${ENERGY_WORDS[l.energy] || l.energy}</b></span>`);
+        html += `<div class="pf-card log" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
+          <div class="pf-head">
+            <span class="pf-name">CHECK-IN</span>
+            <span class="pf-date">${new Date(l.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
           </div>
+          ${row('Weight', l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true})}
+          ${row('Calories', l.calories, dnum('calories'), {decimals:0})}
+          ${row('Protein', l.protein_g !== null && l.protein_g !== undefined ? `${l.protein_g}g` : null, dnum('protein_g'), {suffix:'g', decimals:0})}
+          ${row('Carbs', l.carbs_g !== null && l.carbs_g !== undefined ? `${l.carbs_g}g` : null, dnum('carbs_g'), {suffix:'g', decimals:0})}
+          ${row('Fat', l.fat_g !== null && l.fat_g !== undefined ? `${l.fat_g}g` : null, dnum('fat_g'), {suffix:'g', decimals:0})}
+          ${row('Fibre', l.fibre_g !== null && l.fibre_g !== undefined ? `${l.fibre_g}g` : null, dnum('fibre_g'), {suffix:'g', decimals:0})}
           ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
+          ${footBits.length ? `<div class="pf-foot">${footBits.join('')}</div>` : ''}
         </div>`;
       } else {
         const w = item.data;
-        html += `<div class="history-card" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
-          <div class="history-workout-head">
-            <div class="history-card-label" style="color:var(--amber);">${sessionDisplayName(w.session_type)}</div>
-            <span class="history-card-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
+        const sets = window._setsByWorkout[w.id] || [];
+        const order = [];
+        sets.forEach(s => {
+          const key = `${s.exercise}::${s.variation || ''}`;
+          if (!order.includes(key)) order.push(key);
+        });
+        let prCount = 0, totalSets = 0;
+        const allRests = [];
+        const liftRows = order.map(key => {
+          const p = (window._progress || {})[`${w.id}|${key}`];
+          if (!p) return '';
+          totalSets += p.setCount;
+          if (p.isPR) prCount++;
+          if (p.avgRest !== null) allRests.push(p.avgRest);
+          const value = p.best !== null ? `${p.best}×${p.bestReps || 0}`
+                      : (p.bestReps ? `BW×${p.bestReps}` : '—');
+          const restTxt = p.avgRest !== null ? `rest ${fmtRest(p.avgRest)} avg` : 'rest —';
+          const label = `${p.exercise}${p.variation ? ` <span style="color:var(--muted);">· ${p.variation}</span>` : ''}`;
+          return `<div class="pf-lift">
+            <span><span class="pf-lname">${label}${p.isPR ? '<span class="pf-badge">PR</span>' : ''}</span><div class="pf-sub">${restTxt}</div></span>
+            <span class="pf-lval">${value}</span>
+            ${p.best !== null ? deltaCell(p.delta, {decimals:1}) : '<span class="pf-d same">—</span>'}
+          </div>`;
+        }).join('');
+        const cardio = window._cardioByWorkout[w.id] || [];
+        const sessionRest = allRests.length ? Math.round(allRests.reduce((a,b)=>a+b,0)/allRests.length) : null;
+        html += `<div class="pf-card" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
+          <div class="pf-head">
+            <span class="pf-name">${sessionDisplayName(w.session_type)}</span>
+            <span class="pf-date">${new Date(w.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
           </div>
+          ${liftRows || '<div class="pf-sub" style="padding:4px 0;">No sets logged</div>'}
+          ${cardio.length ? `<div class="pf-sub" style="margin-top:6px;">${cardio.map(formatCardioEntry).join(' / ')}</div>` : ''}
           ${w.notes ? `<div class="history-card-notes">${w.notes}</div>` : ''}
-${(() => {
-  const sets = (window._setsByWorkout[w.id] || []).filter(s => s.weight);
-  const seen = {};
-  const top3 = [];
-  for (const s of sets) {
-    if (!seen[s.exercise]) { seen[s.exercise] = true; top3.push(s); }
-    if (top3.length === 3) break;
-  }
-  return top3.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:6px;">${top3.map(s => `${s.exercise} ${s.weight}×${s.reps}`).join(' / ')}</div>` : '';
-})()}
-${(() => {
-  const cardio = window._cardioByWorkout[w.id] || [];
-  return cardio.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:4px;">${cardio.map(formatCardioEntry).join(' / ')}</div>` : '';
-})()}
+          <div class="pf-foot">
+            <span>Sets <b>${totalSets}</b></span>
+            <span>PRs <b>${prCount}</b></span>
+            ${sessionRest !== null ? `<span>Avg rest <b>${fmtRest(sessionRest)}</b></span>` : ''}
+            <span class="pf-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
+          </div>
         </div>`;
       }
     });
@@ -2080,9 +2234,10 @@ function closeEditLog() {
 
 function setEditEnergy(val) {
   editingEnergy = val;
-  document.querySelectorAll('#edit-energy-picker .energy-btn').forEach(b => {
-    b.classList.toggle('selected', parseInt(b.dataset.val) === val);
-  });
+  const slider = document.getElementById('edit-energy');
+  const word = document.getElementById('edit-energy-word');
+  if (slider) slider.value = val;
+  if (word) word.textContent = ENERGY_WORDS[val] || '—';
 }
 
 async function saveEditLog() {
