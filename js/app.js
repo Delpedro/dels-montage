@@ -1989,30 +1989,42 @@ function renderHistoryPage() {
     byDate[date].forEach(item => {
       if (item.type === 'log') {
         const l = item.data;
-        const bits = [];
-        if (l.weight_kg) bits.push(`${l.weight_kg}kg`);
-        if (l.calories) bits.push(`${l.calories} kcal`);
-        if (l.steps) bits.push(`${l.steps.toLocaleString()} steps`);
-        if (l.energy) bits.push(['','😴','😑','🙂','😤','🔥'][l.energy]);
         html += `<div class="history-card" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
           <div class="history-card-label">Daily Check-in</div>
-          <div class="history-card-notes">${bits.length ? bits.join(' · ') : 'No stats logged'}</div>
+          <div class="history-stats">
+            ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
+            ${l.calories ? `<span class="pill pill-cals">${l.calories} kcal</span>` : ''}
+            ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
+            ${l.protein_g ? `<span class="pill pill-reps">${l.protein_g}g protein</span>` : ''}
+            ${l.carbs_g ? `<span class="pill pill-sets">${l.carbs_g}g carbs</span>` : ''}
+            ${l.fat_g ? `<span class="pill pill-cals">${l.fat_g}g fat</span>` : ''}
+            ${l.fibre_g ? `<span class="pill pill-rest">${l.fibre_g}g fibre</span>` : ''}
+            ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
+          </div>
+          ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
         </div>`;
       } else {
         const w = item.data;
-        const summary = (() => {
-          const sets = (window._setsByWorkout[w.id] || []).filter(s => s.weight);
-          const cardio = window._cardioByWorkout[w.id] || [];
-          if (sets.length) return `${sets[0].exercise} ${sets[0].weight}×${sets[0].reps}`;
-          if (cardio.length) return formatCardioEntry(cardio[0]);
-          return 'No sets logged';
-        })();
         html += `<div class="history-card" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
           <div class="history-workout-head">
             <div class="history-card-label" style="color:var(--amber);">${sessionDisplayName(w.session_type)}</div>
             <span class="history-card-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
           </div>
-          <div class="history-card-notes">${summary}</div>
+          ${w.notes ? `<div class="history-card-notes">${w.notes}</div>` : ''}
+${(() => {
+  const sets = (window._setsByWorkout[w.id] || []).filter(s => s.weight);
+  const seen = {};
+  const top3 = [];
+  for (const s of sets) {
+    if (!seen[s.exercise]) { seen[s.exercise] = true; top3.push(s); }
+    if (top3.length === 3) break;
+  }
+  return top3.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:6px;">${top3.map(s => `${s.exercise} ${s.weight}×${s.reps}`).join(' / ')}</div>` : '';
+})()}
+${(() => {
+  const cardio = window._cardioByWorkout[w.id] || [];
+  return cardio.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:4px;">${cardio.map(formatCardioEntry).join(' / ')}</div>` : '';
+})()}
         </div>`;
       }
     });
