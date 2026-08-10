@@ -1190,7 +1190,7 @@ function renderCardioEntryBlock(entry, sessionId) {
       <div class="ex-name-display">${cardioDisplayName(entry.activity)}</div>
       <button class="ex-remove-btn" onclick="removeCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
     </div>
-    <div style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
+    <div class="cardio-field-grid" style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
     ${presets}
   </div>`;
 }
@@ -1943,8 +1943,6 @@ window._setsByWorkout = {};
   if (!window._setsByWorkout[s.workout_id]) window._setsByWorkout[s.workout_id] = [];
   window._setsByWorkout[s.workout_id].push(s);
 });
-// Per-workout-per-exercise deltas vs last time + PR flags, computed once for the whole feed
-window._progress = computeExerciseProgress(allHistoryWorkouts, window._setsByWorkout);
 // Same batched-fetch pattern for cardio entries
 const allCardio = workoutIds.length
   ? await sb(`cardio_logs?workout_id=in.(${workoutIds})&select=workout_id,activity,duration_mins,distance,floors,incline,speed_kmh`)
@@ -1954,6 +1952,19 @@ window._cardioByWorkout = {};
   if (!window._cardioByWorkout[c.workout_id]) window._cardioByWorkout[c.workout_id] = [];
   window._cardioByWorkout[c.workout_id].push(c);
 });
+// Hide (never delete) abandoned sessions: a workouts row is created the instant a session
+// tile is tapped, so opening a session and walking away leaves a row with nothing in it.
+// Anything with sets, cardio, or notes is real and stays — notes is what keeps CV + Pump
+// visible, since it logs to conditioning_logs and has neither sets nor cardio rows.
+// Deliberately not keyed on completed_at: autoCloseStaleWorkouts() stamps that onto
+// abandoned rows after 24h, which would let them back in.
+allHistoryWorkouts = allHistoryWorkouts.filter(w =>
+  (window._setsByWorkout[w.id] || []).length > 0 ||
+  (window._cardioByWorkout[w.id] || []).length > 0 ||
+  (w.notes || '').trim() !== ''
+);
+// Per-workout-per-exercise deltas vs last time + PR flags, computed once for the whole feed
+window._progress = computeExerciseProgress(allHistoryWorkouts, window._setsByWorkout);
   historyPage = 1;
   historyTab = 'all';
   historyDateRange = 'all';
@@ -2192,7 +2203,10 @@ function loadMoreHistory() {
 
 // ─── NAV ─────────────────────────────────────────────────
 function showPage(name) {
-  if (name !== 'home' && currentWorkoutId && !currentWorkoutHasSets) {
+  // Any tab change away from an opened-but-never-logged session deletes its empty
+  // workouts row. Home used to be excluded, which left the row behind and showed it
+  // as a blank entry in History.
+  if (currentWorkoutId && !currentWorkoutHasSets) {
     fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
       method: 'DELETE',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
@@ -2306,7 +2320,7 @@ function renderEditCardioEntryBlock(entry) {
       <div class="ex-name-display">${cardioDisplayName(entry.activity)}</div>
       <button class="ex-remove-btn" onclick="removeEditCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
     </div>
-    <div style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
+    <div class="cardio-field-grid" style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
     ${presets}
   </div>`;
 }
@@ -2365,7 +2379,10 @@ async function openEditWorkout(workoutId, sessionType, notes) {
   const cardioSelectEl = document.getElementById('edit-cardio-activity-select');
   cardioSelectEl.innerHTML = `<option value="" selected disabled>Choose an activity…</option>${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${cardioDisplayName(a)}</option>`).join('')}`;
 
-  const sets = await sb(`workout_sets?workout_id=eq.${workoutId}&order=set_number.asc&select=*`);
+  // created_at first, set_number second — same sort as loadHistory(), so the modal lists
+  // exercises in the order they were actually logged. Ordering by set_number alone returned
+  // all set 1s, then all set 2s, leaving the exercise order arbitrary.
+  const sets = await sb(`workout_sets?workout_id=eq.${workoutId}&order=created_at.asc,set_number.asc&select=*`);
   const setsByExercise = {};
   (sets || []).forEach(set => {
     if (!setsByExercise[set.exercise]) setsByExercise[set.exercise] = [];
