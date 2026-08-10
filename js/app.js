@@ -640,17 +640,21 @@ function sessionDisplayName(sessionType) {
   return SESSIONS.find(s => s.id === sessionType)?.name || sessionType;
 }
 
-// Rebuilds a { exercises: [...] } shape from actually-saved sets, for session types not in SESSIONS
-// (currently just 'open'). Used by resume (buildWorkoutLogger) and History editing.
-function reconstructSessionFromSets(sets) {
+// Rebuilds a { exercises: [...] } shape from actually-saved sets — for session types not in SESSIONS
+// (currently just 'open'), and for History editing of ANY session type (see openEditWorkout), since
+// membership/order/set-count must reflect what was actually logged, not whatever the live template
+// currently looks like. `metaByName` (optional) supplies per-exercise display metadata (variations,
+// bodyweight, band, reps/rest labels) keyed by exercise name/alias — falls back to the current
+// EXERCISE_LIBRARY, then to a bare shape if the exercise isn't known anywhere.
+function reconstructSessionFromSets(sets, metaByName) {
   const byExercise = {};
   (sets || []).forEach(s => {
     if (!byExercise[s.exercise]) byExercise[s.exercise] = 0;
     byExercise[s.exercise] = Math.max(byExercise[s.exercise], s.set_number);
   });
   const exercises = Object.keys(byExercise).map(name => {
-    const libEx = EXERCISE_LIBRARY[name];
-    return libEx ? { ...libEx, sets: byExercise[name] } : { name, sets: byExercise[name], reps: '', rest: '' };
+    const meta = (metaByName && metaByName[name]) || EXERCISE_LIBRARY[name];
+    return meta ? { ...meta, sets: byExercise[name] } : { name, sets: byExercise[name], reps: '', rest: '' };
   });
   return { exercises };
 }
@@ -2153,23 +2157,18 @@ async function openEditWorkout(workoutId, sessionType, notes) {
     setsByExercise[set.exercise].push(set);
   });
 
-  // 'open' (Open Workout) isn't in SESSIONS — its exercise list is per-workout, so reconstruct it
-  // from what was actually saved (same approach used to resume an in-progress Open Workout).
-  const template = SESSIONS.find(s => s.id === sessionType);
-  const s = template ? { ...template, exercises: template.exercises.map(ex => ({ ...ex })) } : reconstructSessionFromSets(sets);
-  if (template) {
-    // Fixed sessions now allow a one-off today-only exercise swap in the live logger (never written
-    // back to the template) — merge in anything actually saved that isn't in the template so it's
-    // still editable from History, same reconstruction addOpenExercise's dropdown already relies on.
-    const known = new Set(s.exercises.map(e => e.name));
-    Object.keys(setsByExercise).forEach(name => {
-      if (!known.has(name)) {
-        const maxSet = Math.max(...setsByExercise[name].map(st => st.set_number));
-        const libEx = EXERCISE_LIBRARY[name];
-        s.exercises.push(libEx ? { ...libEx, sets: maxSet } : { name, sets: maxSet, reps: '', rest: '' });
-      }
-    });
-  }
+  // Exercise list for History edits must come from what was ACTUALLY logged that day (`workout_sets`),
+  // never from the live `SESSIONS` template — a fixed session's template can be reordered/added-to/
+  // resized after the fact (Session Template Editor), and building this form from the current template
+  // was making old workouts appear (and, on save, actually become) whatever the template looks like
+  // *now* instead of what was really done. Template/EXERCISE_LIBRARY are only used below as a metadata
+  // lookup (variations, bodyweight, band, aliases) by name — never for membership, order, or set count.
+  const metaByName = {};
+  (SESSIONS.find(s => s.id === sessionType)?.exercises || []).forEach(ex => {
+    metaByName[ex.name] = ex;
+    (ex.aliases || []).forEach(a => { metaByName[a] = ex; });
+  });
+  const s = reconstructSessionFromSets(sets, metaByName);
 
   let html = '';
   if (s) {
@@ -2241,25 +2240,15 @@ async function saveEditWorkout() {
 
   const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=exercise.asc,set_number.asc`);
 
-  // 'open' (Open Workout) isn't in SESSIONS — reconstruct its exercise list from what's already saved,
-  // same as openEditWorkout() does when building the form.
-  const editTemplate = SESSIONS.find(s => s.id === editingSessionType);
-  const s = editTemplate ? { ...editTemplate, exercises: editTemplate.exercises.map(ex => ({ ...ex })) } : reconstructSessionFromSets(existingSets);
-  if (editTemplate) {
-    // Mirror openEditWorkout()'s merge — a one-off today-only exercise swap means the saved sets
-    // can include an exercise not in the template, and its inputs (`ew-...`) only exist in the DOM
-    // if it's in this loop too.
-    const known = new Set(s.exercises.map(e => e.name));
-    const byName = {};
-    (existingSets || []).forEach(st => { (byName[st.exercise] ||= []).push(st); });
-    Object.keys(byName).forEach(name => {
-      if (!known.has(name)) {
-        const maxSet = Math.max(...byName[name].map(st => st.set_number));
-        const libEx = EXERCISE_LIBRARY[name];
-        s.exercises.push(libEx ? { ...libEx, sets: maxSet } : { name, sets: maxSet, reps: '', rest: '' });
-      }
-    });
-  }
+  // Must mirror openEditWorkout()'s reconstruction exactly, or this loop targets exercises/set-counts
+  // the form was never actually rendered with. See the comment there for why this can't come from the
+  // live SESSIONS template.
+  const metaByName = {};
+  (SESSIONS.find(s => s.id === editingSessionType)?.exercises || []).forEach(ex => {
+    metaByName[ex.name] = ex;
+    (ex.aliases || []).forEach(a => { metaByName[a] = ex; });
+  });
+  const s = reconstructSessionFromSets(existingSets, metaByName);
 
   for (const ex of s.exercises) {
     for (let i = 1; i <= ex.sets; i++) {
