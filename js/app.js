@@ -260,7 +260,7 @@ async function initApp(page = 'home') {
   EXERCISE_LIBRARY = buildExerciseLibrary();
   loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
   buildSessionGrid();
-  loadDailyLog();
+  renderCheckinSummary();
   showPage(page);
 }
 
@@ -1581,6 +1581,50 @@ async function loadDailyLog(date = todayStr()) {
   }
 }
 
+async function openCheckinModal(date = todayStr()) {
+  await loadDailyLog(date);
+  document.getElementById('checkin-modal').style.display = 'block';
+}
+
+function closeCheckinModal() {
+  document.getElementById('checkin-modal').style.display = 'none';
+}
+
+async function renderCheckinSummary() {
+  const date = todayStr();
+  document.getElementById('checkin-summary-date').textContent =
+    new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  const logs = await sb(`daily_logs?date=eq.${date}&select=*`);
+  const l = logs && logs[0];
+  const emptyEl = document.getElementById('checkin-summary-empty');
+  const statsEl = document.getElementById('checkin-summary-stats');
+  const pillsEl = document.getElementById('checkin-summary-pills');
+  const notesEl = document.getElementById('checkin-summary-notes');
+  const btn = document.getElementById('checkin-log-btn');
+  if (!l) {
+    emptyEl.style.display = 'block';
+    statsEl.style.display = 'none';
+    pillsEl.innerHTML = '';
+    notesEl.style.display = 'none';
+    btn.textContent = 'Log Today';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  statsEl.style.display = 'grid';
+  document.getElementById('checkin-sum-weight').textContent = l.weight_kg ?? '--';
+  document.getElementById('checkin-sum-cals').textContent = l.calories ?? '--';
+  document.getElementById('checkin-sum-steps').textContent = l.steps ? l.steps.toLocaleString() : '--';
+  const pills = [];
+  if (l.protein_g) pills.push(`<span class="pill pill-reps">${l.protein_g}g protein</span>`);
+  if (l.carbs_g) pills.push(`<span class="pill pill-sets">${l.carbs_g}g carbs</span>`);
+  if (l.fat_g) pills.push(`<span class="pill pill-cals">${l.fat_g}g fat</span>`);
+  if (l.fibre_g) pills.push(`<span class="pill pill-rest">${l.fibre_g}g fibre</span>`);
+  if (l.energy) pills.push(`<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>`);
+  pillsEl.innerHTML = pills.join('');
+  if (l.notes) { notesEl.style.display = 'block'; notesEl.textContent = l.notes; } else { notesEl.style.display = 'none'; }
+  btn.textContent = 'Edit Today';
+}
+
 async function saveDailyLog() {
   const date = document.getElementById('log-date').value || todayStr();
   const data = {
@@ -1607,6 +1651,8 @@ async function saveDailyLog() {
     await sb('daily_logs', 'POST', data);
   }
   showToast(date === todayStr() ? 'Check-in saved!' : `Check-in saved for ${date}!`, 'success');
+  closeCheckinModal();
+  renderCheckinSummary();
 }
 
 function setEnergy(val) {
@@ -1625,7 +1671,7 @@ async function loadStats() {
     sb(`daily_logs?date=gte.${fourteenAgoStr}&order=date.asc&select=date,weight_kg`),
     sb(`daily_logs?date=gte.${fourteenAgoStr}&order=date.asc&select=date,fasting_hours,steps`),
     sb(`workouts?date=gte.${fourteenAgoStr}&order=date.asc&select=date,session_type`),
-    sb(`workouts?order=date.desc&limit=5&select=date,session_type,notes`)
+    sb(`workouts?order=date.desc&limit=5&select=id,date,session_type,notes`)
   ]);
 
   if (latest && latest[0]?.weight_kg) {
@@ -1653,7 +1699,7 @@ async function loadStats() {
   const rw = document.getElementById('recent-workouts');
   if (!recent || recent.length === 0) { rw.innerHTML = '<div class="empty">No workouts logged yet</div>'; return; }
   rw.innerHTML = recent.map(w => {
-    return `<div class="history-item">
+    return `<div class="history-item" style="cursor:pointer;" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
       <div class="history-date">${new Date(w.date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'short'})}</div>
       <div class="history-title">${sessionDisplayName(w.session_type)}</div>
       ${w.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:3px;">${w.notes}</div>` : ''}
@@ -1669,6 +1715,21 @@ function switchChart(type) {
   if (mainChart) { mainChart.destroy(); mainChart = null; }
   const wrap = document.querySelector('.chart-wrap');
   if (!wrap) return;
+
+  const progressSelect = document.getElementById('progress-exercise-select');
+  if (type === 'progress') {
+    progressSelect.style.display = 'block';
+    loadProgressExercises();
+    document.getElementById('chart-title').textContent = 'Progress';
+    if (progressSelect.value) {
+      loadProgressChart(progressSelect.value);
+    } else {
+      wrap.innerHTML = '<div class="empty">Pick an exercise to see its trend</div>';
+    }
+    return;
+  }
+  progressSelect.style.display = 'none';
+
   if (!wrap.querySelector('canvas')) {
     wrap.innerHTML = '<canvas id="main-chart" role="img"></canvas>';
   }
@@ -1729,6 +1790,58 @@ function switchChart(type) {
       scales: {
         x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#222' } },
         y: { ticks: { color: '#666', font: { size: 10 }, callback: yCallback }, grid: { color: '#222' } }
+      }
+    }
+  });
+}
+
+function loadProgressExercises() {
+  const select = document.getElementById('progress-exercise-select');
+  if (select.options.length > 1) return;
+  const names = Object.keys(EXERCISE_LIBRARY).sort();
+  select.innerHTML = '<option value="" selected disabled>Choose an exercise…</option>' +
+    names.map(n => `<option value="${n}">${n}</option>`).join('');
+}
+
+async function loadProgressChart(exerciseName) {
+  const wrap = document.querySelector('.chart-wrap');
+  if (mainChart) { mainChart.destroy(); mainChart = null; }
+  const ex = EXERCISE_LIBRARY[exerciseName];
+  const names = [exerciseName, ...((ex && ex.aliases) || [])].map(n => `"${n}"`).join(',');
+  const sets = await sb(`workout_sets?exercise=in.(${names})&weight=not.is.null&select=workout_id,weight`);
+  if (!sets || sets.length === 0) {
+    wrap.innerHTML = '<div class="empty">No logged sets for this exercise yet</div>';
+    document.getElementById('chart-title').textContent = `${exerciseName} Progress`;
+    return;
+  }
+  const workoutIds = [...new Set(sets.map(s => s.workout_id))].map(id => `"${id}"`).join(',');
+  const workouts = await sb(`workouts?id=in.(${workoutIds})&select=id,date`);
+  const dateById = {};
+  (workouts || []).forEach(w => dateById[w.id] = w.date);
+  const byDate = {};
+  sets.forEach(s => {
+    const date = dateById[s.workout_id];
+    if (!date) return;
+    const w = parseFloat(s.weight);
+    if (!byDate[date] || w > byDate[date]) byDate[date] = w;
+  });
+  const dates = Object.keys(byDate).sort();
+  const labels = dates.map(d => new Date(d).toLocaleDateString('en-GB', {day:'numeric', month:'short'}));
+  const data = dates.map(d => byDate[d]);
+  document.getElementById('chart-title').textContent = `${exerciseName} — Top Set Trend`;
+  wrap.innerHTML = '<canvas id="main-chart" role="img"></canvas>';
+  mainChart = new Chart(document.getElementById('main-chart'), {
+    type: 'line',
+    data: { labels, datasets: [{
+      data, borderColor: '#4a9eff', backgroundColor: '#4a9eff1a', borderWidth: 2,
+      pointBackgroundColor: '#4a9eff', pointRadius: 4, fill: true, tension: 0.3
+    }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#222' } },
+        y: { ticks: { color: '#666', font: { size: 10 }, callback: v => v + 'kg' }, grid: { color: '#222' } }
       }
     }
   });
@@ -1876,45 +1989,30 @@ function renderHistoryPage() {
     byDate[date].forEach(item => {
       if (item.type === 'log') {
         const l = item.data;
+        const bits = [];
+        if (l.weight_kg) bits.push(`${l.weight_kg}kg`);
+        if (l.calories) bits.push(`${l.calories} kcal`);
+        if (l.steps) bits.push(`${l.steps.toLocaleString()} steps`);
+        if (l.energy) bits.push(['','😴','😑','🙂','😤','🔥'][l.energy]);
         html += `<div class="history-card" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
           <div class="history-card-label">Daily Check-in</div>
-          <div class="history-stats">
-            ${l.weight_kg ? `<span class="pill pill-reps">${l.weight_kg}kg</span>` : ''}
-            ${l.calories ? `<span class="pill pill-cals">${l.calories} kcal</span>` : ''}
-            ${l.steps ? `<span class="pill pill-rest">${l.steps.toLocaleString()} steps</span>` : ''}
-            ${l.protein_g ? `<span class="pill pill-reps">${l.protein_g}g protein</span>` : ''}
-            ${l.carbs_g ? `<span class="pill pill-sets">${l.carbs_g}g carbs</span>` : ''}
-            ${l.fat_g ? `<span class="pill pill-cals">${l.fat_g}g fat</span>` : ''}
-            ${l.fibre_g ? `<span class="pill pill-rest">${l.fibre_g}g fibre</span>` : ''}
-            ${l.energy ? `<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>` : ''}
-          </div>
-          ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
-          
+          <div class="history-card-notes">${bits.length ? bits.join(' · ') : 'No stats logged'}</div>
         </div>`;
       } else {
         const w = item.data;
+        const summary = (() => {
+          const sets = (window._setsByWorkout[w.id] || []).filter(s => s.weight);
+          const cardio = window._cardioByWorkout[w.id] || [];
+          if (sets.length) return `${sets[0].exercise} ${sets[0].weight}×${sets[0].reps}`;
+          if (cardio.length) return formatCardioEntry(cardio[0]);
+          return 'No sets logged';
+        })();
         html += `<div class="history-card" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
           <div class="history-workout-head">
-<div class="history-card-label" style="color:var(--amber);">${sessionDisplayName(w.session_type)}</div>
-            
+            <div class="history-card-label" style="color:var(--amber);">${sessionDisplayName(w.session_type)}</div>
             <span class="history-card-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
           </div>
-          ${w.notes ? `<div class="history-card-notes">${w.notes}</div>` : ''}
-${(() => {
-  const sets = (window._setsByWorkout[w.id] || []).filter(s => s.weight);
-  const seen = {};
-  const top3 = [];
-  for (const s of sets) {
-    if (!seen[s.exercise]) { seen[s.exercise] = true; top3.push(s); }
-    if (top3.length === 3) break;
-  }
-  return top3.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:6px;">${top3.map(s => `${s.exercise} ${s.weight}×${s.reps}`).join(' / ')}</div>` : '';
-})()}
-${(() => {
-  const cardio = window._cardioByWorkout[w.id] || [];
-  return cardio.length ? `<div style="font-size:11px;color:var(--muted2);margin-top:4px;">${cardio.map(formatCardioEntry).join(' / ')}</div>` : '';
-})()}
-
+          <div class="history-card-notes">${summary}</div>
         </div>`;
       }
     });
@@ -2004,7 +2102,7 @@ function showPage(name) {
   if (name === 'home') loadHomePage();
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
-  if (name === 'today') loadDailyLog();
+  if (name === 'today') renderCheckinSummary();
   }
 
 // ─── EDIT CHECK-IN MODAL ──────────────────────────────────
