@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dlog-v1';
+const CACHE_NAME = 'dlog-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -32,18 +32,18 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // let Supabase/CDN calls pass through untouched
 
+  // Network-first: always try to fetch the latest version so a fresh deploy shows up
+  // immediately, only falling back to the cached copy when offline (was cache-first,
+  // which meant a new push could never overwrite whatever was cached on first install).
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request))
   );
 });
