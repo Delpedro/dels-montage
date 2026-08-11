@@ -672,15 +672,59 @@ function reconstructSessionFromSets(sets, metaByName) {
   return { exercises };
 }
 
+// ─── TIMED EXERCISES ──────────────────────────────────────
+// Some exercises are held, not repped (deadhangs). session_exercises only stores sets/reps, so
+// timed-ness is resolved by name here rather than by a new schema column: the second input still
+// writes to workout_sets.reps, but it MEANS SECONDS and renders as "45s" everywhere sets are shown.
+// Timed exercises are also treated as bodyweight — no kg box, weight saved as null.
+// To make an exercise timed, add its name (any casing/spacing) here with its default target.
+const TIMED_EXERCISES = {
+  'deadhang': '30–45s',
+  'deadhangs': '30–45s',
+  'dead hang': '30–45s',
+  'dead hangs': '30–45s'
+};
+
+// The default time target for a timed exercise, or null if it isn't timed.
+function timedTarget(ex) {
+  const name = typeof ex === 'string' ? ex : ex?.name;
+  return TIMED_EXERCISES[(name || '').trim().toLowerCase()] || null;
+}
+function isTimed(ex) { return timedTarget(ex) !== null; }
+
+// ─── OPTIONAL-WEIGHT EXERCISES ────────────────────────────
+// Bodyweight lifts that can also be loaded (pull-ups with a belt/DB). These keep a normal kg box
+// instead of a fixed "BW" label: leave it blank for bodyweight (saved as null, shown as "BW×10"),
+// or type the added weight. Add a name here — any casing/spacing — to give it that box.
+const OPTIONAL_WEIGHT_EXERCISES = [
+  'pullup', 'pullups', 'pull up', 'pull ups', 'pull-up', 'pull-ups',
+  'chinup', 'chinups', 'chin up', 'chin ups', 'chin-up', 'chin-ups',
+  'dip', 'dips'
+];
+function isOptionalWeight(ex) {
+  const name = typeof ex === 'string' ? ex : ex?.name;
+  return OPTIONAL_WEIGHT_EXERCISES.includes((name || '').trim().toLowerCase());
+}
+
+// One logged set rendered for display: "45s" when timed, else "80×10" / "BW×10" / band initials.
+function setValueLabel(ex, s, bandFallback = 'Band') {
+  if (!s) return '—';
+  if (isTimed(ex)) return s.reps != null ? `${s.reps}s` : '—';
+  const label = ex.band ? (s.variation || bandFallback).split(' ').map(w => w[0]).join('') : (s.weight ?? 'BW');
+  return `${label}×${s.reps}`;
+}
+
 // ─── WORKOUT LOGGER ───────────────────────────────────────
 // Builds one set row (weight/reps inputs + previous-set badge + rest line). Shared by
 // renderExerciseBlock's initial render and addOpenSetRow's dynamic append, so both stay in sync.
 function renderSetRow(ex, i, prevSet, sessionId, defaultVar) {
-  const prevHint = prevSet ? `${ex.band ? (prevSet.variation || 'Band').split(' ').map(w => w[0]).join('') : (prevSet.weight ?? 'BW')}×${prevSet.reps}` : '—';
-  const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
+  const prevHint = setValueLabel(ex, prevSet);
+  const repPlaceholder = isTimed(ex) ? 'secs' : (ex.name === 'Walking Lunge' ? 'steps' : 'reps');
 
   let weightCol = '';
-  if (ex.bodyweight) {
+  if (isOptionalWeight(ex)) {
+    weightCol = `<input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="BW / kg" inputmode="decimal" oninput="saveDraft('${sessionId}')" />`;
+  } else if (ex.bodyweight || isTimed(ex)) {
     weightCol = `<div class="set-label" id="w-${ex.name}-${i}">BW</div>`;
   } else if (ex.variations && ex.band) {
     const currentVar = selectedVariations[ex.name] || defaultVar || ex.variations[0];
@@ -732,7 +776,7 @@ function renderExerciseBlock(ex, session) {
         </div>
         <div class="ex-pills">
           <span class="pill pill-sets" id="sets-pill-${ex.name}">${ex.sets} sets</span>
-          <span class="pill pill-reps">${ex.reps}</span>
+          <span class="pill pill-reps">${isTimed(ex) && !/s\b/i.test(ex.reps || '') ? timedTarget(ex) : ex.reps}</span>
           <span class="pill pill-rest">${ex.rest}</span>
         </div>
         ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
@@ -859,10 +903,7 @@ function renderLastTimeCard(snapshot, session) {
     const sets = snapshot.exercises[ex.name] || (ex.aliases || []).flatMap(a => snapshot.exercises[a] || []);
     if (!sets.length) return '';
     const variationTag = sets[0].variation ? ` <span class="last-time-var">(${sets[0].variation})</span>` : '';
-    const setsStr = sets.map(s => {
-      const label = ex.band ? (s.variation || 'Band').split(' ').map(w => w[0]).join('') : (s.weight ?? 'BW');
-      return `${label}×${s.reps}`;
-    }).join(', ');
+    const setsStr = sets.map(s => setValueLabel(ex, s)).join(', ');
     return `<div class="last-time-row"><span class="last-time-ex">${ex.name}${variationTag}</span><span class="last-time-sets">${setsStr}</span></div>`;
   }).join('');
   if (!rows) return '';
@@ -1336,14 +1377,14 @@ function selectVariation(exName, variation, btn) {
     let filteredPrev = prev.filter(p => p.variation === variation);
     if (filteredPrev.length === 0) filteredPrev = prev;
     const prevText = filteredPrev.length > 0
-      ? filteredPrev.map(s => `${s.weight}×${s.reps}`).join(' / ')
+      ? filteredPrev.map(s => setValueLabel(ex, s)).join(' / ')
       : 'No previous data';
     const prevEl = document.getElementById(`prev-${exName}`);
     if (prevEl) prevEl.textContent = `Previous (${variation}): ${prevText}`;
     for (let i = 1; i <= ex.sets; i++) {
       const badge = document.getElementById(`badge-${exName}-${i}`);
       const set = filteredPrev[i-1];
-      if (badge) badge.textContent = set ? `${set.weight}×${set.reps}` : '—';
+      if (badge) badge.textContent = setValueLabel(ex, set);
     }
   }
 }
@@ -1361,7 +1402,7 @@ async function completeExercise(exName) {
     const wVal = wEl ? (wEl.tagName === 'DIV' ? wEl.textContent : wEl.value) : '';
     const rVal = rEl ? rEl.value : '';
     if (wVal || rVal) {
-      const isBodyweight = ex.bodyweight || ex.band;
+      const isBodyweight = (ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex);
       const setObj = {
         workout_id: currentWorkoutId,
         exercise: exName,
@@ -1874,7 +1915,7 @@ function computeExerciseProgress(workouts, setsByWorkout) {
       if (!isNaN(wt) && wt > 0) {
         if (e.best === null || wt > e.best) { e.best = wt; e.bestReps = reps; }
       } else if (e.best === null && reps > (e.bestReps || 0)) {
-        e.bestReps = reps;   // bodyweight/band: reps are the only progression signal
+        e.bestReps = reps;   // bodyweight/band: reps are the only progression signal (seconds, for timed exercises)
       }
     });
     Object.keys(perEx).forEach(key => {
@@ -2114,7 +2155,8 @@ function renderHistoryPage() {
           totalSets += p.setCount;
           if (p.isPR) prCount++;
           if (p.avgRest !== null) allRests.push(p.avgRest);
-          const value = p.best !== null ? `${p.best}×${p.bestReps || 0}`
+          const value = isTimed(p.exercise) ? (p.bestReps ? `${p.bestReps}s` : '—')
+                      : p.best !== null ? `${p.best}×${p.bestReps || 0}`
                       : (p.bestReps ? `BW×${p.bestReps}` : '—');
           const restTxt = p.avgRest !== null ? `rest ${fmtRest(p.avgRest)} avg` : 'rest —';
           const label = `${p.exercise}${p.variation ? ` <span style="color:var(--muted);">· ${p.variation}</span>` : ''}`;
@@ -2424,13 +2466,13 @@ async function openEditWorkout(workoutId, sessionType, notes) {
 
       for (let i = 1; i <= ex.sets; i++) {
         const existing = exSets.find(s => s.set_number === i);
-        const prevHint = existing
-          ? `${ex.band ? (existing.variation || 'B').split(' ').map(w => w[0]).join('') : (existing.weight ?? 'BW')}×${existing.reps}`
-          : '—';
-        const repPlaceholder = ex.name === 'Walking Lunge' ? 'steps' : 'reps';
+        const prevHint = setValueLabel(ex, existing, 'B');
+        const repPlaceholder = isTimed(ex) ? 'secs' : (ex.name === 'Walking Lunge' ? 'steps' : 'reps');
 
         let weightCol = '';
-        if (ex.bodyweight) {
+        if (isOptionalWeight(ex)) {
+          weightCol = `<input type="text" class="set-input" id="ew-${ex.name}-${i}" placeholder="BW / kg" value="${existing?.weight || ''}" />`;
+        } else if (ex.bodyweight || isTimed(ex)) {
           weightCol = `<div class="set-label" id="ew-${ex.name}-${i}">BW</div>`;
         } else if (ex.variations && ex.band) {
           const bandLabel = currentVariation || ex.variations[0];
@@ -2498,7 +2540,7 @@ async function saveEditWorkout() {
           method: 'PATCH',
           headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            weight: (ex.bodyweight || ex.band) ? null : (wVal || null),
+            weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : (wVal || null),
             reps: parseInt(rVal) || null,
             variation: editSelectedVariations[ex.name] || null
           })
@@ -2508,7 +2550,7 @@ async function saveEditWorkout() {
           workout_id: editingWorkoutId,
           exercise: ex.name,
           set_number: i,
-          weight: (ex.bodyweight || ex.band) ? null : (wVal || null),
+          weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : (wVal || null),
           reps: parseInt(rVal) || null,
           variation: editSelectedVariations[ex.name] || null
         });
