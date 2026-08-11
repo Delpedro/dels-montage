@@ -459,6 +459,10 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .pf-d.up { color: var(--green); }
 .pf-d.down { color: var(--red); }
 .pf-d.same { color: var(--muted); }
+.pf-d.neutral { color: var(--text); opacity: 0.65; }
+/* Names what the right-hand column on a check-in card actually is: change since the previous
+   check-in, not a shortfall against a macro target. Right-aligned so it sits over that column. */
+.pf-cmp { font-size: 9.5px; color: var(--muted); text-align: right; letter-spacing: 0.3px; margin: -4px 0 6px; }
 .pf-badge { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--green); color: #04140c; border-radius: 20px; padding: 2px 7px; margin-left: 6px; }
 .pf-foot { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10.5px; color: var(--muted); }
 .pf-foot b { font-family: 'DM Mono', monospace; color: var(--text); font-weight: 500; }

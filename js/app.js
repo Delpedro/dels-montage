@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-11-1615';
+const APP_BUILD = '2026-08-11-1630';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -452,7 +452,7 @@ async function loadHomePage() {
 // after 24h, which would let every one of them back in the next day.
 async function realWorkoutsBetween(fromDate, toDate = null) {
   const range = `date=gte.${fromDate}` + (toDate ? `&date=lte.${toDate}` : '');
-  const rows = await sb(`workouts?${range}&select=id,date,notes`) || [];
+  const rows = await sb(`workouts?${range}&select=id,date,session_type,notes,completed_at`) || [];
   if (!rows.length) return [];
   const ids = rows.map(w => `"${w.id}"`).join(',');
   const [sets, cardio] = await Promise.all([
@@ -514,6 +514,17 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
 }
 
 // ─── PROGRAMME / SESSION GRID ─────────────────────────────
+// Session ids that have a *real* completed workout today — drives the "✓ logged today" tick.
+//
+// Two conditions, both needed. `completed_at` because an in-progress workout (Mark Done but no Save
+// Workout) must not lock the session. Real content because a row is created the instant a tile is
+// tapped, so opening a session and backing out would otherwise tick it as done for the rest of the
+// day with nothing logged in it — the same empty-row problem as the sessions/week count.
+async function sessionsDoneToday() {
+  const rows = await realWorkoutsBetween(todayStr(), todayStr());
+  return new Set(rows.filter(w => w.completed_at).map(w => w.session_type));
+}
+
 function getSessionById(id) {
   return SESSIONS.find(s => s.id === id);
 }
@@ -532,10 +543,7 @@ async function buildSessionGrid(programmeId = null) {
     // so burying them a tap deeper than the programmes made them harder to reach than the thing they
     // replaced. Fetched before the grid is cleared, same race discipline as the session branch below.
     const customSessions = SESSIONS.filter(s => s.programme === CUSTOM_PROGRAMME_ID);
-    const todayWorkouts = customSessions.length
-      ? await sb(`workouts?date=eq.${todayStr()}&completed_at=not.is.null&select=session_type`)
-      : [];
-    const doneTodaySessions = new Set((todayWorkouts || []).map(w => w.session_type));
+    const doneTodaySessions = customSessions.length ? await sessionsDoneToday() : new Set();
 
     grid.innerHTML = '';
     if (sub) sub.textContent = 'Choose your training programme';
@@ -565,10 +573,8 @@ async function buildSessionGrid(programmeId = null) {
   if (sub) sub.textContent = 'Choose your session';
 
   // Fetch data BEFORE clearing grid — prevents concurrent calls racing and both appending to same empty grid
-  // Only count as "done" if completed_at is set — an in-progress workout (Mark Done but no Save Workout) should NOT lock the session
-  const todayWorkouts = await sb(`workouts?date=eq.${todayStr()}&completed_at=not.is.null&select=session_type`);
+  const doneTodaySessions = await sessionsDoneToday();
   grid.innerHTML = '';
-  const doneTodaySessions = new Set((todayWorkouts || []).map(w => w.session_type));
   const sessions = SESSIONS.filter(s => s.programme === programmeId);
 
   const back = document.createElement('div');
@@ -2377,10 +2383,13 @@ async function loadStats() {
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const weekAgoStr = dateStr(weekAgo);
 
-  const [weightLogs, weekLogs, allWorkouts] = await Promise.all([
+  const [weightLogs, weekLogs, weekSessions] = await Promise.all([
     sb(`daily_logs?date=gte.${sinceStr}&order=date.asc&select=date,weight_kg`),
     sb(`daily_logs?date=gte.${weekAgoStr}&order=date.asc&select=date,steps,calories,protein_g,carbs_g,fat_g`),
-    sb(`workouts?date=gte.${sinceStr}&order=date.asc&select=date,session_type`)
+    // Was counting raw `workouts` rows, so an opened-and-abandoned session (or a test run) inflated
+    // the tile — the exact bug fixed on Home on 11 Aug, which this tile was missed out of. Same
+    // has-sets-or-cardio-or-notes test everything else uses now. See realWorkoutsBetween().
+    realWorkoutsBetween(getWeekStart())
   ]);
 
   // Only days with an actual weigh-in — skipped days are dropped entirely so the
@@ -2393,7 +2402,6 @@ async function loadStats() {
   renderWeightHero(points);
   renderWeightChart(points);
 
-  const weekSessions = (allWorkouts || []).filter(w => w.date >= getWeekStart());
   document.getElementById('stat-sessions').textContent = weekSessions.length;
 
   const sv = (weekLogs || []).filter(l => l.steps).map(l => l.steps);
@@ -2576,13 +2584,19 @@ function fmtRest(seconds) {
 }
 
 // Renders the green/red/grey "vs last time" cell shared by workout and check-in cards.
+//
+// `neutral` prints the change without judging it. Used for every macro: green/red there was actively
+// misleading — more calories was painted green and fewer red, which is backwards on a cut, and the
+// app has no macro targets to judge against in the first place. Colour is reserved for the two
+// things that do have a direction: lift weight (up is better) and bodyweight (lowerIsBetter).
 function deltaCell(delta, opts = {}) {
-  const { suffix = '', lowerIsBetter = false, decimals = 1 } = opts;
+  const { suffix = '', lowerIsBetter = false, decimals = 1, neutral = false } = opts;
   if (delta === null || delta === undefined || isNaN(delta)) return `<span class="pf-d same">—</span>`;
   const rounded = Math.abs(delta) < 0.05 ? 0 : delta;
   if (rounded === 0) return `<span class="pf-d same">—</span>`;
-  const good = lowerIsBetter ? rounded < 0 : rounded > 0;
   const txt = `${rounded > 0 ? '+' : '−'}${Math.abs(rounded).toFixed(decimals).replace(/\.0$/, '')}${suffix}`;
+  if (neutral) return `<span class="pf-d neutral">${txt}</span>`;
+  const good = lowerIsBetter ? rounded < 0 : rounded > 0;
   return `<span class="pf-d ${good ? 'up' : 'down'}">${txt}</span>`;
 }
 
@@ -2746,6 +2760,14 @@ function renderHistoryPage() {
           ? parseFloat(l[key]) - parseFloat(prev[key]) : null;
         const row = (label, value, delta, opts) => value === null || value === undefined ? '' :
           `<div class="pf-lift"><span class="pf-lname">${label}</span><span class="pf-lval">${value}</span>${deltaCell(delta, opts)}</div>`;
+        // The right-hand column is the change since the PREVIOUS check-in, not a shortfall against a
+        // macro target — the app has no targets. Without this line it reads as one, which is exactly
+        // how "17g fibre, −10g" got read as a goal miss when it was just 27g the day before. The
+        // previous check-in is often not yesterday (skipped days), so name the date rather than say
+        // "vs yesterday".
+        const cmpLine = prev
+          ? `<div class="pf-cmp">change vs ${new Date(prev.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</div>`
+          : '';
         const footBits = [];
         if (l.steps) footBits.push(`<span>Steps <b>${l.steps.toLocaleString()}</b></span>`);
         if (l.energy) footBits.push(`<span>Energy <b>${ENERGY_WORDS[l.energy] || l.energy}</b></span>`);
@@ -2754,12 +2776,13 @@ function renderHistoryPage() {
             <span class="pf-name">CHECK-IN</span>
             <span class="pf-date">${new Date(l.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
           </div>
+          ${cmpLine}
           ${row('Weight', l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true})}
-          ${row('Calories', l.calories, dnum('calories'), {decimals:0})}
-          ${row('Protein', l.protein_g !== null && l.protein_g !== undefined ? `${l.protein_g}g` : null, dnum('protein_g'), {suffix:'g', decimals:0})}
-          ${row('Carbs', l.carbs_g !== null && l.carbs_g !== undefined ? `${l.carbs_g}g` : null, dnum('carbs_g'), {suffix:'g', decimals:0})}
-          ${row('Fat', l.fat_g !== null && l.fat_g !== undefined ? `${l.fat_g}g` : null, dnum('fat_g'), {suffix:'g', decimals:0})}
-          ${row('Fibre', l.fibre_g !== null && l.fibre_g !== undefined ? `${l.fibre_g}g` : null, dnum('fibre_g'), {suffix:'g', decimals:0})}
+          ${row('Calories', l.calories, dnum('calories'), {decimals:0, neutral:true})}
+          ${row('Protein', l.protein_g !== null && l.protein_g !== undefined ? `${l.protein_g}g` : null, dnum('protein_g'), {suffix:'g', decimals:0, neutral:true})}
+          ${row('Carbs', l.carbs_g !== null && l.carbs_g !== undefined ? `${l.carbs_g}g` : null, dnum('carbs_g'), {suffix:'g', decimals:0, neutral:true})}
+          ${row('Fat', l.fat_g !== null && l.fat_g !== undefined ? `${l.fat_g}g` : null, dnum('fat_g'), {suffix:'g', decimals:0, neutral:true})}
+          ${row('Fibre', l.fibre_g !== null && l.fibre_g !== undefined ? `${l.fibre_g}g` : null, dnum('fibre_g'), {suffix:'g', decimals:0, neutral:true})}
           ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
           ${footBits.length ? `<div class="pf-foot">${footBits.join('')}</div>` : ''}
         </div>`;
