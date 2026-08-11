@@ -112,9 +112,13 @@ let selectedVariations = {};
 // Names removed via the ✕ button on a fixed session's live logger (one-off, today-only swap —
 // never written back to the template). Reset whenever a new session is selected.
 let removedSessionExercises = [];
-// Exercise names linked to the exercise directly BELOW them in the current logger, i.e. the two are
-// a superset. Chains work: A→B→C is one three-exercise group. Reset on every new session.
-let supersetLinks = [];
+// Explicit membership lists — each entry is one superset group (2+ exercise names, in the order the
+// user paired them). NOT derived from the logger's exercise order: you superset whatever you actually
+// picked up, which is rarely the block underneath. Reset on every new session.
+let supersetGroups = [];
+// The exercise order with no supersets applied. What's displayed is derived from this plus the groups
+// (displayExerciseOrder), so unpairing always drops an exercise back where it started.
+let supersetBaseOrder = [];
 // Only write superset_group back to the DB on save if this workout ever had a link toggled/restored
 // — otherwise every ordinary save would fire pointless PATCHes over every set.
 let supersetsTouched = false;
@@ -622,7 +626,8 @@ async function beginWorkoutSession(session) {
   selectedSession = session;
   selectedVariations = {};
   removedSessionExercises = [];
-  supersetLinks = [];
+  supersetGroups = [];
+  supersetBaseOrder = [];
   supersetsTouched = false;
   return true;
 }
@@ -756,65 +761,179 @@ function setValueLabel(ex, s, bandFallback = 'Band') {
 
 // ─── SUPERSETS ────────────────────────────────────────────
 // Two (or more) exercises done back-to-back with no rest between them. There's no pairing UI in the
-// template — a superset is decided in the moment, in the gym — so it's a per-workout link between an
-// exercise and the one directly below it in the logger, toggled with the "⇄" button on each block.
+// template — a superset is decided in the moment, in the gym — so it's per-workout state. The partner
+// is whatever you actually picked up, so tapping "⇄" opens a picker of every other exercise in today's
+// session (plus a way to pull in one that isn't in it yet); the group then snaps together on screen so
+// you're not scrolling between two distant blocks on every set.
 // Persisted as workout_sets.superset_group: every set of every exercise in one group shares a tag
 // ('1', '2', … scoped to that workout); null means an ordinary standalone exercise.
 
-// Walks the current exercise order and turns the links into {exerciseName: groupTag}. Exercises not
-// in a group are absent from the map. Recomputed on demand — the order can change mid-session.
+// Groups whose members are actually still in the session, and still number 2+. A group left with one
+// member (its partner was removed for today) is dormant, not a superset — it neither tags nor snaps.
+function activeSupersetGroups() {
+  const present = new Set((selectedSession?.exercises || []).map(e => e.name));
+  return supersetGroups.map(g => g.filter(n => present.has(n))).filter(g => g.length > 1);
+}
+
+// {exerciseName: groupTag} for the active groups. Exercises not in one are absent from the map.
 function supersetGroupMap() {
   const map = {};
-  const order = (selectedSession?.exercises || []).map(e => e.name);
-  let group = 0;
-  for (let i = 0; i < order.length - 1; i++) {
-    if (!supersetLinks.includes(order[i])) continue;
-    // Start a new group unless the previous exercise already linked into this one (a chain).
-    if (!(i > 0 && supersetLinks.includes(order[i - 1]))) group++;
-    map[order[i]] = String(group);
-    map[order[i + 1]] = String(group);
-  }
+  activeSupersetGroups().forEach((g, i) => g.forEach(n => { map[n] = String(i + 1); }));
   return map;
 }
 
-// The exercise directly below this one — the one a "⇄" tap would pair it with.
-function nextExerciseName(exName) {
-  const order = (selectedSession?.exercises || []).map(e => e.name);
-  const i = order.indexOf(exName);
-  return (i === -1 || i === order.length - 1) ? null : order[i + 1];
+// The stored group this exercise belongs to (live reference — callers push into it), or null.
+function supersetGroupOf(exName) {
+  return supersetGroups.find(g => g.includes(exName)) || null;
+}
+
+// Display order: base order, except that reaching the first member of a group emits the whole group
+// together. A pure function of base order + groups, which is what makes unpairing restore the original
+// position for free. The group keeps the order it was built in — you tap ⇄ on the lift you do first —
+// while sitting at the earliest slot any of its members held.
+function displayExerciseOrder() {
+  const groups = activeSupersetGroups();
+  const groupOf = {};
+  groups.forEach((g, i) => g.forEach(n => { groupOf[n] = i; }));
+  const emitted = new Set();
+  const order = [];
+  supersetBaseOrder.forEach(name => {
+    if (emitted.has(name)) return;
+    const gi = groupOf[name];
+    if (gi === undefined) { order.push(name); emitted.add(name); return; }
+    groups[gi].forEach(n => { if (!emitted.has(n)) { order.push(n); emitted.add(n); } });
+  });
+  return order;
+}
+
+// Reorders selectedSession.exercises and the rendered blocks to match displayExerciseOrder(). Moves
+// the existing DOM nodes rather than re-rendering, so typed-but-unsaved inputs, done state and any
+// live rest timer all survive a pairing. Safe to call before the blocks exist (initial render).
+function applySupersetOrder() {
+  if (!selectedSession) return;
+  const order = displayExerciseOrder();
+  const byName = {};
+  selectedSession.exercises.forEach(e => { byName[e.name] = e; });
+  selectedSession.exercises = order.map(n => byName[n]).filter(Boolean);
+
+  const logger = document.getElementById('workout-logger');
+  if (!logger) return;
+  const blocks = order.map(n => document.getElementById(`block-${n}`)).filter(Boolean);
+  if (!blocks.length) return;
+  // Anchor on wherever the first block currently sits (below the ✎ link / Last time card), then
+  // chain the rest after it. Only nodes actually out of place get moved.
+  const firstRendered = logger.querySelector('.exercise-block');
+  if (firstRendered && firstRendered !== blocks[0]) logger.insertBefore(blocks[0], firstRendered);
+  for (let i = 1; i < blocks.length; i++) {
+    if (blocks[i - 1].nextElementSibling !== blocks[i]) {
+      logger.insertBefore(blocks[i], blocks[i - 1].nextElementSibling);
+    }
+  }
 }
 
 function renderSupersetControl(ex) {
-  return `<button type="button" class="ss-btn" id="ss-${ex.name}" onclick="toggleSupersetNext('${ex.name}')">⇄ Superset with next</button>`;
+  return `<button type="button" class="ss-btn" id="ss-${ex.name}" onclick="toggleSupersetPicker('${ex.name}')">⇄ Superset</button>
+    <div class="ss-picker" id="ss-picker-${ex.name}" style="display:none;"></div>`;
 }
 
-function toggleSupersetNext(exName) {
-  const next = nextExerciseName(exName);
-  if (!next) { showToast('Add the second exercise below this one first', 'error'); return; }
-  supersetLinks = supersetLinks.includes(exName)
-    ? supersetLinks.filter(n => n !== exName)
-    : [...supersetLinks, exName];
+// One picker open at a time — two expanded lists on a phone screen is just noise.
+function toggleSupersetPicker(exName) {
+  const panel = document.getElementById(`ss-picker-${exName}`);
+  if (!panel) return;
+  const wasOpen = panel.style.display !== 'none';
+  closeSupersetPickers();
+  if (wasOpen) return;
+  panel.innerHTML = supersetPickerHtml(exName);   // built on open, so the list is never stale
+  panel.style.display = '';
+}
+
+function closeSupersetPickers() {
+  document.querySelectorAll('.ss-picker').forEach(p => { p.style.display = 'none'; });
+}
+
+function supersetPickerHtml(exName) {
+  const group = supersetGroupOf(exName) || [];
+  const partners = group.filter(n => n !== exName);
+  const others = (selectedSession?.exercises || []).map(e => e.name)
+    .filter(n => n !== exName && !group.includes(n));
+
+  let html = `<div class="ss-picker-title">${partners.length ? 'Add another to this superset' : 'Superset with…'}</div>`;
+  others.forEach(n => {
+    // Flagged because an exercise belongs to exactly one group — pairing it here moves it out of the
+    // group it's currently in rather than putting it in two at once.
+    const moving = (supersetGroupOf(n) || []).filter(m => m !== n).length > 0;
+    html += `<button type="button" class="ss-pick" onclick="pairSuperset('${exName}','${n}')">${n}${moving ? `<span class="ss-pick-note">moves out of its current superset</span>` : ''}</button>`;
+  });
+  if (!others.length) html += `<div class="ss-picker-empty">Nothing else in this session yet.</div>`;
+
+  html += `<select class="field-input ss-pick-add" onchange="addSupersetPartner('${exName}', this)">${supersetAddOptionsHtml()}</select>`;
+  if (partners.length) {
+    html += `<button type="button" class="ss-pick ss-pick-clear" onclick="clearSuperset('${exName}')">✕ Remove ${exName} from this superset</button>`;
+  }
+  return html;
+}
+
+function supersetAddOptionsHtml() {
+  const chosen = new Set((selectedSession?.exercises || []).map(e => e.name));
+  const names = Object.keys(EXERCISE_LIBRARY).filter(n => !chosen.has(n)).sort();
+  let opts = `<option value="" selected disabled>+ Something not in this session…</option>`;
+  names.forEach(n => { opts += `<option value="${n}">${n}</option>`; });
+  opts += `<option value="__custom__">+ Type a new exercise…</option>`;
+  return opts;
+}
+
+// Adds an exercise to today's session and pairs it in one go — the whole point being that the lift you
+// superset with often isn't on the template at all.
+async function addSupersetPartner(exName, selectEl) {
+  const val = selectEl.value;
+  if (!val) return;
+  selectEl.value = '';
+  const name = val === '__custom__' ? await promptCustomExercise() : val;
+  if (!name) return;
+  if (val !== '__custom__') await addOpenExercise(name);   // the custom path already adds it
+  pairSuperset(exName, name);
+}
+
+// Puts `partner` in exName's group, creating one if neither is grouped yet. An exercise belongs to
+// exactly one group, so this moves it rather than splitting it across two.
+function pairSuperset(exName, partner) {
+  if (exName === partner) return;
+  supersetGroups = supersetGroups.map(g => g.filter(n => n !== partner)).filter(g => g.length > 1);
+  const group = supersetGroupOf(exName);
+  if (group) group.push(partner);
+  else supersetGroups.push([exName, partner]);
   supersetsTouched = true;
+  afterSupersetChange();
+}
+
+// Drops this one exercise out of its group (the rest of a giant set stays paired); a group left with
+// a single member stops being a superset.
+function clearSuperset(exName) {
+  supersetGroups = supersetGroups.map(g => g.filter(n => n !== exName)).filter(g => g.length > 1);
+  supersetsTouched = true;
+  afterSupersetChange();
+}
+
+function afterSupersetChange() {
+  applySupersetOrder();
   refreshSupersetUi();
   saveDraft(selectedSession.id);
 }
 
 // Repaints every block's ⇄ button + linked styling. Called after any change to the exercise list or
-// the links themselves, since both the "next" exercise and the group membership can shift.
+// the groups themselves, since either can change what a block says and whether it's rendered linked.
 function refreshSupersetUi() {
-  const order = (selectedSession?.exercises || []).map(e => e.name);
   const map = supersetGroupMap();
-  order.forEach((name, i) => {
-    const btn = document.getElementById(`ss-${name}`);
-    const block = document.getElementById(`block-${name}`);
-    if (block) block.classList.toggle('in-superset', !!map[name]);
+  (selectedSession?.exercises || []).forEach(ex => {
+    const block = document.getElementById(`block-${ex.name}`);
+    if (block) block.classList.toggle('in-superset', !!map[ex.name]);
+    const btn = document.getElementById(`ss-${ex.name}`);
     if (!btn) return;
-    const isLast = i === order.length - 1;
-    btn.style.display = isLast ? 'none' : '';
-    const linked = supersetLinks.includes(name);
-    btn.classList.toggle('active', linked);
-    btn.textContent = linked ? `⇄ Superset with ${order[i + 1]}` : '⇄ Superset with next';
+    const partners = map[ex.name] ? (supersetGroupOf(ex.name) || []).filter(n => n !== ex.name && map[n]) : [];
+    btn.classList.toggle('active', partners.length > 0);
+    btn.textContent = partners.length ? `⇄ Superset with ${partners.join(' + ')}` : '⇄ Superset';
   });
+  closeSupersetPickers();   // an open picker would now be showing a stale list
 }
 
 // Writes the current grouping over every set of the workout — including exercises Mark Done'd before
@@ -1082,17 +1201,19 @@ function peekDraftRemovedExercises(sessionId) {
   } catch (e) { return []; }
 }
 
-// Superset links made before a mid-session refresh. (Links made *after* an exercise was Mark
-// Done'd are also recoverable from workout_sets.superset_group on resume — see buildWorkoutLogger.)
-function peekDraftSupersetLinks(sessionId) {
+// Supersets made before a mid-session refresh, plus the pre-snap exercise order they were made
+// against. (Pairings made *after* an exercise was Mark Done'd are also recoverable from
+// workout_sets.superset_group on resume — see buildWorkoutLogger.)
+function peekDraftSupersets(sessionId) {
+  const empty = { groups: [], baseOrder: [] };
   try {
     const raw = localStorage.getItem('workout_draft');
-    if (!raw) return [];
+    if (!raw) return empty;
     const draft = JSON.parse(raw);
-    if (draft.sessionId !== sessionId) return [];
-    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return [];
-    return draft.supersetLinks || [];
-  } catch (e) { return []; }
+    if (draft.sessionId !== sessionId) return empty;
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return empty;
+    return { groups: draft.supersetGroups || [], baseOrder: draft.supersetBaseOrder || [] };
+  } catch (e) { return empty; }
 }
 
 // Per-exercise set-row counts saved by saveDraft, so a mid-session refresh doesn't lose rows
@@ -1133,8 +1254,14 @@ async function buildWorkoutLogger(session) {
     const savedCounts = peekDraftSetCounts(session.id);
     session.exercises.forEach(ex => { if (savedCounts[ex.name]) ex.sets = savedCounts[ex.name]; });
 
-    const draftLinks = peekDraftSupersetLinks(session.id);
-    if (draftLinks.length) { supersetLinks = draftLinks; supersetsTouched = true; }
+    const draftSs = peekDraftSupersets(session.id);
+    if (draftSs.groups.length) { supersetGroups = draftSs.groups; supersetsTouched = true; }
+    // Base order comes from the draft where there is one (session.exercises is by then in *display*
+    // order, which would make unpairing a no-op); anything the draft doesn't know about goes on the end.
+    const names = session.exercises.map(e => e.name);
+    supersetBaseOrder = draftSs.baseOrder.filter(n => names.includes(n));
+    names.forEach(n => { if (!supersetBaseOrder.includes(n)) supersetBaseOrder.push(n); });
+    applySupersetOrder();
   }
 
   await loadPreviousSetsForSession(session);
@@ -1166,19 +1293,18 @@ async function buildWorkoutLogger(session) {
   // Restore already-saved sets on resume: paint rest times, fill empty inputs, mark exercises done
   if (currentWorkoutId) {
     const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds,weight,reps,superset_group`);
-    // Rebuild superset links from what's already saved (covers resuming a workout after the draft
-    // has gone) — an exercise links to the one below it when they share a group tag.
-    if (!supersetLinks.length) {
-      const groupByEx = {};
-      (savedSets || []).forEach(s => { if (s.superset_group) groupByEx[s.exercise] = s.superset_group; });
-      const order = session.exercises.map(e => e.name);
-      order.forEach((name, i) => {
-        const next = order[i + 1];
-        if (next && groupByEx[name] && groupByEx[name] === groupByEx[next]) {
-          supersetLinks.push(name);
-          supersetsTouched = true;
-        }
+    // Rebuild the groups from what's already saved (covers resuming a workout after the draft has
+    // gone) — everything sharing a group tag was one superset.
+    if (!supersetGroups.length) {
+      const byTag = {};
+      (savedSets || []).forEach(s => {
+        if (s.superset_group) (byTag[s.superset_group] ||= new Set()).add(s.exercise);
       });
+      Object.values(byTag).forEach(tagged => {
+        const members = Array.from(tagged);
+        if (members.length > 1) { supersetGroups.push(members); supersetsTouched = true; }
+      });
+      if (supersetGroups.length) applySupersetOrder();
     }
     (savedSets || []).forEach(s => {
       if (s.rest_seconds) swPaintRestLine(s.exercise, s.set_number, s.rest_seconds);
@@ -1350,6 +1476,7 @@ async function promptCustomExercise() {
   }
   EXERCISE_LIBRARY[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
   await addOpenExercise(name);
+  return name;   // so the superset picker can pair with what was just typed in
 }
 
 async function addOpenExercise(name) {
@@ -1358,6 +1485,7 @@ async function addOpenExercise(name) {
   // per-instance, which must not leak into the shared template used by every future workout.
   const def = { ...(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' }) };
   selectedSession.exercises.push(def);
+  if (!supersetBaseOrder.includes(name)) supersetBaseOrder.push(name);
 
   const emptyMsg = document.querySelector('#workout-logger .empty');
   if (emptyMsg) emptyMsg.remove();
@@ -1371,7 +1499,7 @@ async function addOpenExercise(name) {
   addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
   renderOpenAddExerciseOptions();
   removedSessionExercises = removedSessionExercises.filter(n => n !== name);
-  refreshSupersetUi();   // the previously-last block can now be linked to this one
+  refreshSupersetUi();   // every other block's picker can now offer this one
   saveDraft(selectedSession.id);
 }
 
@@ -1381,10 +1509,12 @@ function removeOpenExercise(name) {
   if (!selectedSession) return;
   selectedSession.exercises = selectedSession.exercises.filter(e => e.name !== name);
   if (!removedSessionExercises.includes(name)) removedSessionExercises.push(name);
-  supersetLinks = supersetLinks.filter(n => n !== name);
+  supersetGroups = supersetGroups.map(g => g.filter(n => n !== name)).filter(g => g.length > 1);
+  supersetBaseOrder = supersetBaseOrder.filter(n => n !== name);
   const block = document.getElementById(`block-${name}`);
   if (block) block.remove();
   renderOpenAddExerciseOptions();
+  applySupersetOrder();   // losing a partner can dissolve a group, freeing the survivor to slide back
   refreshSupersetUi();
   saveDraft(selectedSession.id);
 }
@@ -1555,7 +1685,8 @@ function saveDraft(sessionId) {
     draft.openSetCounts = {};
     selectedSession.exercises.forEach(e => { draft.openSetCounts[e.name] = e.sets; });
     draft.removedExercises = removedSessionExercises;
-    draft.supersetLinks = supersetLinks;
+    draft.supersetGroups = supersetGroups;
+    draft.supersetBaseOrder = supersetBaseOrder;
   }
   // Cardio entries are never saved to the DB until Save Workout — remember the whole list + their
   // current field values so a refresh mid-session doesn't lose them.
@@ -1808,7 +1939,8 @@ async function saveWorkout() {
   localStorage.removeItem('workout_draft');
   currentWorkoutHasSets = false;
   currentWorkoutId = null;
-  supersetLinks = [];
+  supersetGroups = [];
+  supersetBaseOrder = [];
   supersetsTouched = false;
   // An Open Workout you'd want to repeat is worth keeping — offer to turn it into a session tile.
   if (selectedSession.id === 'open') {

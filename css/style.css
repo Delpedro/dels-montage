@@ -490,9 +490,20 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .last-time-cardio .last-time-ex { color: var(--muted2); }
 
 /* ─── SUPERSETS (11 Aug 2026) ─────────────────────────────── */
-/* The ⇄ button at the foot of each exercise block pairs it with the block below. */
+/* The ⇄ button at the foot of each exercise block opens a picker of what to superset it with. */
 .ss-btn { display: block; width: 100%; margin-top: 6px; padding: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); background: none; border: 1px dashed var(--border2); border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
 .ss-btn.active { color: var(--blue); border-style: solid; border-color: var(--blue); background: rgba(74,158,255,0.08); }
-/* Linked blocks lose the gap between them and share a blue rail, so a superset reads as one unit */
+/* Linked blocks share a blue rail, so a superset reads as one unit once they've snapped together */
 .exercise-block.in-superset { border-left: 2px solid var(--blue); }
+
+/* Picker — inline under the ⇄ button, one open at a time. Rows are full-width tap targets: this gets
+   used mid-set with a phone in one hand, so nothing here is smaller than a thumb. */
+.ss-picker { margin-top: 6px; padding: 8px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; }
+.ss-picker-title { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted2); margin-bottom: 7px; }
+.ss-pick { display: block; width: 100%; margin-bottom: 5px; padding: 10px; font-size: 13px; font-weight: 600; text-align: left; color: var(--text); background: var(--bg2); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+.ss-pick:active { border-color: var(--blue); }
+.ss-pick-note { display: block; margin-top: 2px; font-size: 10px; font-weight: 500; color: var(--amber); }
+.ss-pick-clear { color: var(--red); border-color: rgba(224,85,85,0.35); margin-top: 3px; margin-bottom: 0; }
+.ss-pick-add { margin-top: 3px; font-size: 13px; }
+.ss-picker-empty { font-size: 12px; color: var(--muted); padding: 2px 0 6px; }
 .pf-ss { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(74,158,255,0.16); color: var(--blue); border-radius: 20px; padding: 2px 7px; margin-left: 6px; }
