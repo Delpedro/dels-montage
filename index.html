@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-11-1957">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-11-2025">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -213,27 +213,18 @@
       </div>
     </div>
     <div class="landing-section-label">Daily averages &middot; 7 days</div>
-    <div class="card">
-      <div class="macro-grid">
-        <div class="macro-tile">
-          <div class="macro-tile-val stat-green" id="macro-protein">--</div>
-          <div class="macro-tile-label">Protein g</div>
-          <div class="macro-tile-goal" id="macro-protein-goal"></div>
-        </div>
-        <div class="macro-tile">
-          <div class="macro-tile-val stat-blue" id="macro-carbs">--</div>
-          <div class="macro-tile-label">Carbs g</div>
-          <div class="macro-tile-goal" id="macro-carbs-goal"></div>
-        </div>
-        <div class="macro-tile">
-          <div class="macro-tile-val stat-amber" id="macro-fat">--</div>
-          <div class="macro-tile-label">Fat g</div>
-          <div class="macro-tile-goal" id="macro-fat-goal"></div>
-        </div>
+    <div class="card macro-card">
+      <!-- Calories lead, macros explain them: the total is what moves weight on a cut, so it's the
+           headline and the three macros are the breakdown underneath. Rows (not the old 3-up tiles)
+           because a third of a phone width couldn't hold "Target 175 −6" without wrapping it into
+           an unreadable mess. Same meter shape the Check-in page uses. -->
+      <div class="macro-cal">
+        <div class="macro-cal-label">Avg calories</div>
+        <div class="macro-cal-val" id="macro-cal-val">--</div>
+        <div class="macro-cal-target" id="macro-cal-target"></div>
       </div>
-      <div class="macro-bar" id="macro-bar"></div>
-      <div class="macro-key" id="macro-key"></div>
-      <div class="macro-cal-line" id="macro-cal-line"></div>
+      <div class="macro-rule"></div>
+      <div class="macro-meters" id="macro-meters"></div>
     </div>
   </div>
 
@@ -469,6 +460,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-11-1957"></script>
+<script src="js/app.js?v=2026-08-11-2025"></script>
 </body>
 </html>

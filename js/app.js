@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-11-1957';
+const APP_BUILD = '2026-08-11-2025';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -2693,60 +2693,68 @@ function renderWeightChart(points) {
   </svg>`;
 }
 
+// Signed delta, rendered the way the whole card reads it: "on" when it's bang on, else +30 / −17.
+// Uses a real minus sign, not a hyphen, so it lines up under DM Mono's tabular figures.
+function macroDelta(actual, target) {
+  const d = Math.round(actual - target);
+  return d === 0 ? 'on' : `${d > 0 ? '+' : '−'}${Math.abs(d)}`;
+}
+
+// One macro row: name · actual/target · meter · verdict. Four grid cells, no wrapper element —
+// they're cells of the single #macro-meters grid, which is what keeps the four columns aligned
+// across all three rows (see the CSS note: one grid, not one grid per row).
+//
+// A macro with no target still gets a row — it prints its average and a flat empty meter rather
+// than vanishing, so "no fibre target set" never looks like "no fibre logged".
+function macroMeterRow(label, actual, target, underIsMiss = false) {
+  const a = numOrNull(actual), t = numOrNull(target);
+  const state = (a === null || t === null) ? 'empty' : (goalState(a, t, underIsMiss) || 'empty');
+  const val = a === null ? '--'
+            : t === null ? `<b>${Math.round(a)}</b>g`
+            : `<b>${Math.round(a)}</b> / ${Math.round(t)}g`;
+  // Capped at 100%: a bar can't overflow its own track, so an over-target macro shows full and the
+  // delta beside it carries the overshoot. Same rule as the Check-in meters.
+  const pct = (a === null || t === null || t === 0) ? 0 : Math.min(100, Math.round((a / t) * 100));
+  const delta = (a === null || t === null) ? '—' : macroDelta(a, t);
+  return `<span class="macro-m-name">${esc(label)}</span>
+    <span class="macro-m-val">${val}</span>
+    <span class="goal-track"><i class="goal-fill ${state}" style="width:${pct}%"></i></span>
+    <span class="macro-m-delta gv-${state}">${delta}</span>`;
+}
+
+// Redesigned 11 Aug 2026. Was three tiles + a calorie-split bar + a 10px grey calorie line at the
+// bottom; the calorie average was the most important number on the card and the least visible, and
+// a third of a phone width couldn't hold "Target 175 −6" without wrapping it to three lines.
+//
+// Now: calories are the headline, the macros are the breakdown, in the same meter rows the Check-in
+// page uses. The calorie-split bar and its percentage key were dropped with it — with a meter per
+// macro the card already answers "am I hitting my targets", and a second bar meaning something
+// different (composition, not progress) sitting underneath was the thing that read as cluttered.
 function renderMacroAverages(logs) {
   const avg = key => {
     const vals = logs.filter(l => l[key] !== null && l[key] !== undefined).map(l => parseFloat(l[key]));
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
   };
-  const p = avg('protein_g'), c = avg('carbs_g'), f = avg('fat_g');
-  const show = (id, v) => { document.getElementById(id).textContent = v === null ? '--' : Math.round(v); };
-  show('macro-protein', p);
-  show('macro-carbs', c);
-  show('macro-fat', f);
+  const ca = avg('calories'), ct = goalCalories();
 
-  // Target line under each tile (11 Aug 2026). The tile's own value keeps its green/blue/amber —
-  // those match the calorie-split bar's segments below and recolouring them by verdict would break
-  // that legend — so the verdict lives in this line instead.
-  const goalLine = (id, v, target, underIsMiss = false) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const t = numOrNull(target);
-    if (t === null) { el.innerHTML = ''; return; }
-    const state = goalState(v, t, underIsMiss);
-    if (state === null) { el.innerHTML = `goal ${Math.round(t)}`; return; }
-    const d = Math.round(v - t);
-    el.innerHTML = `goal ${Math.round(t)} <b class="gv-${state}">${d === 0 ? 'on' : (d > 0 ? '+' : '−') + Math.abs(d)}</b>`;
-  };
-  goalLine('macro-protein-goal', p, MACRO_GOALS.protein_g, true);
-  goalLine('macro-carbs-goal',   c, MACRO_GOALS.carbs_g);
-  goalLine('macro-fat-goal',     f, MACRO_GOALS.fat_g);
-
-  // Average calories vs the calorie target, under the split bar — the split alone says nothing
-  // about whether the total was right, which on a cut is the number that actually moves weight.
-  const calEl = document.getElementById('macro-cal-line');
-  if (calEl) {
-    const ca = avg('calories'), ct = goalCalories();
-    const state = goalState(ca, ct);
-    calEl.innerHTML = (ca === null || ct === null) ? ''
-      : `7-day average <b>${Math.round(ca)}</b> kcal · goal ${Math.round(ct)} <b class="gv-${state}">${Math.round(ca - ct) === 0 ? 'on' : (ca > ct ? '+' : '−') + Math.abs(Math.round(ca - ct))}</b>`;
+  const calVal = document.getElementById('macro-cal-val');
+  const calTarget = document.getElementById('macro-cal-target');
+  if (calVal) {
+    calVal.innerHTML = ca === null ? '--' : `${Math.round(ca)}<span class="macro-cal-unit">kcal</span>`;
+  }
+  if (calTarget) {
+    const state = (ca === null || ct === null) ? null : goalState(ca, ct);
+    calTarget.innerHTML = (ca === null || ct === null) ? ''
+      : `(Target ${Math.round(ct)}<b class="gv-${state || 'empty'}">${macroDelta(ca, ct)}</b>)`;
   }
 
-  const bar = document.getElementById('macro-bar');
-  const key = document.getElementById('macro-key');
-  if (p === null || c === null || f === null) { bar.innerHTML = ''; key.innerHTML = ''; return; }
-  // Split by calories contributed, not grams — 4/4/9 kcal per gram.
-  const kcal = { p: p * 4, c: c * 4, f: f * 9 };
-  const total = kcal.p + kcal.c + kcal.f;
-  if (!total) { bar.innerHTML = ''; key.innerHTML = ''; return; }
-  const pct = v => Math.round((v / total) * 100);
-  bar.innerHTML = `
-    <i style="width:${pct(kcal.p)}%;background:var(--green);"></i>
-    <i style="width:${pct(kcal.c)}%;background:var(--blue);"></i>
-    <i style="width:${pct(kcal.f)}%;background:var(--amber);"></i>`;
-  key.innerHTML = `
-    <span><i style="background:var(--green);"></i>${pct(kcal.p)}% prot</span>
-    <span><i style="background:var(--blue);"></i>${pct(kcal.c)}% carb</span>
-    <span><i style="background:var(--amber);"></i>${pct(kcal.f)}% fat</span>`;
+  const meters = document.getElementById('macro-meters');
+  if (meters) {
+    meters.innerHTML =
+      macroMeterRow('Protein', avg('protein_g'), MACRO_GOALS.protein_g, true) +
+      macroMeterRow('Carbs',   avg('carbs_g'),   MACRO_GOALS.carbs_g) +
+      macroMeterRow('Fat',     avg('fat_g'),     MACRO_GOALS.fat_g);
+  }
 }
 
 // ─── HISTORY ─────────────────────────────────────────────

@@ -431,18 +431,33 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .stats-chart { margin-top: 0.75rem; margin-bottom: 0.875rem; }
 .stats-chart svg { width: 100%; height: auto; display: block; }
 
-.macro-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.macro-tile { background: var(--bg3); border-radius: 10px; padding: 0.625rem 0.375rem; text-align: center; }
-.macro-tile-val { font-family: 'Bebas Neue', sans-serif; font-size: 22px; line-height: 1; }
-.macro-tile-label { font-size: 8.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; }
-.macro-tile-goal { font-family: 'DM Mono', monospace; font-size: 8.5px; color: var(--muted); margin-top: 4px; }
-.macro-cal-line { font-size: 10px; color: var(--muted); text-align: center; margin-top: 10px; }
-.macro-cal-line b { font-family: 'DM Mono', monospace; color: var(--text); font-weight: 500; }
-.macro-bar { height: 5px; border-radius: 3px; background: var(--bg3); overflow: hidden; display: flex; margin-top: 0.625rem; }
-.macro-bar i { height: 100%; display: block; }
-.macro-key { display: flex; gap: 12px; justify-content: center; margin-top: 8px; font-size: 9.5px; color: var(--muted); }
-.macro-key span { display: inline-flex; align-items: center; gap: 4px; }
-.macro-key i { width: 7px; height: 7px; border-radius: 2px; display: inline-block; }
+/* Stats → Daily averages. Redesigned 11 Aug 2026: calorie hero + a meter per macro, replacing
+   three tiles + a split bar + a 10px grey calorie line. Every number in the card is tabular so the
+   figures sit on a common grid instead of drifting row to row. */
+.macro-card { font-variant-numeric: tabular-nums; }
+.macro-cal { text-align: center; }
+.macro-cal-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 6px; }
+.macro-cal-val { font-family: 'Bebas Neue', sans-serif; font-size: 46px; line-height: 0.92; letter-spacing: 0.5px; }
+/* Unit rides the number but stays out of its way — DM Sans at a third the size, muted. */
+.macro-cal-unit { font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--muted); margin-left: 5px; letter-spacing: 0; }
+.macro-cal-target { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin-top: 7px; white-space: nowrap; }
+.macro-cal-target b { font-weight: 500; margin-left: 5px; }
+.macro-rule { height: 1px; background: var(--border); margin: 0.9rem 0; }
+
+/* ONE grid holding all twelve cells — not one grid per row.
+   Two things here are load-bearing, both learned by getting them wrong:
+   1. Separate per-row grids size their columns independently, so the three rows would never line
+      up with each other however carefully each was tuned.
+   2. Every column is `auto` (content-sized), never a fixed px guess. A fixed column combined with
+      `white-space: nowrap` doesn't clip or wrap when the text is wider than the guess — it
+      OVERFLOWS and paints on top of the next column. `auto` grows instead, so overlap is
+      structurally impossible whatever the text or font metrics turn out to be.
+   The track is the only flexible column, with a floor so it can't collapse to nothing. */
+.macro-meters { display: grid; grid-template-columns: auto auto minmax(48px, 1fr) auto; align-items: center; column-gap: 10px; row-gap: 9px; }
+.macro-m-name { font-size: 11px; color: var(--muted2); }
+.macro-m-val { font-family: 'DM Mono', monospace; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.macro-m-val b { font-weight: 500; color: var(--text); }
+.macro-m-delta { font-family: 'DM Mono', monospace; font-size: 10.5px; font-weight: 500; text-align: right; white-space: nowrap; }
 
 /* ─── HISTORY: PROGRESS FEED CARDS (redesign 10 Aug 2026) ─── */
 /* Left rail colour keys the entry type: amber = workout, blue = daily check-in. */
@@ -484,15 +499,15 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 
 /* Verdict colours. Text (.gv-*) and meter fill (.goal-fill.*) are deliberately separate classes —
    one class setting both `color` and `background` paints a coloured block behind every number it
-   lands on. The .macro-cal-line overrides exist because `.macro-cal-line b` is more specific than
-   a bare `.gv-*` and would otherwise win. */
+   lands on.
+   There used to be `.macro-cal-line b.gv-*` overrides here, because that rule set `color` on its
+   own `b` and so outranked a bare `.gv-*`. Its replacement `.macro-cal-target b` sets only weight
+   and spacing, never colour, so the verdict class applies directly and the overrides are gone.
+   Keep it that way: a `b` inside a verdict-coloured element must not declare its own colour. */
 .gv-good  { color: var(--green); }
 .gv-bad   { color: var(--red); }
 .gv-soft  { color: var(--amber); }
 .gv-empty { color: var(--muted); }
-.macro-cal-line b.gv-good { color: var(--green); }
-.macro-cal-line b.gv-bad  { color: var(--red); }
-.macro-cal-line b.gv-soft { color: var(--amber); }
 .goal-fill.good  { background: var(--green); }
 .goal-fill.bad   { background: var(--red); }
 .goal-fill.soft  { background: var(--amber); }
