@@ -435,6 +435,9 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .macro-tile { background: var(--bg3); border-radius: 10px; padding: 0.625rem 0.375rem; text-align: center; }
 .macro-tile-val { font-family: 'Bebas Neue', sans-serif; font-size: 22px; line-height: 1; }
 .macro-tile-label { font-size: 8.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; }
+.macro-tile-goal { font-family: 'DM Mono', monospace; font-size: 8.5px; color: var(--muted); margin-top: 4px; }
+.macro-cal-line { font-size: 10px; color: var(--muted); text-align: center; margin-top: 10px; }
+.macro-cal-line b { font-family: 'DM Mono', monospace; color: var(--text); font-weight: 500; }
 .macro-bar { height: 5px; border-radius: 3px; background: var(--bg3); overflow: hidden; display: flex; margin-top: 0.625rem; }
 .macro-bar i { height: 100%; display: block; }
 .macro-key { display: flex; gap: 12px; justify-content: center; margin-top: 8px; font-size: 9.5px; color: var(--muted); }
@@ -460,6 +463,42 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .pf-d.down { color: var(--red); }
 .pf-d.same { color: var(--muted); }
 .pf-d.neutral { color: var(--text); opacity: 0.65; }
+/* vs-target verdicts (11 Aug 2026). Three states, not two: 'soft' is amber for coming in under a
+   carb/fat/calorie target — under budget on a cut is neither a win nor a miss. See goalState(). */
+.pf-d.good { color: var(--green); }
+.pf-d.bad  { color: var(--red); }
+.pf-d.soft { color: var(--amber); }
+
+/* Macro target meters on the Check-in card */
+.goal-block { margin-bottom: 1rem; }
+.goal-block-head { display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.goal-edit-link { background: none; border: none; color: var(--accent); font-size: 10px; font-family: 'DM Sans', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; padding: 0; }
+.goal-empty { font-size: 12px; color: var(--muted); padding: 4px 0; }
+.goal-row { display: grid; grid-template-columns: 50px 78px 1fr 52px; align-items: center; gap: 6px; padding: 5px 0; }
+.goal-name { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
+.goal-val { font-family: 'DM Mono', monospace; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.goal-val b { font-weight: 500; }
+.goal-track { height: 5px; border-radius: 3px; background: var(--bg3); overflow: hidden; }
+.goal-fill { display: block; height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.goal-left { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); text-align: right; white-space: nowrap; }
+
+/* Verdict colours. Text (.gv-*) and meter fill (.goal-fill.*) are deliberately separate classes —
+   one class setting both `color` and `background` paints a coloured block behind every number it
+   lands on. The .macro-cal-line overrides exist because `.macro-cal-line b` is more specific than
+   a bare `.gv-*` and would otherwise win. */
+.gv-good  { color: var(--green); }
+.gv-bad   { color: var(--red); }
+.gv-soft  { color: var(--amber); }
+.gv-empty { color: var(--muted); }
+.macro-cal-line b.gv-good { color: var(--green); }
+.macro-cal-line b.gv-bad  { color: var(--red); }
+.macro-cal-line b.gv-soft { color: var(--amber); }
+.goal-fill.good  { background: var(--green); }
+.goal-fill.bad   { background: var(--red); }
+.goal-fill.soft  { background: var(--amber); }
+.goal-fill.empty { background: var(--border2); }
+
+.goal-hint { font-size: 10px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
 /* Names what the right-hand column on a check-in card actually is: change since the previous
    check-in, not a shortfall against a macro target. Right-aligned so it sits over that column. */
 .pf-cmp { font-size: 9.5px; color: var(--muted); text-align: right; letter-spacing: 0.3px; margin: -4px 0 6px; }

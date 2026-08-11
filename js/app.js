@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-11-1630';
+const APP_BUILD = '2026-08-11-1932';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -358,6 +358,170 @@ async function autoCloseStaleWorkouts() {
   });
 }
 
+// ─── MACRO TARGETS ────────────────────────────────────────
+// Added 11 Aug 2026. Before this the app had no targets, so every macro comparison in the UI was
+// "change since the previous check-in" — which read as a goal shortfall and caused real confusion
+// (a 17g fibre day showing −10g was just 27g the day before, not a miss).
+//
+// A null target means "no target for this macro" and every consumer must render a plain — for it.
+// Never fall back to 0: a shortfall measured against a target you never set is worse than no
+// verdict at all, which is the exact mistake this feature exists to stop making.
+let MACRO_GOALS = { protein_g: null, carbs_g: null, fat_g: null, fibre_g: null, calories: null };
+let goalsRowId = null;
+
+// PostgREST returns numerics as strings ("175"), so everything goes through this rather than being
+// trusted raw — `"175" - 0` works but `"175" > 100` is a string comparison waiting to happen.
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+async function loadGoals() {
+  const rows = await sb('goals?select=*&order=updated_at.desc&limit=1');
+  if (!rows || !rows[0]) return;          // no row yet — targets stay null, UI shows the empty state
+  goalsRowId = rows[0].id;
+  MACRO_GOALS = {
+    protein_g: numOrNull(rows[0].protein_g),
+    carbs_g:   numOrNull(rows[0].carbs_g),
+    fat_g:     numOrNull(rows[0].fat_g),
+    fibre_g:   numOrNull(rows[0].fibre_g),
+    calories:  numOrNull(rows[0].calories)
+  };
+}
+
+// The stored calorie override if there is one, else derived from the macros at 4/4/9 kcal per gram
+// (175p/200c/56f = 2004). Derived only when all three macros have targets — summing a partial set
+// produces a number that looks like a calorie goal but isn't one.
+function goalCalories() {
+  if (MACRO_GOALS.calories !== null) return MACRO_GOALS.calories;
+  const { protein_g: p, carbs_g: c, fat_g: f } = MACRO_GOALS;
+  if (p === null || c === null || f === null) return null;
+  return Math.round(p * 4 + c * 4 + f * 9);
+}
+
+function hasAnyGoal() {
+  return MACRO_GOALS.protein_g !== null || MACRO_GOALS.carbs_g !== null || MACRO_GOALS.fat_g !== null;
+}
+
+// Verdict on one macro: 'good' (green), 'bad' (red), 'soft' (amber), or null when there's nothing
+// to judge. Which direction counts as bad depends on the macro, which is why `underIsMiss` exists:
+// falling short on protein is the failure, whereas on carbs/fat/calories it's going over. Under on
+// carbs is 'soft' — under budget on a cut isn't a success worth a green tick, but it isn't a miss.
+//
+// The ±5% (min 3 units) tolerance is the point of the whole thing. Nobody hits 175g protein to the
+// gram, and a row that is permanently red teaches you to stop reading the colour.
+function goalState(actual, target, underIsMiss = false) {
+  const a = numOrNull(actual), t = numOrNull(target);
+  if (a === null || t === null || t === 0) return null;
+  const diff = a - t;
+  if (Math.abs(diff) <= Math.max(t * 0.05, 3)) return 'good';
+  if (underIsMiss) return diff < 0 ? 'bad' : 'good';
+  return diff > 0 ? 'bad' : 'soft';
+}
+
+// The "vs target" cell on check-in cards. Replaces deltaCell() for macros now that there is a
+// target to judge against — and brings colour back with it, which deltaCell() deliberately
+// suppressed because green/red against a moving previous-day number was meaningless.
+function goalCell(actual, target, opts = {}) {
+  const { suffix = '', decimals = 0, underIsMiss = false } = opts;
+  const state = goalState(actual, target, underIsMiss);
+  if (state === null) return `<span class="pf-d same">—</span>`;
+  const diff = numOrNull(actual) - numOrNull(target);
+  const txt = Math.abs(diff) < 0.5
+    ? 'on target'
+    : `${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(decimals).replace(/\.0$/, '')}${suffix}`;
+  return `<span class="pf-d ${state}">${txt}</span>`;
+}
+
+// One meter row on the Check-in card. `actual` may be null (nothing logged yet) — the bar renders
+// empty rather than the row disappearing, so the targets are visible before you've eaten anything.
+function goalMeter(label, actual, target, underIsMiss = false, unit = 'g') {
+  const t = numOrNull(target);
+  if (t === null) return '';
+  const a = numOrNull(actual);
+  const state = a === null ? 'empty' : goalState(a, t, underIsMiss);
+  // Bar caps at 100% so a 3000-calorie day can't render a fill wider than its track; the number
+  // beside it still tells the truth.
+  const pct = a === null ? 0 : Math.min(100, Math.round((a / t) * 100));
+  const left = a === null ? '' : (a >= t ? `${Math.round(a - t)}${unit} over` : `${Math.round(t - a)}${unit} left`);
+  return `<div class="goal-row">
+    <span class="goal-name">${label}</span>
+    <span class="goal-val"><b class="gv-${state}">${a === null ? '--' : Math.round(a)}</b> / ${Math.round(t)}${unit}</span>
+    <span class="goal-track"><i class="goal-fill ${state}" style="width:${pct}%"></i></span>
+    <span class="goal-left">${left}</span>
+  </div>`;
+}
+
+function renderCheckinGoals(l) {
+  const wrap = document.getElementById('checkin-goals');
+  const rows = document.getElementById('checkin-goal-rows');
+  if (!wrap || !rows) return;
+  wrap.style.display = 'block';
+  if (!hasAnyGoal()) {
+    rows.innerHTML = `<div class="goal-empty">No targets set yet.</div>`;
+    return;
+  }
+  const g = MACRO_GOALS;
+  rows.innerHTML =
+    goalMeter('Protein', l.protein_g, g.protein_g, true) +
+    goalMeter('Carbs',   l.carbs_g,   g.carbs_g) +
+    goalMeter('Fat',     l.fat_g,     g.fat_g) +
+    goalMeter('Fibre',   l.fibre_g,   g.fibre_g, true) +
+    goalMeter('Calories', l.calories, goalCalories(), false, '');
+}
+
+// ─── EDIT TARGETS MODAL ───────────────────────────────────
+function openGoalsModal() {
+  const set = (id, v) => { document.getElementById(id).value = v === null || v === undefined ? '' : v; };
+  set('goal-protein', MACRO_GOALS.protein_g);
+  set('goal-carbs',   MACRO_GOALS.carbs_g);
+  set('goal-fat',     MACRO_GOALS.fat_g);
+  set('goal-fibre',   MACRO_GOALS.fibre_g);
+  set('goal-cals',    MACRO_GOALS.calories);
+  updateGoalCalHint();
+  document.getElementById('goals-modal').style.display = 'block';
+}
+
+function closeGoalsModal() {
+  document.getElementById('goals-modal').style.display = 'none';
+}
+
+// Live "= 2004 kcal" readout under the calories field, recomputed as the macros are typed. The
+// calories input is left blank on purpose when it matches — blank stores null, which keeps the
+// calorie target derived rather than freezing today's number into the row.
+function updateGoalCalHint() {
+  const p = numOrNull(document.getElementById('goal-protein').value);
+  const c = numOrNull(document.getElementById('goal-carbs').value);
+  const f = numOrNull(document.getElementById('goal-fat').value);
+  const hint = document.getElementById('goal-cal-hint');
+  if (p === null || c === null || f === null) {
+    hint.textContent = 'Fill all three macros for an automatic calorie target.';
+    return;
+  }
+  hint.textContent = `Leave blank to use ${Math.round(p * 4 + c * 4 + f * 9)} kcal, derived from the macros above.`;
+}
+
+async function saveGoals() {
+  const cals = numOrNull(document.getElementById('goal-cals').value);
+  const data = {
+    protein_g: numOrNull(document.getElementById('goal-protein').value),
+    carbs_g:   numOrNull(document.getElementById('goal-carbs').value),
+    fat_g:     numOrNull(document.getElementById('goal-fat').value),
+    fibre_g:   numOrNull(document.getElementById('goal-fibre').value),
+    calories:  cals === null ? null : Math.round(cals),   // column is integer
+    updated_at: new Date().toISOString()
+  };
+  const res = goalsRowId
+    ? await sb(`goals?id=eq.${goalsRowId}`, 'PATCH', data)
+    : await sb('goals', 'POST', data);
+  if (res && res.ok === false) { showToast('Could not save targets', 'error'); return; }
+  await loadGoals();
+  closeGoalsModal();
+  renderCheckinSummary();
+  showToast('Targets saved!', 'success');
+}
+
 // ─── INIT ─────────────────────────────────────────────────
 async function initApp(page = 'home') {
   const now = new Date();
@@ -367,6 +531,7 @@ async function initApp(page = 'home') {
   await loadSessionTemplates();  // Fixed-session templates now live in Supabase, not a hardcoded array — must resolve before anything reads SESSIONS
   EXERCISE_LIBRARY = buildExerciseLibrary();
   loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
+  await loadGoals();      // Must resolve before renderCheckinSummary/loadHistory — both judge macros against it
   buildSessionGrid();
   renderCheckinSummary();
   showPage(page);
@@ -2284,6 +2449,9 @@ async function renderCheckinSummary() {
   const pillsEl = document.getElementById('checkin-summary-pills');
   const notesEl = document.getElementById('checkin-summary-notes');
   const btn = document.getElementById('checkin-log-btn');
+  // The targets block renders either way — with nothing logged it shows empty bars against today's
+  // targets, which is the useful state at 7am. Everything below it is hidden until there's an entry.
+  renderCheckinGoals(l || {});
   if (!l) {
     emptyEl.style.display = 'block';
     statsEl.style.display = 'none';
@@ -2297,12 +2465,10 @@ async function renderCheckinSummary() {
   document.getElementById('checkin-sum-weight').textContent = l.weight_kg ?? '--';
   document.getElementById('checkin-sum-cals').textContent = l.calories ?? '--';
   document.getElementById('checkin-sum-steps').textContent = l.steps ? l.steps.toLocaleString() : '--';
+  // The four macro pills that used to sit here were removed 11 Aug 2026 — the targets block above
+  // now shows the same numbers with a target beside each, so the pills were the same data twice.
   const pills = [];
-  if (l.protein_g) pills.push(`<span class="pill pill-reps">${l.protein_g}g protein</span>`);
-  if (l.carbs_g) pills.push(`<span class="pill pill-sets">${l.carbs_g}g carbs</span>`);
-  if (l.fat_g) pills.push(`<span class="pill pill-cals">${l.fat_g}g fat</span>`);
-  if (l.fibre_g) pills.push(`<span class="pill pill-rest">${l.fibre_g}g fibre</span>`);
-  if (l.energy) pills.push(`<span style="font-size:16px;">${['','😴','😑','🙂','😤','🔥'][l.energy]}</span>`);
+  if (l.energy) pills.push(`<span class="pill pill-rest">Energy · ${ENERGY_WORDS[l.energy] || l.energy}</span>`);
   pillsEl.innerHTML = pills.join('');
   if (l.notes) { notesEl.style.display = 'block'; notesEl.textContent = l.notes; } else { notesEl.style.display = 'none'; }
   btn.textContent = 'Edit Today';
@@ -2491,6 +2657,33 @@ function renderMacroAverages(logs) {
   show('macro-protein', p);
   show('macro-carbs', c);
   show('macro-fat', f);
+
+  // Target line under each tile (11 Aug 2026). The tile's own value keeps its green/blue/amber —
+  // those match the calorie-split bar's segments below and recolouring them by verdict would break
+  // that legend — so the verdict lives in this line instead.
+  const goalLine = (id, v, target, underIsMiss = false) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const t = numOrNull(target);
+    if (t === null) { el.innerHTML = ''; return; }
+    const state = goalState(v, t, underIsMiss);
+    if (state === null) { el.innerHTML = `goal ${Math.round(t)}`; return; }
+    const d = Math.round(v - t);
+    el.innerHTML = `goal ${Math.round(t)} <b class="gv-${state}">${d === 0 ? 'on' : (d > 0 ? '+' : '−') + Math.abs(d)}</b>`;
+  };
+  goalLine('macro-protein-goal', p, MACRO_GOALS.protein_g, true);
+  goalLine('macro-carbs-goal',   c, MACRO_GOALS.carbs_g);
+  goalLine('macro-fat-goal',     f, MACRO_GOALS.fat_g);
+
+  // Average calories vs the calorie target, under the split bar — the split alone says nothing
+  // about whether the total was right, which on a cut is the number that actually moves weight.
+  const calEl = document.getElementById('macro-cal-line');
+  if (calEl) {
+    const ca = avg('calories'), ct = goalCalories();
+    const state = goalState(ca, ct);
+    calEl.innerHTML = (ca === null || ct === null) ? ''
+      : `7-day average <b>${Math.round(ca)}</b> kcal · goal ${Math.round(ct)} <b class="gv-${state}">${Math.round(ca - ct) === 0 ? 'on' : (ca > ct ? '+' : '−') + Math.abs(Math.round(ca - ct))}</b>`;
+  }
 
   const bar = document.getElementById('macro-bar');
   const key = document.getElementById('macro-key');
@@ -2758,16 +2951,33 @@ function renderHistoryPage() {
         const dnum = key => (prev && l[key] !== null && prev[key] !== null &&
                              l[key] !== undefined && prev[key] !== undefined)
           ? parseFloat(l[key]) - parseFloat(prev[key]) : null;
-        const row = (label, value, delta, opts) => value === null || value === undefined ? '' :
-          `<div class="pf-lift"><span class="pf-lname">${label}</span><span class="pf-lval">${value}</span>${deltaCell(delta, opts)}</div>`;
-        // The right-hand column is the change since the PREVIOUS check-in, not a shortfall against a
-        // macro target — the app has no targets. Without this line it reads as one, which is exactly
-        // how "17g fibre, −10g" got read as a goal miss when it was just 27g the day before. The
-        // previous check-in is often not yesterday (skipped days), so name the date rather than say
-        // "vs yesterday".
-        const cmpLine = prev
-          ? `<div class="pf-cmp">change vs ${new Date(prev.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</div>`
-          : '';
+        const row = (label, value, cell) => value === null || value === undefined ? '' :
+          `<div class="pf-lift"><span class="pf-lname">${label}</span><span class="pf-lval">${value}</span>${cell}</div>`;
+        // Macros are judged against the target as of 11 Aug 2026. This column used to be the change
+        // since the previous check-in, which read as a shortfall it wasn't — "17g fibre, −10g" was
+        // just 27g the day before, not a miss. Printing the target inline in the value column
+        // (`168 / 175g`) is what makes the right-hand number unambiguous.
+        //
+        // Falls back to the old change-vs-previous for any macro with NO target set, so a fibre row
+        // still says something useful while there's no fibre goal.
+        const macroRow = (label, key, target, opts = {}) => {
+          const v = numOrNull(l[key]);
+          if (v === null) return '';
+          const t = numOrNull(target);
+          const unit = opts.unit === undefined ? 'g' : opts.unit;
+          const value = t === null ? `${v}${unit}` : `${Math.round(v)} / ${Math.round(t)}${unit}`;
+          const cell = t === null
+            ? deltaCell(dnum(key), { suffix: unit, decimals: 0, neutral: true })
+            : goalCell(v, t, { suffix: unit, decimals: 0, underIsMiss: !!opts.underIsMiss });
+          return row(label, value, cell);
+        };
+        // Weight has no target, so it stays a day-on-day change — two different comparison bases in
+        // one column, which is only safe because both are named here and the macro rows carry their
+        // target inline. The previous check-in is often not yesterday, so name the actual date.
+        const bases = [];
+        if (hasAnyGoal()) bases.push('macros vs target');
+        if (prev) bases.push(`weight vs ${new Date(prev.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}`);
+        const cmpLine = bases.length ? `<div class="pf-cmp">${bases.join(' · ')}</div>` : '';
         const footBits = [];
         if (l.steps) footBits.push(`<span>Steps <b>${l.steps.toLocaleString()}</b></span>`);
         if (l.energy) footBits.push(`<span>Energy <b>${ENERGY_WORDS[l.energy] || l.energy}</b></span>`);
@@ -2777,12 +2987,12 @@ function renderHistoryPage() {
             <span class="pf-date">${new Date(l.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
           </div>
           ${cmpLine}
-          ${row('Weight', l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true})}
-          ${row('Calories', l.calories, dnum('calories'), {decimals:0, neutral:true})}
-          ${row('Protein', l.protein_g !== null && l.protein_g !== undefined ? `${l.protein_g}g` : null, dnum('protein_g'), {suffix:'g', decimals:0, neutral:true})}
-          ${row('Carbs', l.carbs_g !== null && l.carbs_g !== undefined ? `${l.carbs_g}g` : null, dnum('carbs_g'), {suffix:'g', decimals:0, neutral:true})}
-          ${row('Fat', l.fat_g !== null && l.fat_g !== undefined ? `${l.fat_g}g` : null, dnum('fat_g'), {suffix:'g', decimals:0, neutral:true})}
-          ${row('Fibre', l.fibre_g !== null && l.fibre_g !== undefined ? `${l.fibre_g}g` : null, dnum('fibre_g'), {suffix:'g', decimals:0, neutral:true})}
+          ${row('Weight', l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, deltaCell(dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true}))}
+          ${macroRow('Calories', 'calories', goalCalories(), {unit:''})}
+          ${macroRow('Protein', 'protein_g', MACRO_GOALS.protein_g, {underIsMiss:true})}
+          ${macroRow('Carbs', 'carbs_g', MACRO_GOALS.carbs_g)}
+          ${macroRow('Fat', 'fat_g', MACRO_GOALS.fat_g)}
+          ${macroRow('Fibre', 'fibre_g', MACRO_GOALS.fibre_g, {underIsMiss:true})}
           ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
           ${footBits.length ? `<div class="pf-foot">${footBits.join('')}</div>` : ''}
         </div>`;
