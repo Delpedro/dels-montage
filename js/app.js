@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-11-1932';
+const APP_BUILD = '2026-08-11-1957';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -220,8 +220,41 @@ let currentWorkoutId = null;
 let currentWorkoutHasSets = false;
 let lastCompletedExercise = null;
 
+// ─── HTML ESCAPING ────────────────────────────────────────
+// This app renders everything by interpolating strings into innerHTML, and the database is writable
+// by anyone holding the publishable key (see the Phase 2 auth item in CURRENT_STATUS.md). So an
+// exercise name, a session name or a check-in note is untrusted input even though only one person
+// types into this app: a row written straight to the REST API with a name like
+// `<img src=x onerror=…>` would execute here on the next load.
+//
+// The rule: escape at the point a value is interpolated into HTML, not inside the helper that
+// produced it — helpers like setValueLabel() are also used with .textContent, where escaping would
+// print visible &amp;. Values the app itself computed (numbers, literal class names) don't need it.
+function esc(v) {
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// For a value going into a JS string literal inside an HTML attribute — onclick="fn('${name}')",
+// which is the pattern used all over this file. TWO decoders run before the JS parser sees it: the
+// HTML attribute is entity-decoded first, then the JS string literal is parsed. So backslash-escape
+// the JS metacharacters first and entity-escape second, or esc()'s `&#39;` would decode back into a
+// bare quote and close the string. Note esc() must escape & first (it does) so a name containing
+// the literal text `&#39;` survives as text rather than decoding into a quote.
+function jsAttr(v) {
+  return esc(String(v ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, '\\n'));
+}
+
 // ─── SUPABASE ─────────────────────────────────────────────
-async function sb(path, method = 'GET', body = null) {
+// `opts.quiet` suppresses the generic write-failure toast below — pass it when the caller reports
+// the failure itself with a more specific message, or when the write is background housekeeping the
+// user shouldn't be told about.
+async function sb(path, method = 'GET', body = null, { quiet = false } = {}) {
   const opts = {
     method,
     headers: {
@@ -239,6 +272,14 @@ async function sb(path, method = 'GET', body = null) {
       return [];
     }
     return res.json();
+  }
+  // A failed write used to return silently, and the caller would carry on and say "Saved!". That is
+  // exactly how two days of cardio data were lost in July — the POST 400'd, nothing checked it, and
+  // the toast said success. Every write now surfaces its own failure here, so a caller that forgets
+  // to check can no longer report a false success.
+  if (!res.ok && !quiet) {
+    console.error(`sb() ${method} failed (${res.status}): ${path}`);
+    showToast(`Save failed (${res.status}) — not saved`, 'error');
   }
   return res;
 }
@@ -346,16 +387,10 @@ document.addEventListener('input', (e) => {
 // would require fetching each row first. Not worth the extra DB calls for an edge case.
 async function autoCloseStaleWorkouts() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  await fetch(`${SUPABASE_URL}/rest/v1/workouts?completed_at=is.null&created_at=lt.${cutoff}`, {
-    method: 'PATCH',
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'return=minimal'
-    },
-    body: JSON.stringify({ completed_at: new Date().toISOString() })
-  });
+  // quiet: background housekeeping that runs on every app start — a toast here would be noise, and
+  // there's nothing the user could do about it anyway. It's logged to the console either way.
+  await sb(`workouts?completed_at=is.null&created_at=lt.${cutoff}`, 'PATCH',
+    { completed_at: new Date().toISOString() }, { quiet: true });
 }
 
 // ─── MACRO TARGETS ────────────────────────────────────────
@@ -513,9 +548,9 @@ async function saveGoals() {
     updated_at: new Date().toISOString()
   };
   const res = goalsRowId
-    ? await sb(`goals?id=eq.${goalsRowId}`, 'PATCH', data)
-    : await sb('goals', 'POST', data);
-  if (res && res.ok === false) { showToast('Could not save targets', 'error'); return; }
+    ? await sb(`goals?id=eq.${goalsRowId}`, 'PATCH', data, { quiet: true })
+    : await sb('goals', 'POST', data, { quiet: true });
+  if (res && res.ok === false) { showToast(`Could not save targets (${res.status})`, 'error'); return; }
   await loadGoals();
   closeGoalsModal();
   renderCheckinSummary();
@@ -759,8 +794,8 @@ function sessionTile(s, doneTodaySessions) {
   btn.id = `session-btn-${s.id}`;
   const done = doneTodaySessions.has(s.id);
   if (done) btn.classList.add('done');
-  const editBtn = s.cardio ? '' : `<button class="session-edit-btn" aria-label="Edit ${s.name} template" title="Edit template" onclick="event.stopPropagation(); openSessionEditor('${s.id}')">✎</button>`;
-  btn.innerHTML = `${editBtn}<div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>${done ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
+  const editBtn = s.cardio ? '' : `<button class="session-edit-btn" aria-label="Edit ${esc(s.name)} template" title="Edit template" onclick="event.stopPropagation(); openSessionEditor('${jsAttr(s.id)}')">✎</button>`;
+  btn.innerHTML = `${editBtn}<div class="session-name">${esc(s.name)}</div><div class="session-focus">${esc(s.focus)}</div>${done ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
   btn.onclick = () => selectSession(s, btn);
   return btn;
 }
@@ -855,11 +890,11 @@ function templateSupersetPickerHtml(name) {
     <div class="ss-picker-title">${partners.length ? 'Add another to this superset' : 'Superset with…'}</div>`;
   others.forEach(n => {
     const moving = (templateGroupOf(n) || []).filter(m => m !== n).length > 0;
-    html += `<button type="button" class="ss-pick" onclick="pairTemplateSuperset('${name}','${n}')">${n}${moving ? '<span class="ss-pick-note">moves out of its current superset</span>' : ''}</button>`;
+    html += `<button type="button" class="ss-pick" onclick="pairTemplateSuperset('${jsAttr(name)}','${jsAttr(n)}')">${esc(n)}${moving ? '<span class="ss-pick-note">moves out of its current superset</span>' : ''}</button>`;
   });
   if (!others.length) html += `<div class="ss-picker-empty">Nothing else in this session to pair with.</div>`;
   if (partners.length) {
-    html += `<button type="button" class="ss-pick ss-pick-clear" onclick="clearTemplateSuperset('${name}')">✕ Remove ${name} from this superset</button>`;
+    html += `<button type="button" class="ss-pick ss-pick-clear" onclick="clearTemplateSuperset('${jsAttr(name)}')">✕ Remove ${esc(name)} from this superset</button>`;
   }
   return html + `</div>`;
 }
@@ -872,7 +907,7 @@ function renderTemplateEditorRows() {
     const partners = tag ? (templateGroupOf(ex.name) || []).filter(n => n !== ex.name && groupMap[n]) : [];
     return `
     <div class="template-ex-row${tag ? ' in-superset' : ''}">
-      <div class="template-ex-name">${ex.name}${tag ? `<span class="pf-ss">s/s ${tag}</span>` : ''}</div>
+      <div class="template-ex-name">${esc(ex.name)}${tag ? `<span class="pf-ss">s/s ${esc(tag)}</span>` : ''}</div>
       <div class="template-ex-controls">
         <button type="button" class="btn btn-outline template-ex-btn" ${i === 0 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, -1)" aria-label="Move up">↑</button>
         <button type="button" class="btn btn-outline template-ex-btn" ${i === editingTemplateExercises.length - 1 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, 1)" aria-label="Move down">↓</button>
@@ -881,7 +916,7 @@ function renderTemplateEditorRows() {
         <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets(${i}, 1)" aria-label="Add set">+</button>
         <button type="button" class="ex-remove-btn" onclick="removeTemplateExercise(${i})" aria-label="Remove exercise" title="Remove">✕</button>
       </div>
-      <button type="button" class="ss-btn${partners.length ? ' active' : ''}" onclick="toggleTemplateSupersetPicker('${ex.name}')">${partners.length ? `⇄ Superset with ${partners.join(' + ')}` : '⇄ Superset'}</button>
+      <button type="button" class="ss-btn${partners.length ? ' active' : ''}" onclick="toggleTemplateSupersetPicker('${jsAttr(ex.name)}')">${partners.length ? `⇄ Superset with ${esc(partners.join(' + '))}` : '⇄ Superset'}</button>
       ${editingTemplatePickerFor === ex.name ? templateSupersetPickerHtml(ex.name) : ''}
     </div>`;
   }).join('') || '<div class="empty">No exercises — add one below</div>';
@@ -912,7 +947,7 @@ function templateAddExerciseOptionsHtml() {
   const chosen = new Set(editingTemplateExercises.map(e => e.name));
   const names = Object.keys(EXERCISE_LIBRARY).filter(n => !chosen.has(n)).sort();
   let opts = `<option value="" selected disabled>Add an exercise…</option>`;
-  names.forEach(n => { opts += `<option value="${n}">${n}</option>`; });
+  names.forEach(n => { opts += `<option value="${esc(n)}">${esc(n)}</option>`; });
   opts += `<option value="__custom__">+ Type a new exercise…</option>`;
   return opts;
 }
@@ -961,7 +996,7 @@ async function promptTemplateCustomExercise() {
 async function saveSessionTemplate() {
   if (!editingTemplateSessionId) return;
   const id = editingTemplateSessionId;
-  const delRes = await sb(`session_exercises?session_id=eq.${id}`, 'DELETE');
+  const delRes = await sb(`session_exercises?session_id=eq.${id}`, 'DELETE', null, { quiet: true });
   if (!delRes.ok) { showToast(`Save failed (${delRes.status})`, 'error'); return; }
   const groupMap = templateGroupMap();   // presence-filtered, so a removed partner can't leave a tag behind
   const rows = editingTemplateExercises.map((ex, i) => ({
@@ -971,7 +1006,7 @@ async function saveSessionTemplate() {
     superset_group: groupMap[ex.name] || null
   }));
   if (rows.length) {
-    const postRes = await sb('session_exercises', 'POST', rows);
+    const postRes = await sb('session_exercises', 'POST', rows, { quiet: true });
     if (!postRes.ok) { showToast(`Save failed (${postRes.status})`, 'error'); return; }
   }
   await loadSessionTemplates();
@@ -1223,8 +1258,8 @@ function applySupersetOrder() {
 }
 
 function renderSupersetControl(ex) {
-  return `<button type="button" class="ss-btn" id="ss-${ex.name}" onclick="toggleSupersetPicker('${ex.name}')">⇄ Superset</button>
-    <div class="ss-picker" id="ss-picker-${ex.name}" style="display:none;"></div>`;
+  return `<button type="button" class="ss-btn" id="ss-${esc(ex.name)}" onclick="toggleSupersetPicker('${jsAttr(ex.name)}')">⇄ Superset</button>
+    <div class="ss-picker" id="ss-picker-${esc(ex.name)}" style="display:none;"></div>`;
 }
 
 // One picker open at a time — two expanded lists on a phone screen is just noise.
@@ -1253,13 +1288,13 @@ function supersetPickerHtml(exName) {
     // Flagged because an exercise belongs to exactly one group — pairing it here moves it out of the
     // group it's currently in rather than putting it in two at once.
     const moving = (supersetGroupOf(n) || []).filter(m => m !== n).length > 0;
-    html += `<button type="button" class="ss-pick" onclick="pairSuperset('${exName}','${n}')">${n}${moving ? `<span class="ss-pick-note">moves out of its current superset</span>` : ''}</button>`;
+    html += `<button type="button" class="ss-pick" onclick="pairSuperset('${jsAttr(exName)}','${jsAttr(n)}')">${esc(n)}${moving ? `<span class="ss-pick-note">moves out of its current superset</span>` : ''}</button>`;
   });
   if (!others.length) html += `<div class="ss-picker-empty">Nothing else in this session yet.</div>`;
 
-  html += `<select class="field-input ss-pick-add" onchange="addSupersetPartner('${exName}', this)">${supersetAddOptionsHtml()}</select>`;
+  html += `<select class="field-input ss-pick-add" onchange="addSupersetPartner('${jsAttr(exName)}', this)">${supersetAddOptionsHtml()}</select>`;
   if (partners.length) {
-    html += `<button type="button" class="ss-pick ss-pick-clear" onclick="clearSuperset('${exName}')">✕ Remove ${exName} from this superset</button>`;
+    html += `<button type="button" class="ss-pick ss-pick-clear" onclick="clearSuperset('${jsAttr(exName)}')">✕ Remove ${esc(exName)} from this superset</button>`;
   }
   return html;
 }
@@ -1268,7 +1303,7 @@ function supersetAddOptionsHtml() {
   const chosen = new Set((selectedSession?.exercises || []).map(e => e.name));
   const names = Object.keys(EXERCISE_LIBRARY).filter(n => !chosen.has(n)).sort();
   let opts = `<option value="" selected disabled>+ Something not in this session…</option>`;
-  names.forEach(n => { opts += `<option value="${n}">${n}</option>`; });
+  names.forEach(n => { opts += `<option value="${esc(n)}">${esc(n)}</option>`; });
   opts += `<option value="__custom__">+ Type a new exercise…</option>`;
   return opts;
 }
@@ -1353,23 +1388,23 @@ function renderSetRow(ex, i, prevSet, sessionId, defaultVar) {
 
   let weightCol = '';
   if (isOptionalWeight(ex)) {
-    weightCol = `<input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="BW / kg" inputmode="decimal" oninput="saveDraft('${sessionId}')" />`;
+    weightCol = `<input type="text" class="set-input" id="w-${esc(ex.name)}-${i}" placeholder="BW / kg" inputmode="decimal" oninput="saveDraft('${jsAttr(sessionId)}')" />`;
   } else if (ex.bodyweight || isTimed(ex)) {
-    weightCol = `<div class="set-label" id="w-${ex.name}-${i}">BW</div>`;
+    weightCol = `<div class="set-label" id="w-${esc(ex.name)}-${i}">BW</div>`;
   } else if (ex.variations && ex.band) {
     const currentVar = selectedVariations[ex.name] || defaultVar || ex.variations[0];
-    weightCol = `<div class="set-label" id="w-${ex.name}-${i}">${currentVar}</div>`;
+    weightCol = `<div class="set-label" id="w-${esc(ex.name)}-${i}">${esc(currentVar)}</div>`;
   } else {
-    weightCol = `<input type="text" class="set-input" id="w-${ex.name}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${sessionId}')" />`;
+    weightCol = `<input type="text" class="set-input" id="w-${esc(ex.name)}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${jsAttr(sessionId)}')" />`;
   }
 
   return `<div class="set-row">
       <div class="set-num">${i}</div>
       ${weightCol}
-      <input type="number" class="set-input" id="r-${ex.name}-${i}" placeholder="${repPlaceholder}" inputmode="numeric" oninput="saveDraft('${sessionId}')" />
-      <div class="prev-badge" id="badge-${ex.name}-${i}">${prevHint}</div>
+      <input type="number" class="set-input" id="r-${esc(ex.name)}-${i}" placeholder="${esc(repPlaceholder)}" inputmode="numeric" oninput="saveDraft('${jsAttr(sessionId)}')" />
+      <div class="prev-badge" id="badge-${esc(ex.name)}-${i}">${esc(prevHint)}</div>
     </div>
-    <div class="rest-line" id="rest-${ex.name}-${i}"></div>`;
+    <div class="rest-line" id="rest-${esc(ex.name)}-${i}"></div>`;
     // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
 }
 
@@ -1385,12 +1420,12 @@ function renderExerciseBlock(ex, session) {
     if (filteredPrev.length === 0) filteredPrev = prev;
   }
 
-  let html = `<div class="exercise-block" id="block-${ex.name}" data-rest-target="${swParseRest(ex.rest)}">
+  let html = `<div class="exercise-block" id="block-${esc(ex.name)}" data-rest-target="${swParseRest(ex.rest)}">
       <div class="ex-top">
         <div class="ex-name-row">
-          <div class="ex-name-display">${ex.name}</div>
-          <button class="ex-remove-btn" id="remove-${ex.name}" onclick="removeOpenExercise('${ex.name}')" aria-label="Remove exercise" title="Remove for today">✕</button>
-          <button class="ex-watch" id="watch-${ex.name}" onclick="swTapWatch('${ex.name}')" aria-label="Rest timer">
+          <div class="ex-name-display">${esc(ex.name)}</div>
+          <button class="ex-remove-btn" id="remove-${esc(ex.name)}" onclick="removeOpenExercise('${jsAttr(ex.name)}')" aria-label="Remove exercise" title="Remove for today">✕</button>
+          <button class="ex-watch" id="watch-${esc(ex.name)}" onclick="swTapWatch('${jsAttr(ex.name)}')" aria-label="Rest timer">
             <svg class="ex-watch-ring" viewBox="0 0 30 30">
               <circle class="ex-watch-bg" cx="15" cy="15" r="12"></circle>
               <circle class="ex-watch-fill" cx="15" cy="15" r="12"></circle>
@@ -1405,11 +1440,11 @@ function renderExerciseBlock(ex, session) {
           </button>
         </div>
         <div class="ex-pills">
-          <span class="pill pill-sets" id="sets-pill-${ex.name}">${ex.sets} sets</span>
-          <span class="pill pill-reps">${isTimed(ex) && !/s\b/i.test(ex.reps || '') ? timedTarget(ex) : ex.reps}</span>
-          <span class="pill pill-rest">${ex.rest}</span>
+          <span class="pill pill-sets" id="sets-pill-${esc(ex.name)}">${ex.sets} sets</span>
+          <span class="pill pill-reps">${esc(isTimed(ex) && !/s\b/i.test(ex.reps || '') ? timedTarget(ex) : ex.reps)}</span>
+          <span class="pill pill-rest">${esc(ex.rest)}</span>
         </div>
-        ${ex.note ? `<div class="ex-note-text">${ex.note}</div>` : ''}
+        ${ex.note ? `<div class="ex-note-text">${esc(ex.note)}</div>` : ''}
       </div>`;
 
   if (ex.variations) {
@@ -1417,7 +1452,7 @@ function renderExerciseBlock(ex, session) {
     html += `<div class="variation-toggle">`;
     ex.variations.forEach(v => {
       const isSelected = v === defaultVar ? 'selected' : '';
-      html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${ex.name}', '${v}', this)">${v}</button>`;
+      html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${jsAttr(ex.name)}', '${jsAttr(v)}', this)">${esc(v)}</button>`;
     });
     html += `</div>`;
   }
@@ -1427,13 +1462,13 @@ function renderExerciseBlock(ex, session) {
   }
 
   if (session.id === 'open') {
-    html += `<div class="set-row-controls" id="set-controls-${ex.name}" style="display:flex;gap:8px;margin-top:8px;">
-      <button type="button" class="btn btn-outline" style="flex:1;" onclick="addOpenSetRow('${ex.name}')">+ Add Set</button>
-      <button type="button" class="btn btn-outline" style="flex:1;" onclick="removeOpenSetRow('${ex.name}')">− Remove Set</button>
+    html += `<div class="set-row-controls" id="set-controls-${esc(ex.name)}" style="display:flex;gap:8px;margin-top:8px;">
+      <button type="button" class="btn btn-outline" style="flex:1;" onclick="addOpenSetRow('${jsAttr(ex.name)}')">+ Add Set</button>
+      <button type="button" class="btn btn-outline" style="flex:1;" onclick="removeOpenSetRow('${jsAttr(ex.name)}')">− Remove Set</button>
     </div>`;
   }
 
-  html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
+  html += `<button class="btn btn-outline btn-full" id="done-btn-${esc(ex.name)}" onclick="completeExercise('${jsAttr(ex.name)}')" style="margin-top:8px;">Mark Done</button>`;
   html += renderSupersetControl(ex);
   html += `</div>`;
   return html;
@@ -1538,22 +1573,22 @@ function renderLastTimeCard(snapshot, session) {
   let rows = session.exercises.map(ex => {
     const sets = snapshot.exercises[ex.name] || (ex.aliases || []).flatMap(a => snapshot.exercises[a] || []);
     if (!sets.length) return '';
-    const variationTag = sets[0].variation ? ` <span class="last-time-var">(${sets[0].variation})</span>` : '';
+    const variationTag = sets[0].variation ? ` <span class="last-time-var">(${esc(sets[0].variation)})</span>` : '';
     const setsStr = sets.map(s => setValueLabel(ex, s)).join(', ');
-    return `<div class="last-time-row"><span class="last-time-ex">${ex.name}${variationTag}</span><span class="last-time-sets">${setsStr}</span></div>`;
+    return `<div class="last-time-row"><span class="last-time-ex">${esc(ex.name)}${variationTag}</span><span class="last-time-sets">${esc(setsStr)}</span></div>`;
   }).join('');
   // Exercises the template no longer contains (a one-off swap last time) would otherwise vanish
   // from the card entirely — list them after the template's own, so nothing logged goes unshown.
   const templateNames = new Set(session.exercises.flatMap(ex => [ex.name, ...(ex.aliases || [])]));
   Object.keys(snapshot.exercises).filter(n => !templateNames.has(n)).forEach(name => {
     const sets = snapshot.exercises[name];
-    const variationTag = sets[0].variation ? ` <span class="last-time-var">(${sets[0].variation})</span>` : '';
+    const variationTag = sets[0].variation ? ` <span class="last-time-var">(${esc(sets[0].variation)})</span>` : '';
     const setsStr = sets.map(s => setValueLabel({ name }, s)).join(', ');
-    rows += `<div class="last-time-row"><span class="last-time-ex">${name}${variationTag}</span><span class="last-time-sets">${setsStr}</span></div>`;
+    rows += `<div class="last-time-row"><span class="last-time-ex">${esc(name)}${variationTag}</span><span class="last-time-sets">${esc(setsStr)}</span></div>`;
   });
   (snapshot.cardio || []).forEach(c => {
     const detail = cardioDetailParts(c).join(', ') || '—';
-    rows += `<div class="last-time-row last-time-cardio"><span class="last-time-ex">${cardioDisplayName(c.activity)}</span><span class="last-time-sets">${detail}</span></div>`;
+    rows += `<div class="last-time-row last-time-cardio"><span class="last-time-ex">${esc(cardioDisplayName(c.activity))}</span><span class="last-time-sets">${esc(detail)}</span></div>`;
   });
   if (!rows) return '';
   return `<div class="card last-time-card" id="last-time-card">
@@ -1668,7 +1703,7 @@ async function buildWorkoutLogger(session) {
 
   let html = '';
   if (session.id !== 'open' && !session.cardio) {
-    html += `<div class="edit-template-link" onclick="openSessionEditor('${session.id}')">✎ Reorder / add / remove exercises for this session</div>`;
+    html += `<div class="edit-template-link" onclick="openSessionEditor('${jsAttr(session.id)}')">✎ Reorder / add / remove exercises for this session</div>`;
     const lastTimeSnapshot = await fetchLastSessionSnapshot(session);
     html += renderLastTimeCard(lastTimeSnapshot, session);
   }
@@ -1683,7 +1718,7 @@ async function buildWorkoutLogger(session) {
 
   html += `<div class="field-group" style="margin-top:0.875rem;">
     <label class="field-label">Session Notes</label>
-    <textarea class="field-input" id="workout-notes" placeholder="How did it go..." oninput="saveDraft('${session.id}')"></textarea>
+    <textarea class="field-input" id="workout-notes" placeholder="How did it go..." oninput="saveDraft('${jsAttr(session.id)}')"></textarea>
   </div>
   <button class="btn btn-save btn-full" onclick="saveWorkout()" style="margin-bottom:1rem;">Save Workout</button>`;
 
@@ -1782,7 +1817,7 @@ async function offerSaveOpenAsTemplate(exercises, supersetTags = {}) {
   const tplRes = await sb('session_templates', 'POST', {
     id, programme: CUSTOM_PROGRAMME_ID, name,
     focus: `${exercises.length} exercises`, cardio: false, sort_order: sortOrder
-  });
+  }, { quiet: true });
   if (!tplRes.ok) { showToast(`Couldn't save session (${tplRes.status})`, 'error'); return; }
 
   const rows = exercises.map((ex, i) => ({
@@ -1791,10 +1826,10 @@ async function offerSaveOpenAsTemplate(exercises, supersetTags = {}) {
     band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i,
     superset_group: supersetTags[ex.name] || null
   }));
-  const exRes = await sb('session_exercises', 'POST', rows);
+  const exRes = await sb('session_exercises', 'POST', rows, { quiet: true });
   if (!exRes.ok) {
     // Don't leave a session tile with no exercises behind.
-    await sb(`session_templates?id=eq.${id}`, 'DELETE');
+    await sb(`session_templates?id=eq.${id}`, 'DELETE', null, { quiet: true });
     showToast(`Couldn't save session (${exRes.status})`, 'error');
     return;
   }
@@ -1812,8 +1847,8 @@ async function deleteSessionTemplate() {
   if (!session || session.programme !== CUSTOM_PROGRAMME_ID) return;
   if (!confirm(`Delete the "${session.name}" session? Workouts you've already logged with it are kept.`)) return;
   const id = session.id;
-  await sb(`session_exercises?session_id=eq.${id}`, 'DELETE');
-  const res = await sb(`session_templates?id=eq.${id}`, 'DELETE');
+  await sb(`session_exercises?session_id=eq.${id}`, 'DELETE', null, { quiet: true });
+  const res = await sb(`session_templates?id=eq.${id}`, 'DELETE', null, { quiet: true });
   if (!res.ok) { showToast(`Delete failed (${res.status})`, 'error'); return; }
   await loadSessionTemplates();
   EXERCISE_LIBRARY = buildExerciseLibrary();
@@ -1836,7 +1871,7 @@ function openExerciseSelectOptionsHtml() {
   const chosen = new Set((selectedSession?.exercises || []).map(e => e.name));
   const names = Object.keys(EXERCISE_LIBRARY).filter(n => !chosen.has(n)).sort();
   let opts = `<option value="" selected disabled>Choose an exercise…</option>`;
-  names.forEach(n => { opts += `<option value="${n}">${n}</option>`; });
+  names.forEach(n => { opts += `<option value="${esc(n)}">${esc(n)}</option>`; });
   opts += `<option value="__custom__">+ Type a new exercise…</option>`;
   return opts;
 }
@@ -1996,16 +2031,16 @@ function renderCardioEntryBlock(entry, sessionId) {
   const fields = def.fields.map(f => {
     const label = f === 'distance' ? (def.distanceLabel || 'Distance') : CARDIO_FIELD_LABELS[f];
     return `<div class="field-group">
-      <label class="field-label">${label}</label>
-      <input type="number" step="0.1" class="field-input" id="cardio-${entry.id}-${f}" oninput="saveDraft('${sessionId}')" />
+      <label class="field-label">${esc(label)}</label>
+      <input type="number" step="0.1" class="field-input" id="cardio-${entry.id}-${f}" oninput="saveDraft('${jsAttr(sessionId)}')" />
     </div>`;
   }).join('');
   const presets = def.presets ? `<div class="variation-toggle" style="margin-top:6px;">
-      ${def.presets.map(p => `<button class="var-btn" type="button" onclick="setCardioPreset(${entry.id}, ${p}, '${sessionId}')">${p}m</button>`).join('')}
+      ${def.presets.map(p => `<button class="var-btn" type="button" onclick="setCardioPreset(${entry.id}, ${p}, '${jsAttr(sessionId)}')">${p}m</button>`).join('')}
     </div>` : '';
   return `<div class="card cardio-block" id="cardio-block-${entry.id}" style="margin-bottom:0.875rem;">
     <div class="ex-name-row">
-      <div class="ex-name-display">${cardioDisplayName(entry.activity)}</div>
+      <div class="ex-name-display">${esc(cardioDisplayName(entry.activity))}</div>
       <button class="ex-remove-btn" onclick="removeCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
     </div>
     <div class="cardio-field-grid" style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
@@ -2211,12 +2246,16 @@ async function completeExercise(exName) {
     return;
   }
 
-  await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`, {
-    method: 'DELETE',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-  });
+  // If this delete fails the POST below would duplicate every set, so it's checked rather than
+  // fired and forgotten like it used to be.
+  const delRes = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`,
+    'DELETE', null, { quiet: true });
+  if (!delRes.ok) {
+    showToast(`Save failed (${delRes.status}) — tap Mark Done again`, 'error');
+    return;
+  }
 
-  const saveRes = await sb('workout_sets', 'POST', sets);
+  const saveRes = await sb('workout_sets', 'POST', sets, { quiet: true });
   if (!saveRes.ok) {
     showToast(`Save failed (${saveRes.status}) — tap Mark Done again`, 'error');
     return;
@@ -2263,10 +2302,9 @@ function resetSessionSelection(toProgrammePicker = false) {
     if (hasData && !confirm(`You've started logging ${selectedSession.name} — go back and lose your data?`)) return;
   }
   if (currentWorkoutId && !currentWorkoutHasSets) {
-    fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
-      method: 'DELETE',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
+    // quiet + not awaited: cleanup of an empty row. If it fails, History and every counter already
+    // hide it (realWorkoutsBetween), so there's nothing to tell the user about.
+    sb(`workouts?id=eq.${currentWorkoutId}`, 'DELETE', null, { quiet: true });
   }
   currentWorkoutHasSets = false;
   selectedSession = null;
@@ -2324,18 +2362,22 @@ async function saveWorkout() {
     if (!confirm('Cardio entries look empty — fill in at least one field per entry, or remove them with ✕. Save the rest of the workout without cardio?')) return;
   }
   if (cardioRows.length) {
-    const cardioRes = await sb('cardio_logs', 'POST', cardioRows);
+    const cardioRes = await sb('cardio_logs', 'POST', cardioRows, { quiet: true });
     if (!cardioRes.ok) {
       showToast(`Cardio save failed (${cardioRes.status}) — rest of workout not saved either, tap Save Workout again`, 'error');
       return;
     }
   }
   await persistSupersetGroups();
-  await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
-    method: 'PATCH',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ notes, completed_at: new Date().toISOString() })
-  });
+  // This PATCH is what actually completes the workout. It used to be fire-and-forget, so a failure
+  // left the session in-progress, cleared the draft below, and still said "Workout saved!". Bail
+  // before any of that happens instead — the sets are already safe in the DB, so retrying is free.
+  const doneRes = await sb(`workouts?id=eq.${currentWorkoutId}`, 'PATCH',
+    { notes, completed_at: new Date().toISOString() }, { quiet: true });
+  if (!doneRes.ok) {
+    showToast(`Couldn't finish the workout (${doneRes.status}) — your sets are saved, tap Save Workout again`, 'error');
+    return;
+  }
   showToast('Workout saved!', 'success');
   localStorage.removeItem('workout_draft');
   currentWorkoutHasSets = false;
@@ -2375,20 +2417,23 @@ async function saveConditioning() {
     notes ? `Notes: ${notes}` : ''
   ].filter(Boolean).join('\n');
 
-  await sb('conditioning_logs', 'POST', {
+  const condRes = await sb('conditioning_logs', 'POST', {
     date: todayStr(),
     activity,
     duration_mins: duration,
     notes: summary
-  });
+  }, { quiet: true });
+  if (!condRes.ok) {
+    showToast(`CV + Pump NOT saved (${condRes.status}) — try again`, 'error');
+    return;
+  }
 
   const workoutId = await createWorkoutRow('cv-pump');
   if (workoutId) {
-    await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${workoutId}`, {
-      method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes: summary, completed_at: new Date().toISOString() })
-    });
+    // The notes on this row are load-bearing: CV + Pump has no sets and no cardio_logs rows, so
+    // realWorkoutsBetween()/loadHistory() only count it as a real session because of them.
+    await sb(`workouts?id=eq.${workoutId}`, 'PATCH',
+      { notes: summary, completed_at: new Date().toISOString() });
   }
 
   showToast('CV + Pump logged!', 'success');
@@ -2490,14 +2535,15 @@ async function saveDailyLog() {
     notes: document.getElementById('log-notes').value || null
   };
   const existing = await sb(`daily_logs?date=eq.${date}&select=id`);
-  if (existing && existing.length > 0) {
-    await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${date}`, {
-      method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-  } else {
-    await sb('daily_logs', 'POST', data);
+  // Both writes used to be unchecked, and the success toast fired regardless — so a failed check-in
+  // looked identical to a saved one and the modal closed on numbers that were never stored. The
+  // modal deliberately stays OPEN on failure so the typed values aren't lost.
+  const res = existing && existing.length > 0
+    ? await sb(`daily_logs?date=eq.${date}`, 'PATCH', data, { quiet: true })
+    : await sb('daily_logs', 'POST', data, { quiet: true });
+  if (!res.ok) {
+    showToast(`Check-in NOT saved (${res.status}) — try again`, 'error');
+    return;
   }
   showToast(date === todayStr() ? 'Check-in saved!' : `Check-in saved for ${date}!`, 'success');
   closeCheckinModal();
@@ -2902,13 +2948,13 @@ function renderHistoryPage() {
       <select class="history-select ${historyWorkoutFilter !== 'all' ? 'has-value' : ''}" onchange="setHistoryWorkoutFilter(this.value)">
         <option value="all" ${historyWorkoutFilter === 'all' ? 'selected' : ''}>All Workouts</option>
         ${SESSIONS.filter(s => s.id !== 'conditioning').map(s =>
-          `<option value="${s.id}" ${historyWorkoutFilter === s.id ? 'selected' : ''}>${s.name}</option>`
+          `<option value="${esc(s.id)}" ${historyWorkoutFilter === s.id ? 'selected' : ''}>${esc(s.name)}</option>`
         ).join('')}
         <option value="open" ${historyWorkoutFilter === 'open' ? 'selected' : ''}>Open Workout</option>
       </select>
     </div>
 
-    <input type="text" class="history-search" id="history-search-input" placeholder="Search notes..." value="${historySearchTerm.replace(/"/g,'&quot;')}" oninput="setHistorySearch(this.value)" />
+    <input type="text" class="history-search" id="history-search-input" placeholder="Search notes..." value="${esc(historySearchTerm)}" oninput="setHistorySearch(this.value)" />
   </div>`;
 
   if (logs.length === 0 && workouts.length === 0) {
@@ -2952,7 +2998,7 @@ function renderHistoryPage() {
                              l[key] !== undefined && prev[key] !== undefined)
           ? parseFloat(l[key]) - parseFloat(prev[key]) : null;
         const row = (label, value, cell) => value === null || value === undefined ? '' :
-          `<div class="pf-lift"><span class="pf-lname">${label}</span><span class="pf-lval">${value}</span>${cell}</div>`;
+          `<div class="pf-lift"><span class="pf-lname">${esc(label)}</span><span class="pf-lval">${esc(value)}</span>${cell}</div>`;
         // Macros are judged against the target as of 11 Aug 2026. This column used to be the change
         // since the previous check-in, which read as a shortfall it wasn't — "17g fibre, −10g" was
         // just 27g the day before, not a miss. Printing the target inline in the value column
@@ -2979,9 +3025,12 @@ function renderHistoryPage() {
         if (prev) bases.push(`weight vs ${new Date(prev.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}`);
         const cmpLine = bases.length ? `<div class="pf-cmp">${bases.join(' · ')}</div>` : '';
         const footBits = [];
-        if (l.steps) footBits.push(`<span>Steps <b>${l.steps.toLocaleString()}</b></span>`);
-        if (l.energy) footBits.push(`<span>Energy <b>${ENERGY_WORDS[l.energy] || l.energy}</b></span>`);
-        html += `<div class="pf-card log" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">
+        if (l.steps) footBits.push(`<span>Steps <b>${esc(l.steps.toLocaleString())}</b></span>`);
+        if (l.energy) footBits.push(`<span>Energy <b>${esc(ENERGY_WORDS[l.energy] || l.energy)}</b></span>`);
+        // esc() rather than a bare "-to-&quot; replace: the old version only escaped double quotes,
+        // so a note containing the literal text `&quot;` decoded back into a real quote and broke
+        // out of this JS string into executable code. esc() escapes & first, which stops that.
+        html += `<div class="pf-card log" onclick="openEditLog(${esc(JSON.stringify(l))})">
           <div class="pf-head">
             <span class="pf-name">CHECK-IN</span>
             <span class="pf-date">${new Date(l.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
@@ -2993,7 +3042,7 @@ function renderHistoryPage() {
           ${macroRow('Carbs', 'carbs_g', MACRO_GOALS.carbs_g)}
           ${macroRow('Fat', 'fat_g', MACRO_GOALS.fat_g)}
           ${macroRow('Fibre', 'fibre_g', MACRO_GOALS.fibre_g, {underIsMiss:true})}
-          ${l.notes ? `<div class="history-card-notes">${l.notes}</div>` : ''}
+          ${l.notes ? `<div class="history-card-notes">${esc(l.notes)}</div>` : ''}
           ${footBits.length ? `<div class="pf-foot">${footBits.join('')}</div>` : ''}
         </div>`;
       } else {
@@ -3017,30 +3066,30 @@ function renderHistoryPage() {
                       : p.best !== null ? `${p.best}×${p.bestReps || 0}`
                       : (p.bestReps ? `BW×${p.bestReps}` : '—');
           const restTxt = p.avgRest !== null ? `rest ${fmtRest(p.avgRest)} avg` : 'rest —';
-          const label = `${p.exercise}${p.variation ? ` <span style="color:var(--muted);">· ${p.variation}</span>` : ''}`;
+          const label = `${esc(p.exercise)}${p.variation ? ` <span style="color:var(--muted);">· ${esc(p.variation)}</span>` : ''}`;
           // Supersets: the lifts in one group carry the same tag, so they read as a pair on the card.
-          const ssTag = p.supersetGroup ? `<span class="pf-ss">s/s ${p.supersetGroup}</span>` : '';
+          const ssTag = p.supersetGroup ? `<span class="pf-ss">s/s ${esc(p.supersetGroup)}</span>` : '';
           return `<div class="pf-lift${p.supersetGroup ? ' pf-ss-row' : ''}">
-            <span><span class="pf-lname">${label}${ssTag}${p.isPR ? '<span class="pf-badge">PR</span>' : ''}</span><div class="pf-sub">${restTxt}</div></span>
-            <span class="pf-lval">${value}</span>
+            <span><span class="pf-lname">${label}${ssTag}${p.isPR ? '<span class="pf-badge">PR</span>' : ''}</span><div class="pf-sub">${esc(restTxt)}</div></span>
+            <span class="pf-lval">${esc(value)}</span>
             ${p.best !== null ? deltaCell(p.delta, {decimals:1}) : '<span class="pf-d same">—</span>'}
           </div>`;
         }).join('');
         const cardio = window._cardioByWorkout[w.id] || [];
         const sessionRest = allRests.length ? Math.round(allRests.reduce((a,b)=>a+b,0)/allRests.length) : null;
-        html += `<div class="pf-card" onclick="openEditWorkout('${w.id}', '${w.session_type}', ${JSON.stringify(w.notes||'').replace(/"/g,'&quot;')})">
+        html += `<div class="pf-card" onclick="openEditWorkout('${jsAttr(w.id)}', '${jsAttr(w.session_type)}', ${esc(JSON.stringify(w.notes||''))})">
           <div class="pf-head">
-            <span class="pf-name">${sessionDisplayName(w.session_type)}</span>
+            <span class="pf-name">${esc(sessionDisplayName(w.session_type))}</span>
             <span class="pf-date">${new Date(w.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
           </div>
           ${liftRows || '<div class="pf-sub" style="padding:4px 0;">No sets logged</div>'}
-          ${cardio.length ? `<div class="pf-sub" style="margin-top:6px;">${cardio.map(formatCardioEntry).join(' / ')}</div>` : ''}
-          ${w.notes ? `<div class="history-card-notes">${w.notes}</div>` : ''}
+          ${cardio.length ? `<div class="pf-sub" style="margin-top:6px;">${esc(cardio.map(formatCardioEntry).join(' / '))}</div>` : ''}
+          ${w.notes ? `<div class="history-card-notes">${esc(w.notes)}</div>` : ''}
           <div class="pf-foot">
             <span>Sets <b>${totalSets}</b></span>
             <span>PRs <b>${prCount}</b></span>
             ${sessionRest !== null ? `<span>Avg rest <b>${fmtRest(sessionRest)}</b></span>` : ''}
-            <span class="pf-delete" onclick="event.stopPropagation();deleteWorkout('${w.id}')">Delete</span>
+            <span class="pf-delete" onclick="event.stopPropagation();deleteWorkout('${jsAttr(w.id)}')">Delete</span>
           </div>
         </div>`;
       }
@@ -3109,10 +3158,8 @@ function showPage(name) {
   // workouts row. Home used to be excluded, which left the row behind and showed it
   // as a blank entry in History.
   if (currentWorkoutId && !currentWorkoutHasSets) {
-    fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
-      method: 'DELETE',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
+    // Same empty-row cleanup as resetSessionSelection() — quiet for the same reason.
+    sb(`workouts?id=eq.${currentWorkoutId}`, 'DELETE', null, { quiet: true });
     currentWorkoutId = null;
     currentWorkoutHasSets = false;
     selectedSession = null;
@@ -3174,22 +3221,20 @@ function setEditEnergy(val) {
 
 async function saveEditLog() {
   if (!editingLogDate) return;
-  await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${editingLogDate}`, {
-    method: 'PATCH',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      weight_kg: parseFloat(document.getElementById('edit-weight').value) || null,
-      fasting_hours: parseFloat(document.getElementById('edit-fasting').value) || null,
-      calories: parseInt(document.getElementById('edit-cals').value) || null,
-      steps: parseInt(document.getElementById('edit-steps').value) || null,
-      protein_g: parseFloat(document.getElementById('edit-protein').value) || null,
-      carbs_g: parseFloat(document.getElementById('edit-carbs').value) || null,
-      fat_g: parseFloat(document.getElementById('edit-fat').value) || null,
-      fibre_g: parseFloat(document.getElementById('edit-fibre').value) || null,
-      energy: editingEnergy || null,
-      notes: document.getElementById('edit-notes').value || null
-    })
-  });
+  const res = await sb(`daily_logs?date=eq.${editingLogDate}`, 'PATCH', {
+    weight_kg: parseFloat(document.getElementById('edit-weight').value) || null,
+    fasting_hours: parseFloat(document.getElementById('edit-fasting').value) || null,
+    calories: parseInt(document.getElementById('edit-cals').value) || null,
+    steps: parseInt(document.getElementById('edit-steps').value) || null,
+    protein_g: parseFloat(document.getElementById('edit-protein').value) || null,
+    carbs_g: parseFloat(document.getElementById('edit-carbs').value) || null,
+    fat_g: parseFloat(document.getElementById('edit-fat').value) || null,
+    fibre_g: parseFloat(document.getElementById('edit-fibre').value) || null,
+    energy: editingEnergy || null,
+    notes: document.getElementById('edit-notes').value || null
+  }, { quiet: true });
+  // Modal stays open on failure so the corrections aren't lost — same reasoning as saveDailyLog().
+  if (!res.ok) { showToast(`NOT updated (${res.status}) — try again`, 'error'); return; }
   showToast('Updated!', 'success');
   closeEditLog();
   loadHistory();
@@ -3210,7 +3255,7 @@ function renderEditCardioEntryBlock(entry) {
   const fields = def.fields.map(f => {
     const label = f === 'distance' ? (def.distanceLabel || 'Distance') : CARDIO_FIELD_LABELS[f];
     return `<div class="field-group">
-      <label class="field-label">${label}</label>
+      <label class="field-label">${esc(label)}</label>
       <input type="number" step="0.1" class="field-input" id="ecardio-${entry.id}-${f}" />
     </div>`;
   }).join('');
@@ -3219,7 +3264,7 @@ function renderEditCardioEntryBlock(entry) {
     </div>` : '';
   return `<div class="card cardio-block" id="ecardio-block-${entry.id}" style="margin-bottom:0.875rem;">
     <div class="ex-name-row">
-      <div class="ex-name-display">${cardioDisplayName(entry.activity)}</div>
+      <div class="ex-name-display">${esc(cardioDisplayName(entry.activity))}</div>
       <button class="ex-remove-btn" onclick="removeEditCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
     </div>
     <div class="cardio-field-grid" style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
@@ -3279,7 +3324,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
     });
   });
   const cardioSelectEl = document.getElementById('edit-cardio-activity-select');
-  cardioSelectEl.innerHTML = `<option value="" selected disabled>Choose an activity…</option>${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${cardioDisplayName(a)}</option>`).join('')}`;
+  cardioSelectEl.innerHTML = `<option value="" selected disabled>Choose an activity…</option>${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${esc(a)}">${esc(cardioDisplayName(a))}</option>`).join('')}`;
 
   // created_at first, set_number second — same sort as loadHistory(), so the modal lists
   // exercises in the order they were actually logged. Ordering by set_number alone returned
@@ -3312,14 +3357,14 @@ async function openEditWorkout(workoutId, sessionType, notes) {
       if (currentVariation) editSelectedVariations[ex.name] = currentVariation;
 
       html += `<div class="exercise-block" style="margin-bottom:0.75rem;">
-        <div class="ex-name-display" style="margin-bottom:8px;">${ex.name}</div>`;
+        <div class="ex-name-display" style="margin-bottom:8px;">${esc(ex.name)}</div>`;
 
       if (ex.variations) {
         const defaultVar = currentVariation || ex.variations[0];
         html += `<div class="variation-toggle">`;
         ex.variations.forEach(v => {
           const isSel = v === defaultVar ? 'selected' : '';
-          html += `<button class="var-btn ${isSel}" onclick="selectEditVariation('${ex.name}', '${v}', this)">${v}</button>`;
+          html += `<button class="var-btn ${isSel}" onclick="selectEditVariation('${jsAttr(ex.name)}', '${jsAttr(v)}', this)">${esc(v)}</button>`;
         });
         html += `</div>`;
       }
@@ -3331,21 +3376,21 @@ async function openEditWorkout(workoutId, sessionType, notes) {
 
         let weightCol = '';
         if (isOptionalWeight(ex)) {
-          weightCol = `<input type="text" class="set-input" id="ew-${ex.name}-${i}" placeholder="BW / kg" value="${existing?.weight || ''}" />`;
+          weightCol = `<input type="text" class="set-input" id="ew-${esc(ex.name)}-${i}" placeholder="BW / kg" value="${esc(existing?.weight || '')}" />`;
         } else if (ex.bodyweight || isTimed(ex)) {
-          weightCol = `<div class="set-label" id="ew-${ex.name}-${i}">BW</div>`;
+          weightCol = `<div class="set-label" id="ew-${esc(ex.name)}-${i}">BW</div>`;
         } else if (ex.variations && ex.band) {
           const bandLabel = currentVariation || ex.variations[0];
-          weightCol = `<div class="set-label" id="ew-${ex.name}-${i}">${bandLabel}</div>`;
+          weightCol = `<div class="set-label" id="ew-${esc(ex.name)}-${i}">${esc(bandLabel)}</div>`;
         } else {
-          weightCol = `<input type="text" class="set-input" id="ew-${ex.name}-${i}" placeholder="kg" value="${existing?.weight || ''}" />`;
+          weightCol = `<input type="text" class="set-input" id="ew-${esc(ex.name)}-${i}" placeholder="kg" value="${esc(existing?.weight || '')}" />`;
         }
 
         html += `<div class="set-row">
           <div class="set-num">${i}</div>
           ${weightCol}
-          <input type="number" class="set-input" id="er-${ex.name}-${i}" placeholder="${repPlaceholder}" value="${existing?.reps || ''}" />
-          <div class="prev-badge">${prevHint}</div>
+          <input type="number" class="set-input" id="er-${esc(ex.name)}-${i}" placeholder="${esc(repPlaceholder)}" value="${esc(existing?.reps || '')}" />
+          <div class="prev-badge">${esc(prevHint)}</div>
         </div>`;
       }
       html += `</div>`;
@@ -3366,11 +3411,13 @@ async function saveEditWorkout() {
   if (!editingWorkoutId) return;
   const notes = document.getElementById('edit-workout-notes').value || null;
 
-  await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${editingWorkoutId}`, {
-    method: 'PATCH',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ notes })
-  });
+  // This function fires a write per set plus one per cardio entry, all of them previously unchecked
+  // — a partial failure would silently save some rows and not others while reporting "Updated!".
+  // Each write now reports into `failed`, and the modal stays open if anything didn't land.
+  let failed = 0;
+  const track = res => { if (!res.ok) failed++; return res; };
+
+  track(await sb(`workouts?id=eq.${editingWorkoutId}`, 'PATCH', { notes }, { quiet: true }));
 
   const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=exercise.asc,set_number.asc`);
 
@@ -3396,34 +3443,27 @@ async function saveEditWorkout() {
       const existingSet = (existingSets || []).find(es => exNames.includes(es.exercise) && es.set_number === i);
 
       if (existingSet) {
-        await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?id=eq.${existingSet.id}`, {
-          method: 'PATCH',
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : optionalWeightValue(ex, wVal),
-            reps: parseInt(rVal) || null,
-            variation: editSelectedVariations[ex.name] || null
-          })
-        });
+        track(await sb(`workout_sets?id=eq.${existingSet.id}`, 'PATCH', {
+          weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : optionalWeightValue(ex, wVal),
+          reps: parseInt(rVal) || null,
+          variation: editSelectedVariations[ex.name] || null
+        }, { quiet: true }));
       } else if (wVal || rVal) {
-        await sb('workout_sets', 'POST', {
+        track(await sb('workout_sets', 'POST', {
           workout_id: editingWorkoutId,
           exercise: ex.name,
           set_number: i,
           weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : optionalWeightValue(ex, wVal),
           reps: parseInt(rVal) || null,
           variation: editSelectedVariations[ex.name] || null
-        });
+        }, { quiet: true }));
       }
     }
   }
 
   // Cardio: delete removed rows, PATCH existing ones, POST new ones.
   for (const dbId of editRemovedCardioIds) {
-    await fetch(`${SUPABASE_URL}/rest/v1/cardio_logs?id=eq.${dbId}`, {
-      method: 'DELETE',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
+    track(await sb(`cardio_logs?id=eq.${dbId}`, 'DELETE', null, { quiet: true }));
   }
   for (const entry of editCardioEntries) {
     const def = CARDIO_ACTIVITIES[entry.activity];
@@ -3440,16 +3480,16 @@ async function saveEditWorkout() {
     });
     if (!hasData) continue;
     if (entry.dbId) {
-      await fetch(`${SUPABASE_URL}/rest/v1/cardio_logs?id=eq.${entry.dbId}`, {
-        method: 'PATCH',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(row)
-      });
+      track(await sb(`cardio_logs?id=eq.${entry.dbId}`, 'PATCH', row, { quiet: true }));
     } else {
-      await sb('cardio_logs', 'POST', row);
+      track(await sb('cardio_logs', 'POST', row, { quiet: true }));
     }
   }
 
+  if (failed) {
+    showToast(`${failed} change${failed > 1 ? 's' : ''} didn't save — tap Save again`, 'error');
+    return;
+  }
   showToast('Workout updated!', 'success');
   closeEditWorkout();
   loadHistory();
@@ -3458,14 +3498,12 @@ async function saveEditWorkout() {
 // ─── DELETE WORKOUT ───────────────────────────────────────
 async function deleteWorkout(workoutId) {
   if (!confirm('Delete this workout?')) return;
-  await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?workout_id=eq.${workoutId}`, {
-    method: 'DELETE',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-  });
-  await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${workoutId}`, {
-    method: 'DELETE',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-  });
+  // Sets first, then the workout row. If the sets delete fails, stop — deleting the parent would
+  // orphan them and the workout would still count nowhere while its sets lingered in the DB.
+  const setsRes = await sb(`workout_sets?workout_id=eq.${workoutId}`, 'DELETE', null, { quiet: true });
+  if (!setsRes.ok) { showToast(`Delete failed (${setsRes.status}) — nothing removed`, 'error'); return; }
+  const res = await sb(`workouts?id=eq.${workoutId}`, 'DELETE', null, { quiet: true });
+  if (!res.ok) { showToast(`Delete failed (${res.status})`, 'error'); return; }
   showToast('Workout deleted', 'success');
   buildSessionGrid(selectedProgramme);
   loadHistory();
@@ -3706,11 +3744,9 @@ async function swSaveRest(exName, setNum, seconds) {
   if (currentWorkoutId) {
     const existing = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}&set_number=eq.${setNum}&select=id`);
     if (existing && existing.length > 0) {
-      await fetch(`${SUPABASE_URL}/rest/v1/workout_sets?id=eq.${existing[0].id}`, {
-        method: 'PATCH',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rest_seconds: seconds })
-      });
+      // quiet: a lost rest time is cosmetic next to the set itself, and a toast the moment you tap
+      // the watch mid-set would be worse than the missing number. Console-logged either way.
+      await sb(`workout_sets?id=eq.${existing[0].id}`, 'PATCH', { rest_seconds: seconds }, { quiet: true });
       return;
     }
   }
