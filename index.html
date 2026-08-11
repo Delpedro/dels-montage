@@ -411,6 +411,8 @@
         </select>
       </div>
       <button class="btn btn-save btn-full" onclick="saveSessionTemplate()">Save Changes</button>
+      <!-- Only shown for sessions saved out of an Open Workout — see deleteSessionTemplate() -->
+      <div id="delete-session-link" style="display:none; text-align:center; margin-top:0.75rem; color:var(--red); font-size:13px; cursor:pointer;" onclick="deleteSessionTemplate()">Delete this session</div>
     </div>
   </div>
 </div>

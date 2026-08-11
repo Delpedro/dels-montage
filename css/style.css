@@ -486,3 +486,13 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .last-time-ex { color: var(--text); }
 .last-time-var { color: var(--muted); font-weight: 400; }
 .last-time-sets { color: var(--muted2); font-family: 'DM Mono', monospace; text-align: right; flex-shrink: 0; }
+/* Cardio rows in the "Last time" card sit under the lifts, dimmed to read as a different kind of work */
+.last-time-cardio .last-time-ex { color: var(--muted2); }
+
+/* ─── SUPERSETS (11 Aug 2026) ─────────────────────────────── */
+/* The ⇄ button at the foot of each exercise block pairs it with the block below. */
+.ss-btn { display: block; width: 100%; margin-top: 6px; padding: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); background: none; border: 1px dashed var(--border2); border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+.ss-btn.active { color: var(--blue); border-style: solid; border-color: var(--blue); background: rgba(74,158,255,0.08); }
+/* Linked blocks lose the gap between them and share a blue rail, so a superset reads as one unit */
+.exercise-block.in-superset { border-left: 2px solid var(--blue); }
+.pf-ss { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(74,158,255,0.16); color: var(--blue); border-radius: 20px; padding: 2px 7px; margin-left: 6px; }

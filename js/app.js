@@ -35,7 +35,7 @@ async function loadSessionTemplates() {
   });
   SESSIONS = (templates || []).map(t => {
     const session = {
-      id: t.id, name: t.name, focus: t.focus, programme: t.programme,
+      id: t.id, name: t.name, focus: t.focus, programme: t.programme, sort_order: t.sort_order,
       exercises: exByTemplate[t.id] || []
     };
     if (t.day) session.day = t.day;
@@ -43,6 +43,10 @@ async function loadSessionTemplates() {
     return session;
   });
 }
+
+// Sessions saved out of an Open Workout land under this programme (see saveOpenWorkoutAsTemplate).
+// Its tile is hidden on the programme picker until at least one such session exists.
+const CUSTOM_PROGRAMME_ID = 'custom';
 
 const TRAINING_PROGRAMMES = [
   {
@@ -54,6 +58,11 @@ const TRAINING_PROGRAMMES = [
     id: 'full-body-cv',
     name: 'Full Body + CV Training Programme',
     focus: '3 strength days, 2 CV + pump days'
+  },
+  {
+    id: CUSTOM_PROGRAMME_ID,
+    name: 'My Sessions',
+    focus: 'Saved from your own Open Workouts'
   }
 ];
 
@@ -103,6 +112,12 @@ let selectedVariations = {};
 // Names removed via the ✕ button on a fixed session's live logger (one-off, today-only swap —
 // never written back to the template). Reset whenever a new session is selected.
 let removedSessionExercises = [];
+// Exercise names linked to the exercise directly BELOW them in the current logger, i.e. the two are
+// a superset. Chains work: A→B→C is one three-exercise group. Reset on every new session.
+let supersetLinks = [];
+// Only write superset_group back to the DB on save if this workout ever had a link toggled/restored
+// — otherwise every ordinary save would fire pointless PATCHes over every set.
+let supersetsTouched = false;
 let editSelectedVariations = {};
 let currentPage = 'home';
 let currentWorkoutId = null;
@@ -387,6 +402,8 @@ async function buildSessionGrid(programmeId = null) {
     if (sub) sub.textContent = 'Choose your training programme';
 
     TRAINING_PROGRAMMES.forEach(p => {
+      // "My Sessions" only earns a tile once something has actually been saved into it.
+      if (p.id === CUSTOM_PROGRAMME_ID && !SESSIONS.some(s => s.programme === CUSTOM_PROGRAMME_ID)) return;
       const btn = document.createElement('div');
       btn.className = 'session-btn programme-btn';
       btn.id = `programme-btn-${p.id}`;
@@ -449,6 +466,8 @@ function openSessionEditor(sessionId) {
   editingTemplateSessionId = sessionId;
   editingTemplateExercises = session.exercises.map(e => ({ ...e }));
   document.getElementById('edit-session-title').textContent = `Edit ${session.name}`;
+  const delLink = document.getElementById('delete-session-link');
+  if (delLink) delLink.style.display = session.programme === CUSTOM_PROGRAMME_ID ? 'block' : 'none';
   renderTemplateEditorRows();
   document.getElementById('edit-session-modal').style.display = 'block';
 }
@@ -603,6 +622,8 @@ async function beginWorkoutSession(session) {
   selectedSession = session;
   selectedVariations = {};
   removedSessionExercises = [];
+  supersetLinks = [];
+  supersetsTouched = false;
   return true;
 }
 
@@ -650,7 +671,11 @@ async function selectSession(session, btn) {
 // 'open' (Open Workout) is deliberately not in SESSIONS — its exercise list is per-workout, not fixed.
 function sessionDisplayName(sessionType) {
   if (sessionType === 'open') return 'Open Workout';
-  return SESSIONS.find(s => s.id === sessionType)?.name || sessionType;
+  const known = SESSIONS.find(s => s.id === sessionType)?.name;
+  if (known) return known;
+  // Template since deleted (a "My Sessions" one) — History still holds the id, so un-slug it
+  // rather than printing "arms-blast" on the card.
+  return (sessionType || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 // Rebuilds a { exercises: [...] } shape from actually-saved sets — for session types not in SESSIONS
@@ -699,19 +724,106 @@ function isTimed(ex) { return timedTarget(ex) !== null; }
 const OPTIONAL_WEIGHT_EXERCISES = [
   'pullup', 'pullups', 'pull up', 'pull ups', 'pull-up', 'pull-ups',
   'chinup', 'chinups', 'chin up', 'chin ups', 'chin-up', 'chin-ups',
-  'dip', 'dips'
+  'dip', 'dips',
+  // Timed *and* optionally loaded — a deadhang can be hung with a DB/belt. The two lists stack:
+  // reps still mean seconds (TIMED_EXERCISES), the weight column just stops being a fixed "BW".
+  'deadhang', 'deadhangs', 'dead hang', 'dead hangs'
 ];
 function isOptionalWeight(ex) {
   const name = typeof ex === 'string' ? ex : ex?.name;
   return OPTIONAL_WEIGHT_EXERCISES.includes((name || '').trim().toLowerCase());
 }
 
-// One logged set rendered for display: "45s" when timed, else "80×10" / "BW×10" / band initials.
+// One logged set rendered for display: "45s" (or "10×45s" when the hold carried added weight)
+// when timed, else "80×10" / "BW×10" / band initials.
 function setValueLabel(ex, s, bandFallback = 'Band') {
   if (!s) return '—';
-  if (isTimed(ex)) return s.reps != null ? `${s.reps}s` : '—';
+  if (isTimed(ex)) {
+    if (s.reps == null) return '—';
+    return parseFloat(s.weight) > 0 ? `${s.weight}×${s.reps}s` : `${s.reps}s`;
+  }
   const label = ex.band ? (s.variation || bandFallback).split(' ').map(w => w[0]).join('') : (s.weight ?? 'BW');
   return `${label}×${s.reps}`;
+}
+
+// ─── SUPERSETS ────────────────────────────────────────────
+// Two (or more) exercises done back-to-back with no rest between them. There's no pairing UI in the
+// template — a superset is decided in the moment, in the gym — so it's a per-workout link between an
+// exercise and the one directly below it in the logger, toggled with the "⇄" button on each block.
+// Persisted as workout_sets.superset_group: every set of every exercise in one group shares a tag
+// ('1', '2', … scoped to that workout); null means an ordinary standalone exercise.
+
+// Walks the current exercise order and turns the links into {exerciseName: groupTag}. Exercises not
+// in a group are absent from the map. Recomputed on demand — the order can change mid-session.
+function supersetGroupMap() {
+  const map = {};
+  const order = (selectedSession?.exercises || []).map(e => e.name);
+  let group = 0;
+  for (let i = 0; i < order.length - 1; i++) {
+    if (!supersetLinks.includes(order[i])) continue;
+    // Start a new group unless the previous exercise already linked into this one (a chain).
+    if (!(i > 0 && supersetLinks.includes(order[i - 1]))) group++;
+    map[order[i]] = String(group);
+    map[order[i + 1]] = String(group);
+  }
+  return map;
+}
+
+// The exercise directly below this one — the one a "⇄" tap would pair it with.
+function nextExerciseName(exName) {
+  const order = (selectedSession?.exercises || []).map(e => e.name);
+  const i = order.indexOf(exName);
+  return (i === -1 || i === order.length - 1) ? null : order[i + 1];
+}
+
+function renderSupersetControl(ex) {
+  return `<button type="button" class="ss-btn" id="ss-${ex.name}" onclick="toggleSupersetNext('${ex.name}')">⇄ Superset with next</button>`;
+}
+
+function toggleSupersetNext(exName) {
+  const next = nextExerciseName(exName);
+  if (!next) { showToast('Add the second exercise below this one first', 'error'); return; }
+  supersetLinks = supersetLinks.includes(exName)
+    ? supersetLinks.filter(n => n !== exName)
+    : [...supersetLinks, exName];
+  supersetsTouched = true;
+  refreshSupersetUi();
+  saveDraft(selectedSession.id);
+}
+
+// Repaints every block's ⇄ button + linked styling. Called after any change to the exercise list or
+// the links themselves, since both the "next" exercise and the group membership can shift.
+function refreshSupersetUi() {
+  const order = (selectedSession?.exercises || []).map(e => e.name);
+  const map = supersetGroupMap();
+  order.forEach((name, i) => {
+    const btn = document.getElementById(`ss-${name}`);
+    const block = document.getElementById(`block-${name}`);
+    if (block) block.classList.toggle('in-superset', !!map[name]);
+    if (!btn) return;
+    const isLast = i === order.length - 1;
+    btn.style.display = isLast ? 'none' : '';
+    const linked = supersetLinks.includes(name);
+    btn.classList.toggle('active', linked);
+    btn.textContent = linked ? `⇄ Superset with ${order[i + 1]}` : '⇄ Superset with next';
+  });
+}
+
+// Writes the current grouping over every set of the workout — including exercises Mark Done'd before
+// the link was made, and clearing any group the user has since unlinked. Runs once, on Save Workout.
+async function persistSupersetGroups() {
+  if (!supersetsTouched || !currentWorkoutId) return;
+  const map = supersetGroupMap();
+  const inList = names => `in.(${names.map(n => `"${n.replace(/"/g, '\\"')}"`).join(',')})`;
+  const byGroup = {};
+  Object.entries(map).forEach(([name, group]) => { (byGroup[group] ||= []).push(name); });
+  for (const [group, names] of Object.entries(byGroup)) {
+    await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=${encodeURIComponent(inList(names))}`,
+      'PATCH', { superset_group: group });
+  }
+  const grouped = Object.keys(map);
+  const clearFilter = grouped.length ? `&exercise=not.${encodeURIComponent(inList(grouped))}` : '';
+  await sb(`workout_sets?workout_id=eq.${currentWorkoutId}${clearFilter}`, 'PATCH', { superset_group: null });
 }
 
 // ─── WORKOUT LOGGER ───────────────────────────────────────
@@ -804,6 +916,7 @@ function renderExerciseBlock(ex, session) {
   }
 
   html += `<button class="btn btn-outline btn-full" id="done-btn-${ex.name}" onclick="completeExercise('${ex.name}')" style="margin-top:8px;">Mark Done</button>`;
+  html += renderSupersetControl(ex);
   html += `</div>`;
   return html;
 }
@@ -890,22 +1003,40 @@ async function fetchLastSessionSnapshot(session) {
   const candidates = (last || []).filter(w => w.id !== currentWorkoutId);
   if (!candidates.length) return null;
   const workout = candidates[0];
-  const sets = await sb(`workout_sets?workout_id=eq.${workout.id}&order=set_number.asc&select=exercise,set_number,weight,reps,variation`);
+  // Cardio fetched alongside the sets — "what did I do last time" has to include the bike/treadmill
+  // work, not just the lifts, or the card silently under-reports the session.
+  const [sets, cardio] = await Promise.all([
+    sb(`workout_sets?workout_id=eq.${workout.id}&order=set_number.asc&select=exercise,set_number,weight,reps,variation`),
+    sb(`cardio_logs?workout_id=eq.${workout.id}&select=activity,duration_mins,distance,floors,incline,speed_kmh`)
+  ]);
   const byExercise = {};
   (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
-  return { date: workout.date, exercises: byExercise };
+  return { date: workout.date, exercises: byExercise, cardio: cardio || [] };
 }
 
 function renderLastTimeCard(snapshot, session) {
   if (!snapshot) return '';
   const dateStr = new Date(snapshot.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
-  const rows = session.exercises.map(ex => {
+  let rows = session.exercises.map(ex => {
     const sets = snapshot.exercises[ex.name] || (ex.aliases || []).flatMap(a => snapshot.exercises[a] || []);
     if (!sets.length) return '';
     const variationTag = sets[0].variation ? ` <span class="last-time-var">(${sets[0].variation})</span>` : '';
     const setsStr = sets.map(s => setValueLabel(ex, s)).join(', ');
     return `<div class="last-time-row"><span class="last-time-ex">${ex.name}${variationTag}</span><span class="last-time-sets">${setsStr}</span></div>`;
   }).join('');
+  // Exercises the template no longer contains (a one-off swap last time) would otherwise vanish
+  // from the card entirely — list them after the template's own, so nothing logged goes unshown.
+  const templateNames = new Set(session.exercises.flatMap(ex => [ex.name, ...(ex.aliases || [])]));
+  Object.keys(snapshot.exercises).filter(n => !templateNames.has(n)).forEach(name => {
+    const sets = snapshot.exercises[name];
+    const variationTag = sets[0].variation ? ` <span class="last-time-var">(${sets[0].variation})</span>` : '';
+    const setsStr = sets.map(s => setValueLabel({ name }, s)).join(', ');
+    rows += `<div class="last-time-row"><span class="last-time-ex">${name}${variationTag}</span><span class="last-time-sets">${setsStr}</span></div>`;
+  });
+  (snapshot.cardio || []).forEach(c => {
+    const detail = cardioDetailParts(c).join(', ') || '—';
+    rows += `<div class="last-time-row last-time-cardio"><span class="last-time-ex">${cardioDisplayName(c.activity)}</span><span class="last-time-sets">${detail}</span></div>`;
+  });
   if (!rows) return '';
   return `<div class="card last-time-card" id="last-time-card">
     <div class="last-time-header" onclick="document.getElementById('last-time-card').classList.toggle('expanded')">
@@ -940,6 +1071,19 @@ function peekDraftRemovedExercises(sessionId) {
     if (draft.sessionId !== sessionId) return [];
     if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return [];
     return draft.removedExercises || [];
+  } catch (e) { return []; }
+}
+
+// Superset links made before a mid-session refresh. (Links made *after* an exercise was Mark
+// Done'd are also recoverable from workout_sets.superset_group on resume — see buildWorkoutLogger.)
+function peekDraftSupersetLinks(sessionId) {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return [];
+    const draft = JSON.parse(raw);
+    if (draft.sessionId !== sessionId) return [];
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return [];
+    return draft.supersetLinks || [];
   } catch (e) { return []; }
 }
 
@@ -980,6 +1124,9 @@ async function buildWorkoutLogger(session) {
     });
     const savedCounts = peekDraftSetCounts(session.id);
     session.exercises.forEach(ex => { if (savedCounts[ex.name]) ex.sets = savedCounts[ex.name]; });
+
+    const draftLinks = peekDraftSupersetLinks(session.id);
+    if (draftLinks.length) { supersetLinks = draftLinks; supersetsTouched = true; }
   }
 
   await loadPreviousSetsForSession(session);
@@ -1010,7 +1157,21 @@ async function buildWorkoutLogger(session) {
 
   // Restore already-saved sets on resume: paint rest times, fill empty inputs, mark exercises done
   if (currentWorkoutId) {
-    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds,weight,reps`);
+    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds,weight,reps,superset_group`);
+    // Rebuild superset links from what's already saved (covers resuming a workout after the draft
+    // has gone) — an exercise links to the one below it when they share a group tag.
+    if (!supersetLinks.length) {
+      const groupByEx = {};
+      (savedSets || []).forEach(s => { if (s.superset_group) groupByEx[s.exercise] = s.superset_group; });
+      const order = session.exercises.map(e => e.name);
+      order.forEach((name, i) => {
+        const next = order[i + 1];
+        if (next && groupByEx[name] && groupByEx[name] === groupByEx[next]) {
+          supersetLinks.push(name);
+          supersetsTouched = true;
+        }
+      });
+    }
     (savedSets || []).forEach(s => {
       if (s.rest_seconds) swPaintRestLine(s.exercise, s.set_number, s.rest_seconds);
       // Fill inputs only where draft didn't already populate them
@@ -1035,6 +1196,8 @@ async function buildWorkoutLogger(session) {
     });
   }
 
+  refreshSupersetUi();
+
   // Rebuild any live timer from sessionStorage (user may have navigated away + back)
   swRestoreFromStorage();
 }
@@ -1058,6 +1221,71 @@ async function startOpenWorkout() {
   document.getElementById('conditioning-form').style.display = 'none';
   document.getElementById('workout-logger').style.display = 'block';
   buildWorkoutLogger(openSession);
+}
+
+// ─── SAVE AN OPEN WORKOUT AS A REUSABLE SESSION ───────────
+// Offered once, on Save Workout, when the session was an Open Workout with exercises in it: the
+// session you just improvised becomes a fixed session tile under the "My Sessions" programme,
+// editable afterwards with the same ✎ template editor as every other session.
+async function offerSaveOpenAsTemplate(exercises) {
+  if (!exercises.length) return;
+  if (!confirm(`Save this workout as a reusable session?\n\n${exercises.map(e => e.name).join('\n')}`)) return;
+
+  const raw = prompt('Name this session:', '');
+  const name = raw ? raw.trim() : '';
+  if (!name) return;
+  // Same rule as custom exercise names — these flow into inline onclick="…('${id}')" handlers.
+  if (/['"`]/.test(name)) {
+    showToast('Avoid quotes/apostrophes in session names — try again without them', 'error');
+    return;
+  }
+
+  let id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+  const taken = new Set(SESSIONS.map(s => s.id));
+  if (taken.has(id)) { let n = 2; while (taken.has(`${id}-${n}`)) n++; id = `${id}-${n}`; }
+
+  const sortOrder = SESSIONS.reduce((max, s) => Math.max(max, s.sort_order ?? 0), 0) + 1;
+  const tplRes = await sb('session_templates', 'POST', {
+    id, programme: CUSTOM_PROGRAMME_ID, name,
+    focus: `${exercises.length} exercises`, cardio: false, sort_order: sortOrder
+  });
+  if (!tplRes.ok) { showToast(`Couldn't save session (${tplRes.status})`, 'error'); return; }
+
+  const rows = exercises.map((ex, i) => ({
+    session_id: id, name: ex.name, sets: ex.sets || 3, reps: ex.reps || '8–12', rest: ex.rest || '90s',
+    note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
+    band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i
+  }));
+  const exRes = await sb('session_exercises', 'POST', rows);
+  if (!exRes.ok) {
+    // Don't leave a session tile with no exercises behind.
+    await sb(`session_templates?id=eq.${id}`, 'DELETE');
+    showToast(`Couldn't save session (${exRes.status})`, 'error');
+    return;
+  }
+
+  await loadSessionTemplates();
+  EXERCISE_LIBRARY = buildExerciseLibrary();
+  showToast(`${name} saved — find it under My Sessions`, 'success');
+}
+
+// Deletes a saved-from-Open-Workout session template. Only offered for the "My Sessions" programme —
+// the built-in programmes' sessions are never deletable from the UI. Logged workouts are untouched:
+// workouts.session_type is a plain string, so History keeps showing the session by name.
+async function deleteSessionTemplate() {
+  const session = getSessionById(editingTemplateSessionId);
+  if (!session || session.programme !== CUSTOM_PROGRAMME_ID) return;
+  if (!confirm(`Delete the "${session.name}" session? Workouts you've already logged with it are kept.`)) return;
+  const id = session.id;
+  await sb(`session_exercises?session_id=eq.${id}`, 'DELETE');
+  const res = await sb(`session_templates?id=eq.${id}`, 'DELETE');
+  if (!res.ok) { showToast(`Delete failed (${res.status})`, 'error'); return; }
+  await loadSessionTemplates();
+  EXERCISE_LIBRARY = buildExerciseLibrary();
+  closeSessionEditor();
+  showToast('Session deleted', 'success');
+  const stillExists = SESSIONS.some(s => s.programme === CUSTOM_PROGRAMME_ID);
+  buildSessionGrid(stillExists ? selectedProgramme : null);
 }
 
 function renderAddExerciseRow() {
@@ -1135,6 +1363,7 @@ async function addOpenExercise(name) {
   addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
   renderOpenAddExerciseOptions();
   removedSessionExercises = removedSessionExercises.filter(n => n !== name);
+  refreshSupersetUi();   // the previously-last block can now be linked to this one
   saveDraft(selectedSession.id);
 }
 
@@ -1144,9 +1373,11 @@ function removeOpenExercise(name) {
   if (!selectedSession) return;
   selectedSession.exercises = selectedSession.exercises.filter(e => e.name !== name);
   if (!removedSessionExercises.includes(name)) removedSessionExercises.push(name);
+  supersetLinks = supersetLinks.filter(n => n !== name);
   const block = document.getElementById(`block-${name}`);
   if (block) block.remove();
   renderOpenAddExerciseOptions();
+  refreshSupersetUi();
   saveDraft(selectedSession.id);
 }
 
@@ -1188,14 +1419,21 @@ function removeOpenSetRow(exName) {
 // incrementally — they're read live from their inputs and POSTed once, in saveWorkout().
 const CARDIO_FIELD_LABELS = { duration: 'Duration (min)', floors: 'Floors', incline: 'Incline (%)', speed: 'Speed (km/h)' };
 
-// One-line summary for a saved cardio_logs row, used in History workout cards.
-function formatCardioEntry(c) {
+// The filled-in fields of a saved cardio_logs row, labelled — e.g. ['15min', '14% incline'].
+// Shared by the History summary line and the workout logger's "Last time" card.
+function cardioDetailParts(c) {
   const details = [];
   if (c.duration_mins != null) details.push(`${c.duration_mins}min`);
   if (c.distance != null) details.push(`${c.distance}${c.activity === 'Bike' ? 'km' : 'm'}`);
   if (c.floors != null) details.push(`${c.floors} floors`);
   if (c.incline != null) details.push(`${c.incline}% incline`);
   if (c.speed_kmh != null) details.push(`${c.speed_kmh}km/h speed`);
+  return details;
+}
+
+// One-line summary for a saved cardio_logs row, used in History workout cards.
+function formatCardioEntry(c) {
+  const details = cardioDetailParts(c);
   const name = cardioDisplayName(c.activity);
   return details.length ? `${name} ${details.join(', ')}` : name;
 }
@@ -1309,6 +1547,7 @@ function saveDraft(sessionId) {
     draft.openSetCounts = {};
     selectedSession.exercises.forEach(e => { draft.openSetCounts[e.name] = e.sets; });
     draft.removedExercises = removedSessionExercises;
+    draft.supersetLinks = supersetLinks;
   }
   // Cardio entries are never saved to the DB until Save Workout — remember the whole list + their
   // current field values so a refresh mid-session doesn't lose them.
@@ -1396,6 +1635,7 @@ async function completeExercise(exName) {
   if (!ex) return;
 
   const sets = [];
+  const supersetGroup = supersetGroupMap()[exName] || null;
   for (let i = 1; i <= ex.sets; i++) {
     const wEl = document.getElementById(`w-${exName}-${i}`);
     const rEl = document.getElementById(`r-${exName}-${i}`);
@@ -1409,7 +1649,10 @@ async function completeExercise(exName) {
         set_number: i,
         weight: isBodyweight ? null : (wVal || null),
         reps: parseInt(rVal) || null,
-        variation: selectedVariations[exName] || null
+        variation: selectedVariations[exName] || null,
+        // Groups made *after* this exercise was marked done are backfilled by persistSupersetGroups()
+        // on Save Workout, so the two orderings agree.
+        superset_group: supersetGroup
       };
       const restSecs = (pendingRest[exName] && pendingRest[exName][i]) ? pendingRest[exName][i] : 0;
       if (restSecs > 0) swPaintRestLine(exName, i, restSecs);
@@ -1547,6 +1790,7 @@ async function saveWorkout() {
       return;
     }
   }
+  await persistSupersetGroups();
   await fetch(`${SUPABASE_URL}/rest/v1/workouts?id=eq.${currentWorkoutId}`, {
     method: 'PATCH',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
@@ -1556,6 +1800,12 @@ async function saveWorkout() {
   localStorage.removeItem('workout_draft');
   currentWorkoutHasSets = false;
   currentWorkoutId = null;
+  supersetLinks = [];
+  supersetsTouched = false;
+  // An Open Workout you'd want to repeat is worth keeping — offer to turn it into a session tile.
+  if (selectedSession.id === 'open') {
+    await offerSaveOpenAsTemplate((selectedSession.exercises || []).map(e => ({ ...e })));
+  }
   document.getElementById('session-grid').style.display = 'grid';
   buildSessionGrid(selectedProgramme);
   document.getElementById('workout-logger').style.display = 'none';
@@ -1904,10 +2154,11 @@ function computeExerciseProgress(workouts, setsByWorkout) {
       const key = `${s.exercise}::${s.variation || ''}`;
       if (!perEx[key]) perEx[key] = {
         exercise: s.exercise, variation: s.variation || null,
-        best: null, bestReps: null, rests: [], setCount: 0
+        best: null, bestReps: null, rests: [], setCount: 0, supersetGroup: null
       };
       const e = perEx[key];
       e.setCount++;
+      if (s.superset_group) e.supersetGroup = s.superset_group;
       const rest = parseInt(s.rest_seconds);
       if (!isNaN(rest) && rest > 0) e.rests.push(rest);
       const wt = parseFloat(s.weight);
@@ -1935,7 +2186,7 @@ function computeExerciseProgress(workouts, setsByWorkout) {
       const isPR = i > 0 && entry.best !== null && runningMax !== null && entry.best > runningMax;
       if (entry.best !== null) runningMax = runningMax === null ? entry.best : Math.max(runningMax, entry.best);
       out[`${entry.workoutId}|${key}`] = {
-        exercise: entry.exercise, variation: entry.variation,
+        exercise: entry.exercise, variation: entry.variation, supersetGroup: entry.supersetGroup,
         best: entry.best, bestReps: entry.bestReps, delta, isPR,
         avgRest: entry.rests.length ? Math.round(entry.rests.reduce((a, b) => a + b, 0) / entry.rests.length) : null,
         setCount: entry.setCount
@@ -1976,7 +2227,7 @@ const workoutIds = (workouts || []).map(w => `"${w.id}"`).join(',');
 // Ordered by created_at so exercises list in the order they were actually completed
 // (workout_sets has no explicit sequence column). rest_seconds drives the rest display.
 const allSets = workoutIds.length
-  ? await sb(`workout_sets?workout_id=in.(${workoutIds})&select=workout_id,exercise,weight,reps,rest_seconds,set_number,variation,created_at&order=created_at.asc,set_number.asc`)
+  ? await sb(`workout_sets?workout_id=in.(${workoutIds})&select=workout_id,exercise,weight,reps,rest_seconds,set_number,variation,superset_group,created_at&order=created_at.asc,set_number.asc`)
   : [];
 // Group sets by workout_id for quick lookup when rendering cards
 window._setsByWorkout = {};
@@ -2155,13 +2406,16 @@ function renderHistoryPage() {
           totalSets += p.setCount;
           if (p.isPR) prCount++;
           if (p.avgRest !== null) allRests.push(p.avgRest);
-          const value = isTimed(p.exercise) ? (p.bestReps ? `${p.bestReps}s` : '—')
+          const value = isTimed(p.exercise)
+                      ? (p.bestReps ? (p.best !== null ? `${p.best}×${p.bestReps}s` : `${p.bestReps}s`) : '—')
                       : p.best !== null ? `${p.best}×${p.bestReps || 0}`
                       : (p.bestReps ? `BW×${p.bestReps}` : '—');
           const restTxt = p.avgRest !== null ? `rest ${fmtRest(p.avgRest)} avg` : 'rest —';
           const label = `${p.exercise}${p.variation ? ` <span style="color:var(--muted);">· ${p.variation}</span>` : ''}`;
-          return `<div class="pf-lift">
-            <span><span class="pf-lname">${label}${p.isPR ? '<span class="pf-badge">PR</span>' : ''}</span><div class="pf-sub">${restTxt}</div></span>
+          // Supersets: the lifts in one group carry the same tag, so they read as a pair on the card.
+          const ssTag = p.supersetGroup ? `<span class="pf-ss">s/s ${p.supersetGroup}</span>` : '';
+          return `<div class="pf-lift${p.supersetGroup ? ' pf-ss-row' : ''}">
+            <span><span class="pf-lname">${label}${ssTag}${p.isPR ? '<span class="pf-badge">PR</span>' : ''}</span><div class="pf-sub">${restTxt}</div></span>
             <span class="pf-lval">${value}</span>
             ${p.best !== null ? deltaCell(p.delta, {decimals:1}) : '<span class="pf-d same">—</span>'}
           </div>`;
