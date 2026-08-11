@@ -406,7 +406,11 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .pill-cals { background: rgba(240,160,80,0.15); color: var(--amber); }
 
 /* ─── SESSION TEMPLATE EDITOR ─────────────────────────────── */
-.template-ex-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--bg3); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+/* flex-wrap so the ⇄ superset button and its picker drop onto their own full-width lines below the
+   name/controls row rather than fighting them for space (11 Aug 2026) */
+.template-ex-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; background: var(--bg3); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+.template-ex-row .ss-btn, .template-ex-row .ss-picker { flex: 0 0 100%; margin-top: 0; }
+.template-ex-row.in-superset { border-left: 2px solid var(--blue); }
 .template-ex-name { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; }
 .template-ex-controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .template-ex-btn { width: 26px; height: 26px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; border-radius: 6px; }
@@ -507,3 +511,12 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .ss-pick-add { margin-top: 3px; font-size: 13px; }
 .ss-picker-empty { font-size: 12px; color: var(--muted); padding: 2px 0 6px; }
 .pf-ss { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(74,158,255,0.16); color: var(--blue); border-radius: 20px; padding: 2px 7px; margin-left: 6px; }
+
+/* ─── BUILD STAMP + UPDATE BANNER (11 Aug 2026) ───────────── */
+/* The build the phone is actually running, at the bottom of Home. Deliberately tiny and grey — it's
+   diagnostic, not decoration — but tappable to force an update check on the spot. */
+.build-tag { margin: 1.25rem 0 0.5rem; text-align: center; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.05em; color: var(--muted2); opacity: 0.6; cursor: pointer; }
+
+/* Only shown when a newer build is live but reloading now would interrupt a workout in progress. */
+.update-banner { position: fixed; left: 12px; right: 12px; bottom: 78px; z-index: 300; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--accent); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+.update-banner button { padding: 7px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; background: var(--accent); border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; }

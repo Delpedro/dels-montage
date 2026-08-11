@@ -1,7 +1,18 @@
-// Bumped to v3 on 11 Aug 2026: a workout was logged against a build that predated the timed-exercise
-// feature, so something was still serving an old shell. Renaming the cache makes `activate` delete
-// every older one outright rather than trusting the network-first fetch handler to age it out.
-const CACHE_NAME = 'dlog-v4';
+// D-LOG service worker.
+//
+// History of this file is a history of stale builds reaching the phone. Two things had to be true
+// before a deploy could actually show up, and only the first was ever fixed:
+//   1. The service worker must not serve its own cached copy first  → fixed 10 Aug (network-first).
+//   2. The *browser's HTTP cache* must not serve a stale copy either → GitHub Pages sends
+//      `Cache-Control: max-age=600` on every file, and a plain fetch() inside a service worker
+//      honours that cache. So for up to 10 minutes after a push, "network-first" still returned
+//      the old file — and an installed iOS PWA that gets resumed rather than relaunched could sit
+//      on that old copy indefinitely, which is why deleting and re-adding the icon "fixed" it.
+// Every same-origin GET below is now fetched with `cache: 'reload'`, which bypasses the HTTP cache
+// on the way out and refreshes it on the way back. Combined with the ?v= build stamp on the asset
+// URLs in index.html and the version.json check in app.js, there is no longer any layer that can
+// hold a stale build.
+const CACHE_NAME = 'dlog-2026-08-11-1608';
 const APP_SHELL = [
   './',
   './index.html',
@@ -35,11 +46,17 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // let Supabase/CDN calls pass through untouched
 
-  // Network-first: always try to fetch the latest version so a fresh deploy shows up
-  // immediately, only falling back to the cached copy when offline (was cache-first,
-  // which meant a new push could never overwrite whatever was cached on first install).
+  // The build stamp itself is never cached or served from cache — it's the thing that tells the app
+  // its own code is out of date, so a cached copy of it would defeat the entire mechanism.
+  if (url.pathname.endsWith('/version.json')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
+  // Network-first, bypassing the HTTP cache (see the note at the top of this file). The cached copy
+  // is only ever the offline fallback.
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'reload' })
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();
@@ -47,6 +64,6 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(request))
+      .catch(() => caches.match(request).then((hit) => hit || caches.match('./index.html')))
   );
 });

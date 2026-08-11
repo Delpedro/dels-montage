@@ -1,6 +1,85 @@
+// ─── BUILD / SELF-UPDATE ──────────────────────────────────
+// Bumped by `node tools/bump-build.js` before every push, together with version.json, the ?v= stamps
+// in index.html and sw.js's CACHE_NAME. Never edit this by hand — run the script.
+//
+// Why this exists: an installed iOS PWA is not reliably *relaunched* when you tap its icon. iOS often
+// resumes the suspended web view instead, so no navigation happens, nothing is re-fetched, and the app
+// keeps running whatever JS it loaded days ago — the deploy is live on the server and invisible on the
+// phone. Deleting the home-screen icon "fixed" it because that threw the web view away. Three separate
+// debugging sessions have been burned on features that were live all along. So the app now checks a
+// build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
+// running old code.
+const APP_BUILD = '2026-08-11-1608';
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
 }
+
+let updateCheckRunning = false;
+let lastUpdateCheck = 0;
+
+// `force` skips the 60s throttle (used on first load). Silent on any failure — a flaky connection
+// must never block the app, and the next foreground will try again.
+async function checkForUpdate(force = false) {
+  if (updateCheckRunning) return;
+  if (!force && Date.now() - lastUpdateCheck < 60000) return;
+  updateCheckRunning = true;
+  lastUpdateCheck = Date.now();
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const { build } = await res.json();
+    if (!build || build === APP_BUILD) return;
+
+    // Mid-workout, a surprise reload in the middle of typing a set is worse than being one build
+    // behind — offer it instead. (Inputs are draft-saved, but a running rest timer and the scroll
+    // position are not worth losing while he's under a bar.)
+    if (currentWorkoutId) { showUpdateBanner(); return; }
+
+    // One automatic reload per build, then stop. If the page comes back still running the old build
+    // the reload isn't working, and looping would leave the app unusable rather than merely stale.
+    if (sessionStorage.getItem('dlog_update_tried') === build) { showUpdateBanner(); return; }
+    sessionStorage.setItem('dlog_update_tried', build);
+    await applyUpdate();
+  } catch (e) {
+    // offline / DNS / GitHub Pages hiccup — nothing to do
+  } finally {
+    updateCheckRunning = false;
+  }
+}
+
+// Drops every cached copy of the app and reloads. The ?v= build stamp on the asset URLs means the
+// fresh index.html points at URLs nothing has ever cached, so this can't come back with old JS.
+async function applyUpdate() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.update()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) {}
+  location.reload();
+}
+
+function showUpdateBanner() {
+  if (document.getElementById('update-banner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'update-banner';
+  bar.className = 'update-banner';
+  bar.innerHTML = `<span>New version ready</span><button type="button" onclick="applyUpdate()">Update</button>`;
+  document.body.appendChild(bar);
+}
+
+// The two moments a resumed PWA can notice it's stale: coming back to the foreground, and being
+// restored from the back/forward cache. A plain 'load' listener never fires in either case.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkForUpdate();
+});
+window.addEventListener('pageshow', (e) => { if (e.persisted) checkForUpdate(true); });
+window.addEventListener('load', () => checkForUpdate(true));
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 window.addEventListener('scroll', () => {
@@ -31,6 +110,9 @@ async function loadSessionTemplates() {
     if (row.aliases) ex.aliases = row.aliases;
     if (row.band) ex.band = true;
     if (row.bodyweight) ex.bodyweight = true;
+    // A superset built into the template (added 11 Aug 2026) — exercises sharing a tag start the
+    // session already paired. See the Supersets section: the in-gym picker can still change it.
+    if (row.superset_group) ex.supersetGroup = row.superset_group;
     (exByTemplate[row.session_id] ||= []).push(ex);
   });
   SESSIONS = (templates || []).map(t => {
@@ -44,8 +126,11 @@ async function loadSessionTemplates() {
   });
 }
 
-// Sessions saved out of an Open Workout land under this programme (see saveOpenWorkoutAsTemplate).
-// Its tile is hidden on the programme picker until at least one such session exists.
+// Sessions saved out of an Open Workout carry this programme id (see offerSaveOpenAsTemplate). It's
+// purely a marker on the row — what makes a session yours rather than built-in, so it can be deleted
+// and so buildSessionGrid knows to put it on the top screen. There is deliberately NO tile for it:
+// a saved session appears as its own tile under "Log Workout", named whatever you called it, not
+// filed behind a "My Sessions" folder.
 const CUSTOM_PROGRAMME_ID = 'custom';
 
 const TRAINING_PROGRAMMES = [
@@ -59,6 +144,7 @@ const TRAINING_PROGRAMMES = [
     name: 'Full Body + CV Training Programme',
     focus: '3 strength days, 2 CV + pump days'
   },
+  // Kept so session_templates.programme has something to point at; never rendered as a tile.
   {
     id: CUSTOM_PROGRAMME_ID,
     name: 'My Sessions',
@@ -312,16 +398,20 @@ async function loadHomePage() {
     }
   } catch(e) {}
 
+  const buildTag = document.getElementById('build-tag');
+  if (buildTag) buildTag.textContent = `build ${APP_BUILD}`;
+
   const [latest, todayLog, weekWorkouts] = await Promise.all([
     sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),
     sb(`daily_logs?date=eq.${todayStr()}&select=steps`),
-    sb(`workouts?date=gte.${getWeekStart()}&select=id`)
+    // Empty rows have to be filtered out, not just counted — see realWorkoutsBetween()
+    realWorkoutsBetween(getWeekStart())
   ]);
 
   if (latest && latest[0]?.weight_kg) {
     document.getElementById('home-weight').textContent = latest[0].weight_kg;
   }
-  document.getElementById('home-sessions').textContent = (weekWorkouts || []).length;
+  document.getElementById('home-sessions').textContent = weekWorkouts.length;
 
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const weekLogs = await sb(`daily_logs?date=gte.${dateStr(weekAgo)}&select=steps`);
@@ -341,6 +431,33 @@ async function loadHomePage() {
 
   // Always rebuild — buildWeekStrip clears innerHTML first, so no risk of duplicates
   buildWeekStrip('home-week-strip');
+}
+
+// Workouts in a date range that actually record something — the same definition History uses.
+//
+// A `workouts` row is created the instant a session tile is tapped, before a single set is logged, so
+// opening a session and walking away (or a test run) leaves a row with nothing in it. History hides
+// those, but "sessions / week" on Home and the green dots on the week strip were counting raw rows,
+// so Home claimed 4 sessions in a week with 2 real ones and there was nothing visible in History to
+// delete. Anything with sets, cardio or notes is real and counts; notes is what keeps CV + Pump in
+// (it logs to conditioning_logs and has neither sets nor cardio rows).
+//
+// Deliberately not keyed on completed_at: autoCloseStaleWorkouts() stamps that onto abandoned rows
+// after 24h, which would let every one of them back in the next day.
+async function realWorkoutsBetween(fromDate, toDate = null) {
+  const range = `date=gte.${fromDate}` + (toDate ? `&date=lte.${toDate}` : '');
+  const rows = await sb(`workouts?${range}&select=id,date,notes`) || [];
+  if (!rows.length) return [];
+  const ids = rows.map(w => `"${w.id}"`).join(',');
+  const [sets, cardio] = await Promise.all([
+    sb(`workout_sets?workout_id=in.(${ids})&select=workout_id`),
+    sb(`cardio_logs?workout_id=in.(${ids})&select=workout_id`)
+  ]);
+  const logged = new Set([
+    ...(sets || []).map(s => s.workout_id),
+    ...(cardio || []).map(c => c.workout_id)
+  ]);
+  return rows.filter(w => logged.has(w.id) || (w.notes || '').trim() !== '');
 }
 
 // Monday-anchored. Everything week-shaped in the app (sessions/week, weekly averages, the
@@ -373,7 +490,8 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
     weekDates.push(dateStr(d));
   }
 
-  const workouts = await sb(`workouts?date=gte.${weekDates[0]}&date=lte.${weekDates[6]}&select=date`);
+  // Real sessions only — an abandoned row would otherwise paint a day green with nothing logged on it
+  const workouts = await realWorkoutsBetween(weekDates[0], weekDates[6]);
   strip.innerHTML = '';  // Clear AFTER fetch — prevents race between concurrent calls
   const doneDates = new Set((workouts || []).map(w => w.date));
   const restDays = [];
@@ -402,12 +520,22 @@ async function buildSessionGrid(programmeId = null) {
   // Programme picker first. Session picker second.
   if (!programmeId) {
     selectedProgramme = null;
+
+    // Sessions saved out of an Open Workout sit on this top screen as their own tiles, under the name
+    // they were given — not behind a "My Sessions" folder. They're one-off sessions you built yourself,
+    // so burying them a tap deeper than the programmes made them harder to reach than the thing they
+    // replaced. Fetched before the grid is cleared, same race discipline as the session branch below.
+    const customSessions = SESSIONS.filter(s => s.programme === CUSTOM_PROGRAMME_ID);
+    const todayWorkouts = customSessions.length
+      ? await sb(`workouts?date=eq.${todayStr()}&completed_at=not.is.null&select=session_type`)
+      : [];
+    const doneTodaySessions = new Set((todayWorkouts || []).map(w => w.session_type));
+
     grid.innerHTML = '';
     if (sub) sub.textContent = 'Choose your training programme';
 
     TRAINING_PROGRAMMES.forEach(p => {
-      // "My Sessions" only earns a tile once something has actually been saved into it.
-      if (p.id === CUSTOM_PROGRAMME_ID && !SESSIONS.some(s => s.programme === CUSTOM_PROGRAMME_ID)) return;
+      if (p.id === CUSTOM_PROGRAMME_ID) return;   // never a folder tile — see customSessions below
       const btn = document.createElement('div');
       btn.className = 'session-btn programme-btn';
       btn.id = `programme-btn-${p.id}`;
@@ -422,6 +550,8 @@ async function buildSessionGrid(programmeId = null) {
     openBtn.innerHTML = `<div class="session-name">Open Workout</div><div class="session-focus">Pick exercises as you go</div>`;
     openBtn.onclick = () => startOpenWorkout();
     grid.appendChild(openBtn);
+
+    customSessions.forEach(s => grid.appendChild(sessionTile(s, doneTodaySessions)));
     return;
   }
 
@@ -441,16 +571,21 @@ async function buildSessionGrid(programmeId = null) {
   back.onclick = () => resetSessionSelection(true);
   grid.appendChild(back);
 
-  sessions.forEach(s => {
-    const btn = document.createElement('div');
-    btn.className = 'session-btn';
-    btn.id = `session-btn-${s.id}`;
-    if (doneTodaySessions.has(s.id)) btn.classList.add('done');
-    const editBtn = s.cardio ? '' : `<button class="session-edit-btn" aria-label="Edit ${s.name} template" title="Edit template" onclick="event.stopPropagation(); openSessionEditor('${s.id}')">✎</button>`;
-    btn.innerHTML = `${editBtn}<div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>${doneTodaySessions.has(s.id) ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
-    btn.onclick = () => selectSession(s, btn);
-    grid.appendChild(btn);
-  });
+  sessions.forEach(s => grid.appendChild(sessionTile(s, doneTodaySessions)));
+}
+
+// One session tile. Shared by the programme's session list and the saved-session tiles on the top
+// screen, so a saved session behaves exactly like a built-in one — same ✎ editor, same done state.
+function sessionTile(s, doneTodaySessions) {
+  const btn = document.createElement('div');
+  btn.className = 'session-btn';
+  btn.id = `session-btn-${s.id}`;
+  const done = doneTodaySessions.has(s.id);
+  if (done) btn.classList.add('done');
+  const editBtn = s.cardio ? '' : `<button class="session-edit-btn" aria-label="Edit ${s.name} template" title="Edit template" onclick="event.stopPropagation(); openSessionEditor('${s.id}')">✎</button>`;
+  btn.innerHTML = `${editBtn}<div class="session-name">${s.name}</div><div class="session-focus">${s.focus}</div>${done ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
+  btn.onclick = () => selectSession(s, btn);
+  return btn;
 }
 
 function showProgrammeSessions(programmeId) {
@@ -463,12 +598,21 @@ function showProgrammeSessions(programmeId) {
 // Works on a cloned buffer (editingTemplateExercises) — nothing touches the live SESSIONS/DB until Save.
 let editingTemplateSessionId = null;
 let editingTemplateExercises = [];
+// Supersets saved into the template, as membership lists — same model as the in-gym `supersetGroups`,
+// so the two behave identically and the editor's picker is the same picker. Rebuilt from each
+// exercise's stored tag on open, written back out as tags on save.
+let editingTemplateGroups = [];
+let editingTemplatePickerFor = null;
 
 function openSessionEditor(sessionId) {
   const session = getSessionById(sessionId);
   if (!session) return;
   editingTemplateSessionId = sessionId;
   editingTemplateExercises = session.exercises.map(e => ({ ...e }));
+  const byTag = {};
+  editingTemplateExercises.forEach(e => { if (e.supersetGroup) (byTag[e.supersetGroup] ||= []).push(e.name); });
+  editingTemplateGroups = Object.values(byTag).filter(g => g.length > 1);
+  editingTemplatePickerFor = null;
   document.getElementById('edit-session-title').textContent = `Edit ${session.name}`;
   const delLink = document.getElementById('delete-session-link');
   if (delLink) delLink.style.display = session.programme === CUSTOM_PROGRAMME_ID ? 'block' : 'none';
@@ -480,13 +624,78 @@ function closeSessionEditor() {
   document.getElementById('edit-session-modal').style.display = 'none';
   editingTemplateSessionId = null;
   editingTemplateExercises = [];
+  editingTemplateGroups = [];
+  editingTemplatePickerFor = null;
+}
+
+// ── Template supersets ──
+// Groups whose members are still in the template and still number 2+. A pairing whose partner has
+// since been removed from the session is dormant, exactly as in the live logger.
+function activeTemplateGroups() {
+  const present = new Set(editingTemplateExercises.map(e => e.name));
+  return editingTemplateGroups.map(g => g.filter(n => present.has(n))).filter(g => g.length > 1);
+}
+
+function templateGroupMap() {
+  const map = {};
+  activeTemplateGroups().forEach((g, i) => g.forEach(n => { map[n] = String(i + 1); }));
+  return map;
+}
+
+function templateGroupOf(name) {
+  return editingTemplateGroups.find(g => g.includes(name)) || null;
+}
+
+function toggleTemplateSupersetPicker(name) {
+  editingTemplatePickerFor = editingTemplatePickerFor === name ? null : name;
+  renderTemplateEditorRows();
+}
+
+// Same one-group-per-exercise rule as pairSuperset(): pairing moves an exercise out of whatever
+// group it was in rather than putting it in two at once.
+function pairTemplateSuperset(name, partner) {
+  if (name === partner) return;
+  editingTemplateGroups = editingTemplateGroups.map(g => g.filter(n => n !== partner)).filter(g => g.length > 1);
+  const group = templateGroupOf(name);
+  if (group) group.push(partner);
+  else editingTemplateGroups.push([name, partner]);
+  editingTemplatePickerFor = null;
+  renderTemplateEditorRows();
+}
+
+function clearTemplateSuperset(name) {
+  editingTemplateGroups = editingTemplateGroups.map(g => g.filter(n => n !== name)).filter(g => g.length > 1);
+  editingTemplatePickerFor = null;
+  renderTemplateEditorRows();
+}
+
+function templateSupersetPickerHtml(name) {
+  const group = templateGroupOf(name) || [];
+  const partners = group.filter(n => n !== name);
+  const others = editingTemplateExercises.map(e => e.name).filter(n => n !== name && !group.includes(n));
+
+  let html = `<div class="ss-picker" style="display:block;">
+    <div class="ss-picker-title">${partners.length ? 'Add another to this superset' : 'Superset with…'}</div>`;
+  others.forEach(n => {
+    const moving = (templateGroupOf(n) || []).filter(m => m !== n).length > 0;
+    html += `<button type="button" class="ss-pick" onclick="pairTemplateSuperset('${name}','${n}')">${n}${moving ? '<span class="ss-pick-note">moves out of its current superset</span>' : ''}</button>`;
+  });
+  if (!others.length) html += `<div class="ss-picker-empty">Nothing else in this session to pair with.</div>`;
+  if (partners.length) {
+    html += `<button type="button" class="ss-pick ss-pick-clear" onclick="clearTemplateSuperset('${name}')">✕ Remove ${name} from this superset</button>`;
+  }
+  return html + `</div>`;
 }
 
 function renderTemplateEditorRows() {
   const list = document.getElementById('edit-session-exercises');
-  list.innerHTML = editingTemplateExercises.map((ex, i) => `
-    <div class="template-ex-row">
-      <div class="template-ex-name">${ex.name}</div>
+  const groupMap = templateGroupMap();
+  list.innerHTML = editingTemplateExercises.map((ex, i) => {
+    const tag = groupMap[ex.name];
+    const partners = tag ? (templateGroupOf(ex.name) || []).filter(n => n !== ex.name && groupMap[n]) : [];
+    return `
+    <div class="template-ex-row${tag ? ' in-superset' : ''}">
+      <div class="template-ex-name">${ex.name}${tag ? `<span class="pf-ss">s/s ${tag}</span>` : ''}</div>
       <div class="template-ex-controls">
         <button type="button" class="btn btn-outline template-ex-btn" ${i === 0 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, -1)" aria-label="Move up">↑</button>
         <button type="button" class="btn btn-outline template-ex-btn" ${i === editingTemplateExercises.length - 1 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, 1)" aria-label="Move down">↓</button>
@@ -495,7 +704,10 @@ function renderTemplateEditorRows() {
         <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets(${i}, 1)" aria-label="Add set">+</button>
         <button type="button" class="ex-remove-btn" onclick="removeTemplateExercise(${i})" aria-label="Remove exercise" title="Remove">✕</button>
       </div>
-    </div>`).join('') || '<div class="empty">No exercises — add one below</div>';
+      <button type="button" class="ss-btn${partners.length ? ' active' : ''}" onclick="toggleTemplateSupersetPicker('${ex.name}')">${partners.length ? `⇄ Superset with ${partners.join(' + ')}` : '⇄ Superset'}</button>
+      ${editingTemplatePickerFor === ex.name ? templateSupersetPickerHtml(ex.name) : ''}
+    </div>`;
+  }).join('') || '<div class="empty">No exercises — add one below</div>';
   const addRow = document.getElementById('edit-session-add-row');
   if (addRow) addRow.innerHTML = templateAddExerciseOptionsHtml();
 }
@@ -574,10 +786,12 @@ async function saveSessionTemplate() {
   const id = editingTemplateSessionId;
   const delRes = await sb(`session_exercises?session_id=eq.${id}`, 'DELETE');
   if (!delRes.ok) { showToast(`Save failed (${delRes.status})`, 'error'); return; }
+  const groupMap = templateGroupMap();   // presence-filtered, so a removed partner can't leave a tag behind
   const rows = editingTemplateExercises.map((ex, i) => ({
     session_id: id, name: ex.name, sets: ex.sets, reps: ex.reps, rest: ex.rest,
     note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
-    band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i
+    band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i,
+    superset_group: groupMap[ex.name] || null
   }));
   if (rows.length) {
     const postRes = await sb('session_exercises', 'POST', rows);
@@ -1256,6 +1470,15 @@ async function buildWorkoutLogger(session) {
 
     const draftSs = peekDraftSupersets(session.id);
     if (draftSs.groups.length) { supersetGroups = draftSs.groups; supersetsTouched = true; }
+    else {
+      // No draft — start from whatever the template says is supersetted (set in the ✎ editor). Marked
+      // touched so the pairing gets written onto the sets on save even if it's never touched today;
+      // the ⇄ picker can still break or change it, exactly as if it had been made by hand.
+      const byTag = {};
+      session.exercises.forEach(e => { if (e.supersetGroup) (byTag[e.supersetGroup] ||= []).push(e.name); });
+      const fromTemplate = Object.values(byTag).filter(g => g.length > 1);
+      if (fromTemplate.length) { supersetGroups = fromTemplate; supersetsTouched = true; }
+    }
     // Base order comes from the draft where there is one (session.exercises is by then in *display*
     // order, which would make unpairing a no-op); anything the draft doesn't know about goes on the end.
     const names = session.exercises.map(e => e.name);
@@ -1361,7 +1584,7 @@ async function startOpenWorkout() {
 // Offered once, on Save Workout, when the session was an Open Workout with exercises in it: the
 // session you just improvised becomes a fixed session tile under the "My Sessions" programme,
 // editable afterwards with the same ✎ template editor as every other session.
-async function offerSaveOpenAsTemplate(exercises) {
+async function offerSaveOpenAsTemplate(exercises, supersetTags = {}) {
   if (!exercises.length) return;
   if (!confirm(`Save this workout as a reusable session?\n\n${exercises.map(e => e.name).join('\n')}`)) return;
 
@@ -1388,7 +1611,8 @@ async function offerSaveOpenAsTemplate(exercises) {
   const rows = exercises.map((ex, i) => ({
     session_id: id, name: ex.name, sets: ex.sets || 3, reps: ex.reps || '8–12', rest: ex.rest || '90s',
     note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
-    band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i
+    band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i,
+    superset_group: supersetTags[ex.name] || null
   }));
   const exRes = await sb('session_exercises', 'POST', rows);
   if (!exRes.ok) {
@@ -1400,7 +1624,7 @@ async function offerSaveOpenAsTemplate(exercises) {
 
   await loadSessionTemplates();
   EXERCISE_LIBRARY = buildExerciseLibrary();
-  showToast(`${name} saved — find it under My Sessions`, 'success');
+  showToast(`${name} saved — it's a tile on the Log Workout screen`, 'success');
 }
 
 // Deletes a saved-from-Open-Workout session template. Only offered for the "My Sessions" programme —
@@ -1418,8 +1642,8 @@ async function deleteSessionTemplate() {
   EXERCISE_LIBRARY = buildExerciseLibrary();
   closeSessionEditor();
   showToast('Session deleted', 'success');
-  const stillExists = SESSIONS.some(s => s.programme === CUSTOM_PROGRAMME_ID);
-  buildSessionGrid(stillExists ? selectedProgramme : null);
+  // Saved sessions live on the top screen, so that's where you land after deleting one.
+  buildSessionGrid(selectedProgramme === CUSTOM_PROGRAMME_ID ? null : selectedProgramme);
 }
 
 function renderAddExerciseRow() {
@@ -1939,12 +2163,15 @@ async function saveWorkout() {
   localStorage.removeItem('workout_draft');
   currentWorkoutHasSets = false;
   currentWorkoutId = null;
+  // Captured before the reset below — if this becomes a saved session, whatever you supersetted today
+  // should be part of it, not something to rebuild by hand next week.
+  const savedGroups = supersetGroupMap();
   supersetGroups = [];
   supersetBaseOrder = [];
   supersetsTouched = false;
   // An Open Workout you'd want to repeat is worth keeping — offer to turn it into a session tile.
   if (selectedSession.id === 'open') {
-    await offerSaveOpenAsTemplate((selectedSession.exercises || []).map(e => ({ ...e })));
+    await offerSaveOpenAsTemplate((selectedSession.exercises || []).map(e => ({ ...e })), savedGroups);
   }
   document.getElementById('session-grid').style.display = 'grid';
   buildSessionGrid(selectedProgramme);
