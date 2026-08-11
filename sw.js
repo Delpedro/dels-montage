@@ -1,4 +1,7 @@
-const CACHE_NAME = 'dlog-v2';
+// Bumped to v3 on 11 Aug 2026: a workout was logged against a build that predated the timed-exercise
+// feature, so something was still serving an old shell. Renaming the cache makes `activate` delete
+// every older one outright rather than trusting the network-first fetch handler to age it out.
+const CACHE_NAME = 'dlog-v3';
 const APP_SHELL = [
   './',
   './index.html',

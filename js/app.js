@@ -734,6 +734,14 @@ function isOptionalWeight(ex) {
   return OPTIONAL_WEIGHT_EXERCISES.includes((name || '').trim().toLowerCase());
 }
 
+// What to store in workout_sets.weight for a typed-in weight box. On an optional-weight exercise a
+// typed 0 means "no added weight", i.e. bodyweight — storing it as a real 0 leaves a "0kg" row that
+// reads as a load in the edit modal and has to be corrected by hand. Everything else is unchanged.
+function optionalWeightValue(ex, wVal) {
+  if (isOptionalWeight(ex) && parseFloat(wVal) === 0) return null;
+  return wVal || null;
+}
+
 // One logged set rendered for display: "45s" (or "10×45s" when the hold carried added weight)
 // when timed, else "80×10" / "BW×10" / band initials.
 function setValueLabel(ex, s, bandFallback = 'Band') {
@@ -1647,7 +1655,7 @@ async function completeExercise(exName) {
         workout_id: currentWorkoutId,
         exercise: exName,
         set_number: i,
-        weight: isBodyweight ? null : (wVal || null),
+        weight: isBodyweight ? null : optionalWeightValue(ex, wVal),
         reps: parseInt(rVal) || null,
         variation: selectedVariations[exName] || null,
         // Groups made *after* this exercise was marked done are backfilled by persistSupersetGroups()
@@ -2794,7 +2802,7 @@ async function saveEditWorkout() {
           method: 'PATCH',
           headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : (wVal || null),
+            weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : optionalWeightValue(ex, wVal),
             reps: parseInt(rVal) || null,
             variation: editSelectedVariations[ex.name] || null
           })
@@ -2804,7 +2812,7 @@ async function saveEditWorkout() {
           workout_id: editingWorkoutId,
           exercise: ex.name,
           set_number: i,
-          weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : (wVal || null),
+          weight: ((ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex)) ? null : optionalWeightValue(ex, wVal),
           reps: parseInt(rVal) || null,
           variation: editSelectedVariations[ex.name] || null
         });
