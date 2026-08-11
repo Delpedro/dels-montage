@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-11-1608';
+const APP_BUILD = '2026-08-11-1615';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -157,7 +157,13 @@ const TRAINING_PROGRAMMES = [
 function buildExerciseLibrary() {
   const map = {};
   SESSIONS.forEach(s => {
-    (s.exercises || []).forEach(ex => { if (!map[ex.name]) map[ex.name] = ex; });
+    // Copy, minus supersetGroup: a pairing belongs to the session it was set in, not to the exercise.
+    // Every caller clones from here ({...EXERCISE_LIBRARY[name]}), so leaving the tag on would carry
+    // Upper A's pairing into an Open Workout — two exercises that happened to be tagged '1' in their
+    // source templates would silently pair themselves the moment you added them.
+    (s.exercises || []).forEach(ex => {
+      if (!map[ex.name]) { const { supersetGroup, ...shape } = ex; map[ex.name] = shape; }
+    });
   });
   return map;
 }
