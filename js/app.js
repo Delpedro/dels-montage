@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-11-2025';
+const APP_BUILD = '2026-08-12-1215';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -825,6 +825,7 @@ function openSessionEditor(sessionId) {
   editingTemplateExercises.forEach(e => { if (e.supersetGroup) (byTag[e.supersetGroup] ||= []).push(e.name); });
   editingTemplateGroups = Object.values(byTag).filter(g => g.length > 1);
   editingTemplatePickerFor = null;
+  applyTemplateUnitOrder();   // a template saved with its pairs apart opens with them together
   document.getElementById('edit-session-title').textContent = `Edit ${session.name}`;
   const delLink = document.getElementById('delete-session-link');
   if (delLink) delLink.style.display = session.programme === CUSTOM_PROGRAMME_ID ? 'block' : 'none';
@@ -858,6 +859,33 @@ function templateGroupOf(name) {
   return editingTemplateGroups.find(g => g.includes(name)) || null;
 }
 
+// The editor list chunked into what ↑/↓ actually move: a superset is ONE unit, a solo exercise is a
+// unit of one. Mirrors displayExerciseOrder() in the live logger — a pair that snaps together on
+// screen there has to stay together here, or the template shows an order the logger won't honour.
+function templateUnits() {
+  const groups = activeTemplateGroups();
+  const groupOf = {};
+  groups.forEach((g, i) => g.forEach(n => { groupOf[n] = i; }));
+  const emitted = new Set();
+  const units = [];
+  editingTemplateExercises.forEach(ex => {
+    if (emitted.has(ex.name)) return;
+    const gi = groupOf[ex.name];
+    if (gi === undefined) { units.push([ex.name]); emitted.add(ex.name); return; }
+    const unit = groups[gi].filter(n => !emitted.has(n));
+    unit.forEach(n => emitted.add(n));
+    units.push(unit);
+  });
+  return units;
+}
+
+// Rewrites editingTemplateExercises in unit order, so a superset's members sit next to each other.
+function applyTemplateUnitOrder(units) {
+  const byName = {};
+  editingTemplateExercises.forEach(e => { byName[e.name] = e; });
+  editingTemplateExercises = (units || templateUnits()).flat().map(n => byName[n]).filter(Boolean);
+}
+
 function toggleTemplateSupersetPicker(name) {
   editingTemplatePickerFor = editingTemplatePickerFor === name ? null : name;
   renderTemplateEditorRows();
@@ -872,12 +900,14 @@ function pairTemplateSuperset(name, partner) {
   if (group) group.push(partner);
   else editingTemplateGroups.push([name, partner]);
   editingTemplatePickerFor = null;
+  applyTemplateUnitOrder();   // the new partner slides up next to its group rather than staying put
   renderTemplateEditorRows();
 }
 
 function clearTemplateSuperset(name) {
   editingTemplateGroups = editingTemplateGroups.map(g => g.filter(n => n !== name)).filter(g => g.length > 1);
   editingTemplatePickerFor = null;
+  applyTemplateUnitOrder();
   renderTemplateEditorRows();
 }
 
@@ -902,15 +932,21 @@ function templateSupersetPickerHtml(name) {
 function renderTemplateEditorRows() {
   const list = document.getElementById('edit-session-exercises');
   const groupMap = templateGroupMap();
+  // ↑/↓ act on units, so they're disabled for every row of the first/last unit — not just the first
+  // and last row. Otherwise the top half of a leading superset still offers an ↑ that can't move.
+  const units = templateUnits();
+  const unitIndex = {};
+  units.forEach((u, ui) => u.forEach(n => { unitIndex[n] = ui; }));
   list.innerHTML = editingTemplateExercises.map((ex, i) => {
     const tag = groupMap[ex.name];
     const partners = tag ? (templateGroupOf(ex.name) || []).filter(n => n !== ex.name && groupMap[n]) : [];
+    const ui = unitIndex[ex.name] ?? 0;
     return `
     <div class="template-ex-row${tag ? ' in-superset' : ''}">
       <div class="template-ex-name">${esc(ex.name)}${tag ? `<span class="pf-ss">s/s ${esc(tag)}</span>` : ''}</div>
       <div class="template-ex-controls">
-        <button type="button" class="btn btn-outline template-ex-btn" ${i === 0 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, -1)" aria-label="Move up">↑</button>
-        <button type="button" class="btn btn-outline template-ex-btn" ${i === editingTemplateExercises.length - 1 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, 1)" aria-label="Move down">↓</button>
+        <button type="button" class="btn btn-outline template-ex-btn" ${ui === 0 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, -1)" aria-label="Move up">↑</button>
+        <button type="button" class="btn btn-outline template-ex-btn" ${ui === units.length - 1 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, 1)" aria-label="Move down">↓</button>
         <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets(${i}, -1)" aria-label="Remove set">−</button>
         <span class="template-ex-sets">${ex.sets} sets</span>
         <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets(${i}, 1)" aria-label="Add set">+</button>
@@ -924,10 +960,18 @@ function renderTemplateEditorRows() {
   if (addRow) addRow.innerHTML = templateAddExerciseOptionsHtml();
 }
 
+// Moves the whole superset the exercise belongs to, never one half of it. Plain adjacent-swap was
+// the bug: nudging an s/s member up stepped it over its own partner, leaving the tag intact but the
+// two rows split apart — and the logger would silently snap them back together on the day anyway.
 function moveTemplateExercise(index, dir) {
-  const target = index + dir;
-  if (target < 0 || target >= editingTemplateExercises.length) return;
-  [editingTemplateExercises[index], editingTemplateExercises[target]] = [editingTemplateExercises[target], editingTemplateExercises[index]];
+  const name = editingTemplateExercises[index]?.name;
+  if (!name) return;
+  const units = templateUnits();
+  const u = units.findIndex(unit => unit.includes(name));
+  const target = u + dir;
+  if (u < 0 || target < 0 || target >= units.length) return;
+  [units[u], units[target]] = [units[target], units[u]];
+  applyTemplateUnitOrder(units);
   renderTemplateEditorRows();
 }
 
@@ -1165,12 +1209,21 @@ function isOptionalWeight(ex) {
   return OPTIONAL_WEIGHT_EXERCISES.includes((name || '').trim().toLowerCase());
 }
 
-// What to store in workout_sets.weight for a typed-in weight box. On an optional-weight exercise a
-// typed 0 means "no added weight", i.e. bodyweight — storing it as a real 0 leaves a "0kg" row that
-// reads as a load in the edit modal and has to be corrected by hand. Everything else is unchanged.
+// What to store in workout_sets.weight for a typed-in weight box.
+//
+// The box is free text — the optional-weight ones are literally labelled "BW / kg" — so anything
+// non-numeric has to be turned into null HERE, before it reaches a numeric column. Typing "BW" into
+// a Dips row used to pass the string straight through to PostgREST, which rejected the whole insert
+// with a 400: that one exercise saved nothing while every other block sat green, so the workout
+// looked finished and wasn't. Blank means bodyweight, "BW" means bodyweight, and bodyweight is null.
+//
+// A typed 0 on an optional-weight exercise means the same thing ("no added weight") — storing a real
+// 0 leaves a "0kg" row that reads as a load in the edit modal and has to be corrected by hand.
 function optionalWeightValue(ex, wVal) {
-  if (isOptionalWeight(ex) && parseFloat(wVal) === 0) return null;
-  return wVal || null;
+  const n = parseFloat(String(wVal ?? '').trim());
+  if (!Number.isFinite(n)) return null;
+  if (n === 0 && isOptionalWeight(ex)) return null;
+  return n;
 }
 
 // One logged set rendered for display: "45s" (or "10×45s" when the hold carried added weight)
@@ -1353,9 +1406,20 @@ function refreshSupersetUi() {
   (selectedSession?.exercises || []).forEach(ex => {
     const block = document.getElementById(`block-${ex.name}`);
     if (block) block.classList.toggle('in-superset', !!map[ex.name]);
+    // One superset, one Mark Done. Every member is written together by completeExercise(), so a
+    // button per block offered the identical action two or three times over. It lives on the last
+    // member of the group; the others hide theirs until the group is broken up again.
+    const group = map[ex.name] ? (supersetGroupOf(ex.name) || []).filter(n => map[n]) : [];
+    const inGroup = group.length > 1;
+    const doneBtn = document.getElementById(`done-btn-${ex.name}`);
+    if (doneBtn) {
+      doneBtn.style.display = (inGroup && group[group.length - 1] !== ex.name) ? 'none' : '';
+      if (!doneBtn.dataset.done) doneBtn.textContent = inGroup ? 'Mark Superset Done' : 'Mark Done';
+    }
+
     const btn = document.getElementById(`ss-${ex.name}`);
     if (!btn) return;
-    const partners = map[ex.name] ? (supersetGroupOf(ex.name) || []).filter(n => n !== ex.name && map[n]) : [];
+    const partners = group.filter(n => n !== ex.name);
     btn.classList.toggle('active', partners.length > 0);
     btn.textContent = partners.length ? `⇄ Superset with ${partners.join(' + ')}` : '⇄ Superset';
   });
@@ -1752,14 +1816,7 @@ async function buildWorkoutLogger(session) {
     // Mark any exercise that has at least one saved set as done (green)
     const doneExercises = new Set((savedSets || []).map(s => s.exercise));
     doneExercises.forEach(exName => {
-      const block = document.getElementById(`block-${exName}`);
-      if (block) block.style.borderColor = 'var(--green)';
-      const doneBtn = document.getElementById(`done-btn-${exName}`);
-      if (doneBtn) {
-        doneBtn.textContent = '✓ Done';
-        doneBtn.style.borderColor = 'var(--green)';
-        doneBtn.style.color = 'var(--green)';
-      }
+      markExerciseBlockDone(exName);
       const removeBtn = document.getElementById(`remove-${exName}`);
       if (removeBtn) removeBtn.style.display = 'none';
     });
@@ -2204,13 +2261,11 @@ function selectVariation(exName, variation, btn) {
 }
 
 // ─── COMPLETE EXERCISE ────────────────────────────────────
-async function completeExercise(exName) {
-  if (!selectedSession) return;
-  const ex = selectedSession.exercises.find(e => e.name === exName);
-  if (!ex) return;
-
+// Reads the filled-in rows for one exercise off the DOM. Pure — no DB, no button repainting — so
+// completeExercise() can collect a whole superset before writing any of it.
+function collectExerciseSets(ex, supersetGroup) {
+  const exName = ex.name;
   const sets = [];
-  const supersetGroup = supersetGroupMap()[exName] || null;
   for (let i = 1; i <= ex.sets; i++) {
     const wEl = document.getElementById(`w-${exName}-${i}`);
     const rEl = document.getElementById(`r-${exName}-${i}`);
@@ -2236,44 +2291,79 @@ async function completeExercise(exName) {
     }
   }
 
-  if (sets.length === 0) {
-    showToast('Fill in at least one set first', 'error');
-    return;
-  }
+  return sets;
+}
 
-  if (!currentWorkoutId) {
-    showToast('Session error — go back and re-select the workout', 'error');
-    return;
-  }
-
-  // If this delete fails the POST below would duplicate every set, so it's checked rather than
-  // fired and forgotten like it used to be.
+// Replaces one exercise's rows wholesale. Returns null on success, or the HTTP status that failed.
+// The DELETE is checked because if it failed the POST below would duplicate every set.
+async function saveExerciseSets(exName, sets) {
   const delRes = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`,
     'DELETE', null, { quiet: true });
-  if (!delRes.ok) {
-    showToast(`Save failed (${delRes.status}) — tap Mark Done again`, 'error');
-    return;
-  }
-
+  if (!delRes.ok) return delRes.status;
   const saveRes = await sb('workout_sets', 'POST', sets, { quiet: true });
-  if (!saveRes.ok) {
-    showToast(`Save failed (${saveRes.status}) — tap Mark Done again`, 'error');
-    return;
-  }
-  currentWorkoutHasSets = true;
+  return saveRes.ok ? null : saveRes.status;
+}
 
+// Paints a block as saved. `dataset.done` is the flag the rest of the app reads — refreshSupersetUi()
+// checks it before relabelling the button, and saveWorkout() checks it to spot typed-in exercises
+// that were never actually written.
+function markExerciseBlockDone(exName) {
   const block = document.getElementById(`block-${exName}`);
   if (block) block.style.borderColor = 'var(--green)';
   const doneBtn = document.getElementById(`done-btn-${exName}`);
   if (doneBtn) {
     doneBtn.textContent = '✓ Done';
+    doneBtn.dataset.done = '1';
     doneBtn.style.borderColor = 'var(--green)';
     doneBtn.style.color = 'var(--green)';
   }
+}
 
-  showToast(`${exName} saved!`, 'success');
-  lastCompletedExercise = exName;
-  if (pendingRest[exName]) delete pendingRest[exName];
+// Completes the whole superset, not just the block whose button was tapped — a superset is one round
+// of work, and the app now renders a single Mark Done for it (on the last member, which is where you
+// are when the round actually ends). A solo exercise is a group of one, so this is the same path
+// either way. Members with nothing typed in are skipped rather than blocking the ones that have data.
+async function completeExercise(exName) {
+  if (!selectedSession) return;
+  if (!currentWorkoutId) {
+    showToast('Session error — go back and re-select the workout', 'error');
+    return;
+  }
+  const map = supersetGroupMap();
+  const group = map[exName] ? (supersetGroupOf(exName) || []).filter(n => map[n]) : [];
+  const names = group.length > 1 ? group : [exName];
+
+  const pending = [];
+  for (const n of names) {
+    const ex = selectedSession.exercises.find(e => e.name === n);
+    if (!ex) continue;
+    const sets = collectExerciseSets(ex, map[n] || null);
+    if (sets.length) pending.push({ name: n, sets });
+  }
+  if (!pending.length) {
+    showToast('Fill in at least one set first', 'error');
+    return;
+  }
+
+  // Saved one exercise at a time so a failure part-way through still leaves the earlier ones green
+  // and written — the retry then only re-does what's actually missing.
+  const saved = [];
+  for (const { name, sets } of pending) {
+    const failedStatus = await saveExerciseSets(name, sets);
+    if (failedStatus) {
+      saved.forEach(markExerciseBlockDone);
+      if (saved.length) currentWorkoutHasSets = true;   // some rows did land — the workout isn't empty
+      showToast(`${name} not saved (${failedStatus}) — tap Mark Done again`, 'error');
+      return;
+    }
+    saved.push(name);
+    if (pendingRest[name]) delete pendingRest[name];
+  }
+
+  currentWorkoutHasSets = true;
+  saved.forEach(markExerciseBlockDone);
+  showToast(saved.length > 1 ? `Superset saved — ${saved.join(' + ')}` : `${saved[0]} saved!`, 'success');
+  lastCompletedExercise = saved[saved.length - 1];
 }
 
 function selectEditVariation(exName, variation, btn) {
@@ -2353,6 +2443,27 @@ function collectCardioRows() {
 
 async function saveWorkout() {
   if (!selectedSession || !currentWorkoutId) return;
+
+  // Mark Done is what writes sets — nothing else does. So an exercise with numbers typed into it but
+  // no green tick has NOTHING in the database, and finishing here would close the workout over the
+  // top of it. That is exactly how a 400 on one block turned into a saved-looking session with an
+  // exercise missing: every other block was green, so there was nothing on screen to notice.
+  const unsaved = (selectedSession.exercises || []).filter(ex => {
+    const btn = document.getElementById(`done-btn-${ex.name}`);
+    if (btn && btn.dataset.done) return false;
+    for (let i = 1; i <= ex.sets; i++) {
+      const rEl = document.getElementById(`r-${ex.name}-${i}`);
+      const wEl = document.getElementById(`w-${ex.name}-${i}`);
+      // A "BW" label is not typed data, so only real inputs count here.
+      const wVal = wEl && wEl.tagName !== 'DIV' ? wEl.value : '';
+      if ((rEl && rEl.value) || wVal) return true;
+    }
+    return false;
+  }).map(ex => ex.name);
+  if (unsaved.length) {
+    if (!confirm(`Nothing is saved for:\n\n${unsaved.join('\n')}\n\nThose have numbers filled in but were never marked done. Go back and tap Mark Done, or finish the workout without them?`)) return;
+  }
+
   const notes = document.getElementById('workout-notes')?.value || '';
   const cardioEntryCount = (selectedSession.cardioEntries || []).length;
   const cardioRows = collectCardioRows();
