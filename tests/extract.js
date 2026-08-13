@@ -15,6 +15,17 @@ const APP = path.join(__dirname, '..', 'js', 'app.js');
 
 // Walks from `i` (which must sit on `open`) to the matching close, skipping over string literals and
 // line comments so a brace inside a string or a comment can't throw the count off.
+// A `/` starts a regex literal rather than a division when the previous meaningful character can't
+// end an expression. Good enough for this file, and it has to be here: `esc()` contains
+// `.replace(/'/g, '&#39;')`, whose apostrophe *inside a regex* was read as the start of a string
+// literal. The scanner then desynchronised and sliced to the end of the file, which surfaced as a
+// baffling "Identifier already declared" from four hundred lines further down.
+function regexStartsHere(src, i) {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(src[j])) j--;
+  return j < 0 || '(,=:[!&|?{};+-*%~^<>'.includes(src[j]) || /\breturn$|\btypeof$|\bcase$/.test(src.slice(Math.max(0, j - 6), j + 1));
+}
+
 function matchPair(src, i, open, close, name) {
   let depth = 0;
   for (; i < src.length; i++) {
@@ -22,6 +33,18 @@ function matchPair(src, i, open, close, name) {
     if (c === open) depth++;
     else if (c === close) { depth--; if (depth === 0) return i; }
     else if (c === '/' && src[i + 1] === '/') i = src.indexOf('\n', i);
+    else if (c === '/' && src[i + 1] === '*') i = src.indexOf('*/', i) + 1;
+    else if (c === '/' && regexStartsHere(src, i)) {
+      // Skip the literal and its flags. A `/` inside a character class doesn't end it.
+      let inClass = false;
+      for (i++; i < src.length; i++) {
+        if (src[i] === '\\') i++;
+        else if (src[i] === '[') inClass = true;
+        else if (src[i] === ']') inClass = false;
+        else if (src[i] === '/' && !inClass) break;
+        else if (src[i] === '\n') break;   // not a regex after all — bail rather than run away
+      }
+    }
     else if (c === "'" || c === '"' || c === '`') {
       const quote = c;
       for (i++; i < src.length; i++) {
@@ -48,10 +71,21 @@ function sliceFunction(src, name) {
   return src.slice(start, bodyEnd + 1);
 }
 
+// Single-line first (`let currentWorkoutId = null;`), then the multi-line object/array form
+// (`const CARDIO_ACTIVITIES = { … };` spread over eight lines), matched the same brace-counting way
+// a function body is. Without the second case a test wanting real config data had to hand-copy it,
+// which is precisely the stale-copy problem this file exists to stop.
 function sliceDeclaration(src, name) {
-  const m = src.match(new RegExp(`^(let|const|var) ${name} = .*?;$`, 'm'));
-  if (!m) throw new Error(`extract: declaration ${name} not found in js/app.js`);
-  return m[0];
+  const oneLine = src.match(new RegExp(`^(let|const|var) ${name} = .*?;$`, 'm'));
+  if (oneLine) return oneLine[0];
+
+  const start = src.search(new RegExp(`^(let|const|var) ${name} = [\\{\\[]`, 'm'));
+  if (start < 0) throw new Error(`extract: declaration ${name} not found in js/app.js`);
+  const openIdx = src.slice(start).search(/[{[]/) + start;
+  const open = src[openIdx];
+  const end = matchPair(src, openIdx, open, open === '{' ? '}' : ']', name);
+  // Include the trailing semicolon if there is one.
+  return src.slice(start, end + 1) + (src[end + 1] === ';' ? ';' : '');
 }
 
 // names: function names to lift out. decls: top-level let/const names they close over.
@@ -60,8 +94,11 @@ function sliceDeclaration(src, name) {
 //   alongside the functions. This is how a test reads or sets a lifted `let` — `selectedVariations`
 //   and friends are closed-over bindings, so handing back a snapshot would go stale the moment the
 //   code under test reassigns one. e.g. `{ state: '() => ({ selectedVariations })' }`.
-function load({ functions = [], decls = [], deps = {}, accessors = {} }) {
-  const src = fs.readFileSync(APP, 'utf8');
+// `file` overrides which source is read. It exists for one job: capturing a baseline of what a
+// function produced *before* a refactor, by pointing at the pre-change copy out of git
+// (`git show HEAD:js/app.js`). Everything else should leave it alone and read the live app.
+function load({ functions = [], decls = [], deps = {}, accessors = {}, file = APP }) {
+  const src = fs.readFileSync(file, 'utf8');
   const body = [
     ...decls.map(d => sliceDeclaration(src, d)),
     ...functions.map(f => sliceFunction(src, f)),

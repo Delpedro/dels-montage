@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1634';
+const APP_BUILD = '2026-08-13-1657';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -2378,7 +2378,7 @@ function formatCardioEntry(c) {
 function renderCardioSection(session) {
   const entries = session.cardioEntries || [];
   return `<div class="section-title" style="font-size:16px;margin-top:0.875rem;margin-bottom:0.5rem;">Cardio (optional)</div>
-    <div id="cardio-list">${entries.map(e => renderCardioEntryBlock(e, session.id)).join('')}</div>
+    <div id="cardio-list">${entries.map(e => renderCardioBlock(e, 'live', session.id)).join('')}</div>
     <div class="card" id="add-cardio-row" style="margin-bottom:0.875rem;">
       <label class="field-label">Add Cardio</label>
       <select class="field-input" id="cardio-activity-select" onchange="handleAddCardio(this)">
@@ -2388,23 +2388,49 @@ function renderCardioSection(session) {
     </div>`;
 }
 
-function renderCardioEntryBlock(entry, sessionId) {
+// ─── THE CARDIO BLOCK — ONE RENDERER, TWO SCREENS ─────────
+// The live logger and the History edit modal draw the identical cardio box. They used to do it with
+// two near-identical copies of this function, ~350 lines apart, and **two separate bugs have already
+// come from them drifting** — a change lands on one, the other silently stays behind. Collapsed on
+// 13 Aug 2026. If you're adding anything to the cardio box, there is now exactly one place to add it.
+//
+// Everything about the markup is shared. The only real differences are collected here:
+//   · the id prefix — the two blocks can be on the page at once, so the ids must not collide
+//   · whether typing saves the workout draft (the modal has no draft; it edits saved rows)
+//   · which handlers the preset and remove buttons call
+const CARDIO_BLOCK_MODES = {
+  live: {
+    prefix: 'cardio',
+    fieldAttrs: (sessionId) => ` oninput="saveDraft('${jsAttr(sessionId)}')"`,
+    preset: (id, mins, sessionId) => `setCardioPreset(${id}, ${mins}, '${jsAttr(sessionId)}')`,
+    remove: (id) => `removeCardioEntry(${id})`,
+  },
+  edit: {
+    prefix: 'ecardio',
+    fieldAttrs: () => '',
+    preset: (id, mins) => `setEditCardioPreset(${id}, ${mins})`,
+    remove: (id) => `removeEditCardioEntry(${id})`,
+  },
+};
+
+function renderCardioBlock(entry, mode, sessionId = '') {
+  const m = CARDIO_BLOCK_MODES[mode];
   const def = CARDIO_ACTIVITIES[entry.activity];
-  if (!def) return '';
+  if (!def || !m) return '';
   const fields = def.fields.map(f => {
     const label = f === 'distance' ? (def.distanceLabel || 'Distance') : CARDIO_FIELD_LABELS[f];
     return `<div class="field-group">
       <label class="field-label">${esc(label)}</label>
-      <input type="number" step="0.1" class="field-input" id="cardio-${entry.id}-${f}" oninput="saveDraft('${jsAttr(sessionId)}')" />
+      <input type="number" step="0.1" class="field-input" id="${m.prefix}-${entry.id}-${f}"${m.fieldAttrs(sessionId)} />
     </div>`;
   }).join('');
   const presets = def.presets ? `<div class="variation-toggle" style="margin-top:6px;">
-      ${def.presets.map(p => `<button class="var-btn" type="button" onclick="setCardioPreset(${entry.id}, ${p}, '${jsAttr(sessionId)}')">${p}m</button>`).join('')}
+      ${def.presets.map(p => `<button class="var-btn" type="button" onclick="${m.preset(entry.id, p, sessionId)}">${p}m</button>`).join('')}
     </div>` : '';
-  return `<div class="card cardio-block" id="cardio-block-${entry.id}" style="margin-bottom:0.875rem;">
+  return `<div class="card cardio-block" id="${m.prefix}-block-${entry.id}" style="margin-bottom:0.875rem;">
     <div class="ex-name-row">
       <div class="ex-name-display">${esc(cardioDisplayName(entry.activity))}</div>
-      <button class="ex-remove-btn" onclick="removeCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
+      <button class="ex-remove-btn" onclick="${m.remove(entry.id)}" aria-label="Remove cardio entry" title="Remove">✕</button>
     </div>
     <div class="cardio-field-grid" style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
     ${presets}
@@ -2426,7 +2452,7 @@ function addCardioEntry(activity, values) {
   selectedSession.cardioEntries.push({ id, activity });
 
   const wrapper = document.createElement('div');
-  wrapper.innerHTML = renderCardioEntryBlock({ id, activity }, selectedSession.id);
+  wrapper.innerHTML = renderCardioBlock({ id, activity }, 'live', selectedSession.id);
   const addRow = document.getElementById('add-cardio-row');
   addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
 
@@ -3805,29 +3831,6 @@ let editCardioEntries = [];
 let editCardioCounter = 0;
 let editRemovedCardioIds = [];
 
-function renderEditCardioEntryBlock(entry) {
-  const def = CARDIO_ACTIVITIES[entry.activity];
-  if (!def) return '';
-  const fields = def.fields.map(f => {
-    const label = f === 'distance' ? (def.distanceLabel || 'Distance') : CARDIO_FIELD_LABELS[f];
-    return `<div class="field-group">
-      <label class="field-label">${esc(label)}</label>
-      <input type="number" step="0.1" class="field-input" id="ecardio-${entry.id}-${f}" />
-    </div>`;
-  }).join('');
-  const presets = def.presets ? `<div class="variation-toggle" style="margin-top:6px;">
-      ${def.presets.map(p => `<button class="var-btn" type="button" onclick="setEditCardioPreset(${entry.id}, ${p})">${p}m</button>`).join('')}
-    </div>` : '';
-  return `<div class="card cardio-block" id="ecardio-block-${entry.id}" style="margin-bottom:0.875rem;">
-    <div class="ex-name-row">
-      <div class="ex-name-display">${esc(cardioDisplayName(entry.activity))}</div>
-      <button class="ex-remove-btn" onclick="removeEditCardioEntry(${entry.id})" aria-label="Remove cardio entry" title="Remove">✕</button>
-    </div>
-    <div class="cardio-field-grid" style="display:grid; grid-template-columns:repeat(${def.fields.length}, 1fr); gap:8px; margin-top:8px;">${fields}</div>
-    ${presets}
-  </div>`;
-}
-
 function setEditCardioPreset(id, minutes) {
   const el = document.getElementById(`ecardio-${id}-duration`);
   if (el) el.value = minutes;
@@ -3839,7 +3842,7 @@ function handleAddEditCardio(selectEl) {
   const id = editCardioCounter++;
   editCardioEntries.push({ id, dbId: null, activity });
   const wrapper = document.createElement('div');
-  wrapper.innerHTML = renderEditCardioEntryBlock({ id, activity });
+  wrapper.innerHTML = renderCardioBlock({ id, activity }, 'edit');
   const addRow = document.getElementById('edit-add-cardio-row');
   addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
   selectEl.value = '';
@@ -3870,7 +3873,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
     const id = editCardioCounter++;
     editCardioEntries.push({ id, dbId: row.id, activity: row.activity });
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = renderEditCardioEntryBlock({ id, activity: row.activity });
+    wrapper.innerHTML = renderCardioBlock({ id, activity: row.activity }, 'edit');
     cardioListEl.appendChild(wrapper.firstElementChild);
     const def = CARDIO_ACTIVITIES[row.activity];
     (def?.fields || []).forEach(f => {
