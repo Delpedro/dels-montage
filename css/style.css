@@ -577,7 +577,10 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 /* The build the phone is actually running, at the bottom of Home. Deliberately tiny and grey — it's
    diagnostic, not decoration — but tappable to force an update check on the spot. */
 /* Sits just above the build stamp at the foot of Home — deliberately quiet, it's used twice a year. */
-.account-row { margin-top: 1.75rem; text-align: center; }
+/* Two links since 13 Aug 2026 (Export / Change password). Flex rather than centred text so they
+   stay evenly spaced, and wrap onto two lines on a narrow phone instead of running together. */
+.account-row { margin-top: 1.75rem; display: flex; justify-content: center; align-items: center; gap: 14px; flex-wrap: wrap; }
+.account-link[disabled] { opacity: 0.5; cursor: default; }
 .account-link { font-size: 12px; color: var(--muted); background: none; border: none; padding: 4px 8px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font-family: 'DM Sans', sans-serif; }
 
 .build-tag { margin: 0.5rem 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.05em; color: var(--muted2); opacity: 0.6; cursor: pointer; }

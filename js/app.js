@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1657';
+const APP_BUILD = '2026-08-13-1722';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -641,6 +641,116 @@ async function savePassword() {
 
   closePasswordModal();
   showToast('Password changed', 'success');
+}
+
+// ─── DATA EXPORT ──────────────────────────────────────────
+// Every row this account owns, as one JSON file, from the phone. Two jobs: you should be able to get
+// your training history *out* of an app you've trusted it to, and it doubles as a backup you can take
+// yourself — no PC, no scheduled task, no stored credentials. It does not replace `tools/backup.js`
+// (that one runs unattended, which is the point of it), but it means a backup is never more than a
+// tap away.
+//
+// Same table list as tools/backup.js. **A new table has to be added in both places or it silently
+// isn't in either.**
+const EXPORT_TABLES = [
+  'workouts', 'workout_sets', 'cardio_logs', 'conditioning_logs', 'daily_logs',
+  'goals', 'custom_exercises', 'session_templates', 'session_exercises', 'quotes',
+];
+
+// Tables that must not come back empty. An export that succeeds while empty is worse than no export
+// at all — it looks like a backup, so it removes the reason to worry. Same rule as tools/backup.js,
+// which exits non-zero for it.
+const EXPORT_MUST_HAVE_ROWS = ['workouts', 'workout_sets', 'daily_logs'];
+
+const EXPORT_PAGE = 1000;
+
+// PostgREST caps a response (1000 rows by default) and workout_sets passed 798 in August 2025, so
+// this is not hypothetical — an unpaged read would start silently truncating the most important
+// table in the file. Ordered by id so the pages can't overlap or skip: without an ORDER BY, Postgres
+// makes no promise about row order between two queries.
+async function fetchAllRows(table) {
+  const rows = [];
+  for (let offset = 0; ; offset += EXPORT_PAGE) {
+    const page = await sb(`${table}?select=*&order=id.asc&limit=${EXPORT_PAGE}&offset=${offset}`);
+    if (!page || !page.length) return rows;
+    rows.push(...page);
+    if (page.length < EXPORT_PAGE) return rows;
+  }
+}
+
+// Which of the must-have tables came back empty. Pure, so the "don't hand over an empty backup"
+// rule is testable without a database.
+function exportProblems(data) {
+  return EXPORT_MUST_HAVE_ROWS.filter(t => !(data[t] || []).length);
+}
+
+function exportFilename(now = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `d-log-export-${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}.json`;
+}
+
+// iOS first: the share sheet is how you get a file into Files/iCloud/email from an installed PWA,
+// and a plain <a download> inside a standalone web app often does nothing visible. Falls back to the
+// download link on desktop, and also if share() refuses — Safari can reject it when the user gesture
+// has been "spent" by the awaits above, which is exactly what happens here.
+async function deliverExport(json, filename) {
+  const file = new File([json], filename, { type: 'application/json' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'D-LOG export' });
+      return 'shared';
+    } catch (e) {
+      if (e && e.name === 'AbortError') return 'cancelled';   // user tapped away; not a failure
+    }
+  }
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return 'downloaded';
+}
+
+async function exportAllData() {
+  const btn = document.getElementById('export-btn');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Exporting…'; }
+  try {
+    const data = {};
+    for (const table of EXPORT_TABLES) data[table] = await fetchAllRows(table);
+
+    // sb() has already toasted whatever went wrong on a failed read; this is the second line of
+    // defence, so a half-read export can never be handed over looking whole.
+    const problems = exportProblems(data);
+    if (problems.length) {
+      showToast(`Export not saved — ${problems.join(', ')} came back empty`, 'error');
+      return;
+    }
+
+    const counts = Object.fromEntries(Object.entries(data).map(([t, r]) => [t, r.length]));
+    const filename = exportFilename();
+    const json = JSON.stringify({
+      app: 'D-LOG',
+      build: APP_BUILD,
+      exported_at: new Date().toISOString(),
+      account: authSession?.email || null,
+      counts,
+      data,
+    }, null, 2);
+
+    const how = await deliverExport(json, filename);
+    if (how === 'cancelled') return;
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    showToast(`Exported ${total.toLocaleString()} rows`, 'success');
+  } catch (e) {
+    console.error('export failed', e);
+    showToast('Export failed — try again', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Export my data'; }
+  }
 }
 
 let lastTypedSet = null;

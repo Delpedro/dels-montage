@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-13-1657">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-13-1722">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -94,6 +94,7 @@
       </div>
     </div>
     <div class="account-row">
+      <button type="button" class="account-link" onclick="exportAllData()" id="export-btn">Export my data</button>
       <button type="button" class="account-link" onclick="openPasswordModal()">Change password</button>
     </div>
     <!-- Which build the phone is actually running. Read this out before reporting a missing feature. -->
@@ -489,6 +490,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-13-1657"></script>
+<script src="js/app.js?v=2026-08-13-1722"></script>
 </body>
 </html>
