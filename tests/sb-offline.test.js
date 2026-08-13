@@ -1,6 +1,6 @@
 // sb() / createWorkoutRow() — offline and failed-read behaviour.
 //
-// The bug this covers (found 13 Aug 2026, fixed 14 Aug): neither function had a try/catch around
+// The bug this covers (found and fixed 13 Aug 2026): neither function had a try/catch around
 // fetch(). The 11 Aug write-failure work only ever handled a *returned* failure (400/500) — but a
 // dead connection makes fetch **throw**, so the exception escaped before any .ok check existed.
 // In the gym that meant Mark Done did nothing at all: no toast, no green tick, no error. History

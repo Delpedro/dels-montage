@@ -127,6 +127,9 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .wd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border2); margin: 0 auto; }
 .week-day.done .wd-dot { background: var(--green); }
 .week-day.today .wd-dot { background: var(--accent); }
+/* Today, once it's been trained: the accent border still marks which day you're on, but the dot
+   goes green like every other completed day. Before this, today never showed as done. */
+.week-day.today.done .wd-dot { background: var(--green); }
 
 .history-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
 .history-date { font-size: 11px; color: var(--muted); margin-bottom: 3px; }

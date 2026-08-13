@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1458';
+const APP_BUILD = '2026-08-13-1634';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -568,6 +568,7 @@ window.addEventListener('load', async () => {
 // Exists so the temporary password the account was created with can be replaced without going
 // through a database migration, and so a password can be rotated at any point from the phone.
 function openPasswordModal() {
+  document.getElementById('pw-current').value = '';
   document.getElementById('pw-new').value = '';
   document.getElementById('pw-confirm').value = '';
   const err = document.getElementById('pw-error');
@@ -580,18 +581,48 @@ function closePasswordModal() {
   document.getElementById('password-modal').style.display = 'none';
 }
 
+// Proves the person holding the phone knows the current password, via the same password grant login
+// uses. Returns true, or the message to show. The token it hands back is deliberately thrown away —
+// the live session stays as it is, so a failed check can't log you out of your own account.
+async function verifyCurrentPassword(current) {
+  const email = authSession?.email;
+  if (!email) return 'Session expired — log out and back in';
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: current })
+    });
+  } catch (e) {
+    return "Can't reach the server";
+  }
+  if (res.status === 400) return 'Current password is wrong';
+  if (!res.ok) return `Couldn't verify that (${res.status})`;
+  return true;
+}
+
 async function savePassword() {
+  const current = document.getElementById('pw-current').value;
   const pw = document.getElementById('pw-new').value;
   const confirm = document.getElementById('pw-confirm').value;
   const err = document.getElementById('pw-error');
   const fail = (msg) => { err.textContent = msg; err.style.display = 'block'; };
 
   // GoTrue's own minimum is 6; 8 is the floor worth having on an account holding a year of data.
+  if (!current) return fail('Enter your current password');
   if (pw.length < 8) return fail('Use at least 8 characters');
   if (pw !== confirm) return fail("Those don't match");
+  if (pw === current) return fail("That's the password you already have");
 
   const token = await validAccessToken();
   if (!token) return fail('Session expired — log out and back in');
+
+  // Re-authenticate before changing anything. The app deliberately stays logged in across restarts,
+  // so without this an unlocked phone left on the table could set a new password in three taps and
+  // take the account outright — the JWT alone was the whole authorisation.
+  const reauth = await verifyCurrentPassword(current);
+  if (reauth !== true) return fail(reauth);
 
   let res;
   try {
@@ -657,6 +688,14 @@ function numOrNull(v) {
   if (v === null || v === undefined || v === '') return null;
   const n = parseFloat(v);
   return isNaN(n) ? null : n;
+}
+
+// Same, for the whole-number columns (steps, calories). These used to be `parseInt(x) || null`,
+// which turned a genuine 0 into "not recorded" — 0 steps on a sick day, or a 0-calorie fast day,
+// stored as null and then read back as blank. It matters more now the Watch Shortcut writes steps.
+function intOrNull(v) {
+  const n = numOrNull(v);
+  return n === null ? null : Math.round(n);
 }
 
 async function loadGoals() {
@@ -868,9 +907,11 @@ async function loadHomePage() {
 
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const weekLogs = await sb(`daily_logs?date=gte.${dateStr(weekAgo)}&select=steps`);
-  const stepsArr = (weekLogs || []).filter(l => l.steps).map(l => l.steps);
+  // `!= null` — a recorded 0 belongs in the average (you walked nothing that day); only a day with
+  // no reading at all should be left out of it.
+  const stepsArr = (weekLogs || []).filter(l => l.steps != null).map(l => Number(l.steps));
   const avgSteps = stepsArr.length ? Math.round(stepsArr.reduce((a,b)=>a+b,0)/stepsArr.length) : null;
-  document.getElementById('home-steps').textContent = avgSteps ? avgSteps.toLocaleString() : '--';
+  document.getElementById('home-steps').textContent = avgSteps != null ? avgSteps.toLocaleString() : '--';
 
   // This week (Mon-today), same boundary as the sessions/week tile above — separate from the
   // rolling-7-day steps average, which pre-dates this and is left as-is to avoid regressions.
@@ -947,14 +988,15 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   const workouts = await realWorkoutsBetween(weekDates[0], weekDates[6]);
   strip.innerHTML = '';  // Clear AFTER fetch — prevents race between concurrent calls
   const doneDates = new Set((workouts || []).map(w => w.date));
-  const restDays = [];
 
   weekDates.forEach((date, i) => {
     const div = document.createElement('div');
     div.className = 'week-day';
+    // Both classes, not one or the other. `today` used to win outright, so the day you'd just
+    // trained never turned green — the one day of the week you'd actually look at for confirmation.
+    // The CSS keeps today's accent border and gives the dot to `done` when they land together.
     if (i === dow) div.classList.add('today');
-    else if (doneDates.has(date)) div.classList.add('done');
-    else if (restDays.includes(i)) div.classList.add('rest');
+    if (doneDates.has(date)) div.classList.add('done');
     div.innerHTML = `<div class="wd-name">${days[i]}</div><div class="wd-dot"></div>`;
     strip.appendChild(div);
   });
@@ -1439,6 +1481,14 @@ function timedTarget(ex) {
 }
 function isTimed(ex) { return timedTarget(ex) !== null; }
 
+// True when a target already reads as a duration ("40s", "30–45s", "30 secs"), in which case the
+// pill shows it as written rather than replacing it with the default. The test used to be `/s\b/`,
+// which matched any word ending in "s" — "12 reps", "3 holds" — so a timed exercise with a
+// worded target silently kept it instead of showing its time. A digit has to come first now.
+function looksLikeSeconds(reps) {
+  return /\d\s*s(ecs?|econds?)?\b/i.test(reps || '');
+}
+
 // ─── OPTIONAL-WEIGHT EXERCISES ────────────────────────────
 // Bodyweight lifts that can also be loaded (pull-ups with a belt/DB). These keep a normal kg box
 // instead of a fixed "BW" label: leave it blank for bodyweight (saved as null, shown as "BW×10"),
@@ -1752,7 +1802,7 @@ function renderExerciseBlock(ex, session) {
         </div>
         <div class="ex-pills">
           <span class="pill pill-sets" id="sets-pill-${esc(ex.name)}">${ex.sets} sets</span>
-          <span class="pill pill-reps">${esc(isTimed(ex) && !/s\b/i.test(ex.reps || '') ? timedTarget(ex) : ex.reps)}</span>
+          <span class="pill pill-reps">${esc(isTimed(ex) && !looksLikeSeconds(ex.reps) ? timedTarget(ex) : ex.reps)}</span>
           <span class="pill pill-rest">${esc(ex.rest)}</span>
         </div>
         ${ex.note ? `<div class="ex-note-text">${esc(ex.note)}</div>` : ''}
@@ -2528,11 +2578,9 @@ function applyVariation(exName, variation) {
     const prev = previousSets[exName] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
     let filteredPrev = prev.filter(p => p.variation === variation);
     if (filteredPrev.length === 0) filteredPrev = prev;
-    const prevText = filteredPrev.length > 0
-      ? filteredPrev.map(s => setValueLabel(ex, s)).join(' / ')
-      : 'No previous data';
-    const prevEl = document.getElementById(`prev-${exName}`);
-    if (prevEl) prevEl.textContent = `Previous (${variation}): ${prevText}`;
+    // The per-set grey badges are the only place last time's numbers are shown. There used to be a
+    // `Previous (…): …` line written to a `prev-${exName}` element here as well — no such element
+    // has ever been rendered, so it was dead code that read like a live path.
     for (let i = 1; i <= ex.sets; i++) {
       const badge = document.getElementById(`badge-${exName}-${i}`);
       const set = filteredPrev[i-1];
@@ -2585,11 +2633,33 @@ function collectExerciseSets(ex, supersetGroup) {
 
 // Replaces one exercise's rows wholesale. Returns null on success, or the HTTP status that failed.
 // The DELETE is checked because if it failed the POST below would duplicate every set.
+// Carries already-recorded rest times across a re-save. Rest reaches the database two different ways:
+// before the first Mark Done it buffers in `pendingRest` (and is consumed there), and after it the
+// stopwatch PATCHes straight onto the row. So re-tapping Mark Done — which is how you fix a typo —
+// deleted the rows holding those rests and re-inserted them as 0, silently blanking that exercise's
+// "avg rest" in History. Pure, so it can be tested without a DB.
+// A set that carries its own rest wins; the existing value only fills a gap.
+function mergeExistingRests(sets, existingRows) {
+  const byNum = {};
+  (existingRows || []).forEach(r => {
+    const secs = parseInt(r.rest_seconds);
+    if (!isNaN(secs) && secs > 0) byNum[r.set_number] = secs;
+  });
+  return sets.map(s => (s.rest_seconds > 0 || !byNum[s.set_number])
+    ? s
+    : { ...s, rest_seconds: byNum[s.set_number] });
+}
+
 async function saveExerciseSets(exName, sets) {
-  const delRes = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`,
-    'DELETE', null, { quiet: true });
+  const scope = `workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`;
+  // Read before the delete, not after — these are the rows about to be thrown away. Quiet, and a
+  // failure just returns [] (no merge): the DELETE below fails too on a dead connection and reports
+  // it properly, and a lost rest time must never be the thing that blocks the sets from saving.
+  const existing = await sb(`workout_sets?${scope}&select=set_number,rest_seconds`, 'GET', null, { quiet: true });
+  const rows = mergeExistingRests(sets, existing);
+  const delRes = await sb(`workout_sets?${scope}`, 'DELETE', null, { quiet: true });
   if (!delRes.ok) return delRes.status;
-  const saveRes = await sb('workout_sets', 'POST', sets, { quiet: true });
+  const saveRes = await sb('workout_sets', 'POST', rows, { quiet: true });
   return saveRes.ok ? null : saveRes.status;
 }
 
@@ -2688,6 +2758,9 @@ function resetSessionSelection(toProgrammePicker = false) {
   currentWorkoutHasSets = false;
   selectedSession = null;
   currentWorkoutId = null;
+  // Backing out of CV + Pump after a failed save abandons that row rather than reusing it next time.
+  // It has no notes and no sets, so every counter already hides it and autoCloseStaleWorkouts() tidies it.
+  conditioningWorkoutId = null;
   localStorage.removeItem('workout_draft');
 
   document.getElementById('session-grid').style.display = 'grid';
@@ -2762,6 +2835,16 @@ async function saveWorkout() {
     if (!confirm('Cardio entries look empty — fill in at least one field per entry, or remove them with ✕. Save the rest of the workout without cardio?')) return;
   }
   if (cardioRows.length) {
+    // Delete-then-insert, the same idiom saveExerciseSets() uses. The POST used to stand alone, so
+    // when a *later* step failed — the toast for which says "tap Save Workout again" — the retry
+    // wrote a second copy of every cardio row. Sets have always been idempotent; cardio wasn't.
+    // Deliberately inside the `if`: on a resume the cardio entries come from the draft, so an
+    // unconditional wipe could bin rows the UI has no way to re-post.
+    const wipeRes = await sb(`cardio_logs?workout_id=eq.${currentWorkoutId}`, 'DELETE', null, { quiet: true });
+    if (!wipeRes.ok) {
+      showToast(`Cardio save failed (${wipeRes.status}) — rest of workout not saved either, tap Save Workout again`, 'error');
+      return;
+    }
     const cardioRes = await sb('cardio_logs', 'POST', cardioRows, { quiet: true });
     if (!cardioRes.ok) {
       showToast(`Cardio save failed (${cardioRes.status}) — rest of workout not saved either, tap Save Workout again`, 'error');
@@ -2801,6 +2884,10 @@ async function saveWorkout() {
 }
 
 // ─── SAVE CONDITIONING / CV + PUMP ────────────────────────
+// Survives a failed save so the retry re-uses the same workouts row instead of creating another.
+// Cleared on success and whenever the form is left via resetSessionSelection().
+let conditioningWorkoutId = null;
+
 async function saveConditioning() {
   const pumpFocus = document.getElementById('cond-pump-focus').value;
   const pumpMethod = document.getElementById('cond-pump-method').value.trim();
@@ -2817,6 +2904,29 @@ async function saveConditioning() {
     notes ? `Notes: ${notes}` : ''
   ].filter(Boolean).join('\n');
 
+  // Ordered so that everything before the final write is idempotent on a retry. Previously the
+  // conditioning_logs POST went first and was the only checked write: a failed workouts row was
+  // skipped in silence and a failed PATCH had its error toast immediately overwritten by
+  // "CV + Pump logged!". Since nothing ever *reads* conditioning_logs, that meant the session
+  // vanished from History and every counter while the screen said it had saved.
+  //
+  // The workouts row is reused across retries rather than created again, so a second attempt can't
+  // leave a trail of empty in-progress rows behind it.
+  if (!conditioningWorkoutId) conditioningWorkoutId = await createWorkoutRow('cv-pump');
+  if (!conditioningWorkoutId) {
+    showToast('CV + Pump NOT saved — try again', 'error');
+    return;
+  }
+
+  // The notes on this row are load-bearing: CV + Pump has no sets and no cardio_logs rows, so
+  // realWorkoutsBetween()/loadHistory() only count it as a real session because of them.
+  const patchRes = await sb(`workouts?id=eq.${conditioningWorkoutId}`, 'PATCH',
+    { notes: summary, completed_at: new Date().toISOString() }, { quiet: true });
+  if (!patchRes.ok) {
+    showToast(`CV + Pump NOT saved (${patchRes.status}) — try again`, 'error');
+    return;
+  }
+
   const condRes = await sb('conditioning_logs', 'POST', {
     date: todayStr(),
     activity,
@@ -2824,18 +2934,11 @@ async function saveConditioning() {
     notes: summary
   }, { quiet: true });
   if (!condRes.ok) {
-    showToast(`CV + Pump NOT saved (${condRes.status}) — try again`, 'error');
+    showToast(`Saved to History, but the CV + Pump record failed (${condRes.status}) — tap Save again`, 'error');
     return;
   }
 
-  const workoutId = await createWorkoutRow('cv-pump');
-  if (workoutId) {
-    // The notes on this row are load-bearing: CV + Pump has no sets and no cardio_logs rows, so
-    // realWorkoutsBetween()/loadHistory() only count it as a real session because of them.
-    await sb(`workouts?id=eq.${workoutId}`, 'PATCH',
-      { notes: summary, completed_at: new Date().toISOString() });
-  }
-
+  conditioningWorkoutId = null;
   showToast('CV + Pump logged!', 'success');
   ['cond-pump-method','cond-duration','cond-notes'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('session-grid').style.display = 'grid';
@@ -2861,15 +2964,18 @@ async function loadDailyLog(date = todayStr()) {
   const logs = await sb(`daily_logs?date=eq.${date}&select=*`);
   if (logs && logs.length > 0) {
     const l = logs[0];
-    if (l.weight_kg) document.getElementById('log-weight').value = l.weight_kg;
-    if (l.steps) document.getElementById('log-steps').value = l.steps;
-    if (l.calories) document.getElementById('log-cals').value = l.calories;
-    if (l.fasting_hours) document.getElementById('log-fasting').value = l.fasting_hours;
-    if (l.protein_g) document.getElementById('log-protein').value = l.protein_g;
-    if (l.carbs_g) document.getElementById('log-carbs').value = l.carbs_g;
-    if (l.fat_g) document.getElementById('log-fat').value = l.fat_g;
-    if (l.fibre_g) document.getElementById('log-fibre').value = l.fibre_g;
-    if (l.energy) setEnergy(l.energy);
+    // `!= null`, not truthiness — a stored 0 is a real answer (0 steps, a fasting day) and used to
+    // read back as an empty box, so re-saving the check-in quietly wiped it.
+    const fill = (id, v) => { if (v != null) document.getElementById(id).value = v; };
+    fill('log-weight', l.weight_kg);
+    fill('log-steps', l.steps);
+    fill('log-cals', l.calories);
+    fill('log-fasting', l.fasting_hours);
+    fill('log-protein', l.protein_g);
+    fill('log-carbs', l.carbs_g);
+    fill('log-fat', l.fat_g);
+    fill('log-fibre', l.fibre_g);
+    if (l.energy) setEnergy(l.energy);   // energy 0 is the slider's "not set" position, not a value
     if (l.notes) document.getElementById('log-notes').value = l.notes;
   }
 }
@@ -2909,7 +3015,7 @@ async function renderCheckinSummary() {
   statsEl.style.display = 'grid';
   document.getElementById('checkin-sum-weight').textContent = l.weight_kg ?? '--';
   document.getElementById('checkin-sum-cals').textContent = l.calories ?? '--';
-  document.getElementById('checkin-sum-steps').textContent = l.steps ? l.steps.toLocaleString() : '--';
+  document.getElementById('checkin-sum-steps').textContent = l.steps != null ? Number(l.steps).toLocaleString() : '--';
   // The four macro pills that used to sit here were removed 11 Aug 2026 — the targets block above
   // now shows the same numbers with a target beside each, so the pills were the same data twice.
   const pills = [];
@@ -2923,14 +3029,14 @@ async function saveDailyLog() {
   const date = document.getElementById('log-date').value || todayStr();
   const data = {
     date,
-    weight_kg: parseFloat(document.getElementById('log-weight').value) || null,
-    steps: parseInt(document.getElementById('log-steps').value) || null,
-    calories: parseInt(document.getElementById('log-cals').value) || null,
-    fasting_hours: parseFloat(document.getElementById('log-fasting').value) || null,
-    protein_g: parseFloat(document.getElementById('log-protein').value) || null,
-    carbs_g: parseFloat(document.getElementById('log-carbs').value) || null,
-    fat_g: parseFloat(document.getElementById('log-fat').value) || null,
-    fibre_g: parseFloat(document.getElementById('log-fibre').value) || null,
+    weight_kg: numOrNull(document.getElementById('log-weight').value),
+    steps: intOrNull(document.getElementById('log-steps').value),
+    calories: intOrNull(document.getElementById('log-cals').value),
+    fasting_hours: numOrNull(document.getElementById('log-fasting').value),
+    protein_g: numOrNull(document.getElementById('log-protein').value),
+    carbs_g: numOrNull(document.getElementById('log-carbs').value),
+    fat_g: numOrNull(document.getElementById('log-fat').value),
+    fibre_g: numOrNull(document.getElementById('log-fibre').value),
     energy: selectedEnergy || null,
     notes: document.getElementById('log-notes').value || null
   };
@@ -3016,7 +3122,7 @@ async function loadStats() {
 
   document.getElementById('stat-sessions').textContent = weekSessions.length;
 
-  const sv = (weekLogs || []).filter(l => l.steps).map(l => l.steps);
+  const sv = (weekLogs || []).filter(l => l.steps != null).map(l => Number(l.steps));
   document.getElementById('stat-steps').textContent =
     sv.length ? Math.round(sv.reduce((a, b) => a + b, 0) / sv.length).toLocaleString() : '--';
 
@@ -3166,6 +3272,40 @@ let historySearchTerm = '';
 let allHistoryLogs = [];
 let allHistoryWorkouts = [];
 
+// The three dropdown/tab filters persist; the search term deliberately does not.
+// Every visit to History used to reset all four, so setting "This Week" and stepping across to Stats
+// and back put you on All Time again. The search box is the exception on purpose: a filter you
+// forgot you set is visible as a highlighted control, whereas a remembered search string reads as
+// "my history has gone" — the one failure mode this app has already caused a panic over.
+const HISTORY_FILTER_STORE = 'dlog_history_filters';
+
+function saveHistoryFilters() {
+  try {
+    localStorage.setItem(HISTORY_FILTER_STORE, JSON.stringify({
+      tab: historyTab, range: historyDateRange, workout: historyWorkoutFilter
+    }));
+  } catch (e) { /* private mode / quota — filters just stop being remembered */ }
+}
+
+// Called once per History load, after SESSIONS exists so a saved session filter can be validated.
+function restoreHistoryFilters(sessionIds = []) {
+  historyPage = 1;
+  historyTab = 'all';
+  historyDateRange = 'all';
+  historyWorkoutFilter = 'all';
+  historySearchTerm = '';
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(HISTORY_FILTER_STORE) || 'null'); } catch (e) { return; }
+  if (!saved) return;
+  if (['all', 'workouts', 'daily'].includes(saved.tab)) historyTab = saved.tab;
+  if (['all', 'month', 'week'].includes(saved.range)) historyDateRange = saved.range;
+  // A deleted session would otherwise leave History filtered to something that no longer exists,
+  // which renders as an empty feed with no obvious way back.
+  if (saved.workout === 'all' || saved.workout === 'open' || sessionIds.includes(saved.workout)) {
+    historyWorkoutFilter = saved.workout;
+  }
+}
+
 // Builds a `${workoutId}|${exercise}::${variation}` → {best, bestReps, delta, isPR, ...} map.
 // Keyed by variation as well as name because e.g. "Hack Squat / Leg Press" carries wildly
 // different loads per variation — comparing across them produces nonsense deltas/PRs.
@@ -3291,11 +3431,7 @@ allHistoryWorkouts = allHistoryWorkouts.filter(w =>
 );
 // Per-workout-per-exercise deltas vs last time + PR flags, computed once for the whole feed
 window._progress = computeExerciseProgress(allHistoryWorkouts, window._setsByWorkout);
-  historyPage = 1;
-  historyTab = 'all';
-  historyDateRange = 'all';
-  historyWorkoutFilter = 'all';
-  historySearchTerm = '';
+  restoreHistoryFilters(SESSIONS.map(s => s.id));
   if (allHistoryLogs.length === 0 && allHistoryWorkouts.length === 0) {
     list.innerHTML = '<div class="empty">No logs yet — start tracking today</div>';
     return;
@@ -3309,8 +3445,14 @@ function getDateRangeFilter() {
   if (historyDateRange === 'week') {
     return getWeekStart();
   } else if (historyDateRange === 'month') {
+    // setMonth() alone overflows: run on 31 March it asks for 31 February, which JS rolls forward
+    // to 3 March — so "Last Month" showed three days instead of a month. Clamp to the last day of
+    // the target month first, the way a person reads "a month ago" on the 31st.
     startDate = new Date(today);
+    startDate.setDate(1);
     startDate.setMonth(today.getMonth() - 1);
+    const lastDayOfTarget = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0).getDate();
+    startDate.setDate(Math.min(today.getDate(), lastDayOfTarget));
   }
   return dateStr(startDate);
 }
@@ -3433,7 +3575,7 @@ function renderHistoryPage() {
         if (prev) bases.push(`weight vs ${new Date(prev.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}`);
         const cmpLine = bases.length ? `<div class="pf-cmp">${bases.join(' · ')}</div>` : '';
         const footBits = [];
-        if (l.steps) footBits.push(`<span>Steps <b>${esc(l.steps.toLocaleString())}</b></span>`);
+        if (l.steps != null) footBits.push(`<span>Steps <b>${esc(Number(l.steps).toLocaleString())}</b></span>`);
         if (l.energy) footBits.push(`<span>Energy <b>${esc(ENERGY_WORDS[l.energy] || l.energy)}</b></span>`);
         // esc() rather than a bare "-to-&quot; replace: the old version only escaped double quotes,
         // so a note containing the literal text `&quot;` decoded back into a real quote and broke
@@ -3529,18 +3671,21 @@ function restoreSearchFocus() {
 function setHistoryTab(tab) {
   historyTab = tab;
   historyPage = 1;
+  saveHistoryFilters();
   renderHistoryPage();
 }
 
 function setHistoryDateRange(range) {
   historyDateRange = range;
   historyPage = 1;
+  saveHistoryFilters();
   renderHistoryPage();
 }
 
 function setHistoryWorkoutFilter(type) {
   historyWorkoutFilter = type;
   historyPage = 1;
+  saveHistoryFilters();
   renderHistoryPage();
 }
 
@@ -3601,14 +3746,17 @@ function openEditLog(l) {
   editingEnergy = l.energy || 0;
   document.getElementById('edit-modal-title').textContent =
     new Date(l.date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long'});
-  document.getElementById('edit-weight').value = l.weight_kg || '';
-  document.getElementById('edit-fasting').value = l.fasting_hours || '';
-  document.getElementById('edit-cals').value = l.calories || '';
-  document.getElementById('edit-steps').value = l.steps || '';
-  document.getElementById('edit-protein').value = l.protein_g || '';
-  document.getElementById('edit-carbs').value = l.carbs_g || '';
-  document.getElementById('edit-fat').value = l.fat_g || '';
-  document.getElementById('edit-fibre').value = l.fibre_g || '';
+  // `?? ''` rather than `|| ''` — see loadDailyLog(): a stored 0 is a real answer and `||` blanked it,
+  // so opening a day with 0 steps and saving turned that 0 into "never recorded".
+  const set = (id, v) => { document.getElementById(id).value = v ?? ''; };
+  set('edit-weight', l.weight_kg);
+  set('edit-fasting', l.fasting_hours);
+  set('edit-cals', l.calories);
+  set('edit-steps', l.steps);
+  set('edit-protein', l.protein_g);
+  set('edit-carbs', l.carbs_g);
+  set('edit-fat', l.fat_g);
+  set('edit-fibre', l.fibre_g);
   document.getElementById('edit-notes').value = l.notes || '';
   setEditEnergy(editingEnergy);
   document.getElementById('edit-modal').style.display = 'block';
@@ -3630,14 +3778,14 @@ function setEditEnergy(val) {
 async function saveEditLog() {
   if (!editingLogDate) return;
   const res = await sb(`daily_logs?date=eq.${editingLogDate}`, 'PATCH', {
-    weight_kg: parseFloat(document.getElementById('edit-weight').value) || null,
-    fasting_hours: parseFloat(document.getElementById('edit-fasting').value) || null,
-    calories: parseInt(document.getElementById('edit-cals').value) || null,
-    steps: parseInt(document.getElementById('edit-steps').value) || null,
-    protein_g: parseFloat(document.getElementById('edit-protein').value) || null,
-    carbs_g: parseFloat(document.getElementById('edit-carbs').value) || null,
-    fat_g: parseFloat(document.getElementById('edit-fat').value) || null,
-    fibre_g: parseFloat(document.getElementById('edit-fibre').value) || null,
+    weight_kg: numOrNull(document.getElementById('edit-weight').value),
+    fasting_hours: numOrNull(document.getElementById('edit-fasting').value),
+    calories: intOrNull(document.getElementById('edit-cals').value),
+    steps: intOrNull(document.getElementById('edit-steps').value),
+    protein_g: numOrNull(document.getElementById('edit-protein').value),
+    carbs_g: numOrNull(document.getElementById('edit-carbs').value),
+    fat_g: numOrNull(document.getElementById('edit-fat').value),
+    fibre_g: numOrNull(document.getElementById('edit-fibre').value),
     energy: editingEnergy || null,
     notes: document.getElementById('edit-notes').value || null
   }, { quiet: true });
