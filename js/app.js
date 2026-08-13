@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1900';
+const APP_BUILD = '2026-08-13-1910';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -2891,6 +2891,11 @@ function markExerciseBlockDone(exName) {
 // are when the round actually ends). A solo exercise is a group of one, so this is the same path
 // either way. Members with nothing typed in are skipped rather than blocking the ones that have data.
 async function completeExercise(exName) {
+  // Unlocked here, not in the swStart() below, and this is the whole reason it's a separate call:
+  // iOS only lets a page create/resume an AudioContext inside a user gesture, and by the time the
+  // save has awaited the network this handler is no longer one. Without it, a rest timer that was
+  // started by Mark Done rather than by tapping the watch would count down in silence.
+  swUnlockAudio();
   if (!selectedSession) return;
   if (!currentWorkoutId) {
     showToast('Session error — go back and re-select the workout', 'error');
@@ -2931,6 +2936,25 @@ async function completeExercise(exName) {
   saved.forEach(markExerciseBlockDone);
   showToast(saved.length > 1 ? `Superset saved — ${saved.join(' + ')}` : `${saved[0]} saved!`, 'success');
   lastCompletedExercise = saved[saved.length - 1];
+  startRestAfter(lastCompletedExercise);
+}
+
+// The rest timer starts itself on Mark Done (14 Aug 2026). Rest begins the moment a set ends, which
+// is exactly when this button gets tapped, so the separate tap on the watch was asking for something
+// the app already knew.
+//
+// Three deliberate details:
+// - **Only on success.** Every failure path in completeExercise() returns before this, because a
+//   Mark Done that didn't save leaves you mid-set with a retry to do, not resting.
+// - **The last member of a superset**, which is where the single Mark Done button lives and where the
+//   round actually ends — not the block whose name was passed in.
+// - **A re-tap restarts the period instead of banking it.** swStart() overwrites a timer already
+//   running for the same exercise without going through swStop(), and that's the point: an interval
+//   that spans the set you just logged isn't a rest for any set, and swStop() would PATCH it onto the
+//   last typed set as though it were one. Stopping by hand (tap the watch) still saves normally.
+function startRestAfter(exName) {
+  if (!exName) return;
+  swStart(exName);
 }
 
 function selectEditVariation(exName, variation, btn) {

@@ -1,0 +1,184 @@
+// The rest timer starting itself on Mark Done — 14 Aug 2026.
+//
+// It's a one-line call, and every way it can go wrong is about *when* it fires rather than what it
+// does: starting a rest after a save that failed, banking an interval that spans the set you just
+// logged as though it were a rest, or leaving the previous exercise's timer running alongside the new
+// one. So the assertions below are weighted at the guards, not at the happy path.
+//
+// Run: node tests/auto-rest.test.js
+
+const fs = require('fs');
+const path = require('path');
+const { load } = require('./extract');
+
+let pass = 0, fail = 0;
+function ok(cond, label) {
+  if (cond) { pass++; return; }
+  fail++;
+  console.error(`  FAIL: ${label}`);
+}
+function eq(actual, expected, label) {
+  ok(actual === expected, `${label} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+
+console.log('auto-start rest on Mark Done');
+
+// The stopwatch's state lives in top-level `let`s carrying trailing comments, which the declaration
+// slicer doesn't take, so they're supplied as bindings instead. Assignments inside the real swStart()
+// land on these and the accessor reads the same bindings — a rename in the source would leave the
+// state frozen here and fail every assertion below, which is the protection that matters.
+const calls = { stop: 0, vibrate: [], render: [], cleared: [], unlocked: 0 };
+const store = {};
+let nextInterval = 1;
+
+const app = load({
+  functions: ['startRestAfter', 'swStart', 'swParseRest'],
+  deps: {
+    swRunning: false,
+    swActiveExercise: null,
+    swStartTimestamp: null,
+    swTargetSeconds: 60,
+    swCompletionBeeped: false,
+    swInterval: null,
+    selectedSession: null,
+    swStop: () => { calls.stop++; },
+    swUnlockAudio: () => { calls.unlocked++; },
+    swVibrate: v => calls.vibrate.push(v),
+    swRenderWatch: n => calls.render.push(n),
+    sessionStorage: {
+      setItem: (k, v) => { store[k] = v; },
+      removeItem: k => { delete store[k]; },
+      getItem: k => (k in store ? store[k] : null),
+    },
+    setInterval: () => nextInterval++,
+    clearInterval: id => calls.cleared.push(id),
+  },
+  accessors: {
+    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionBeeped, swInterval })',
+    reset: `(session) => {
+      swRunning = false; swActiveExercise = null; swStartTimestamp = null;
+      swTargetSeconds = 60; swCompletionBeeped = false; swInterval = null;
+      selectedSession = session;
+    }`,
+  },
+});
+
+const SESSION = {
+  id: 'upper-a',
+  exercises: [
+    { name: 'Bench Press', sets: 3, rest: '180s' },
+    { name: 'Incline Curl', sets: 3, rest: '90s' },
+    { name: 'Pallof Press', sets: 3 },   // no rest field — the template doesn't always carry one
+  ],
+};
+
+function fresh() {
+  app.reset(SESSION);
+  calls.stop = 0; calls.vibrate = []; calls.render = []; calls.cleared = []; calls.unlocked = 0;
+  Object.keys(store).forEach(k => delete store[k]);
+}
+
+// ── 1. the ordinary case: Mark Done leaves a rest running ──────────────────
+{
+  fresh();
+  const before = Date.now();
+  app.startRestAfter('Bench Press');
+  const s = app.state();
+
+  eq(s.swRunning, true, 'the timer is running after Mark Done');
+  eq(s.swActiveExercise, 'Bench Press', 'and it is attached to the exercise that was just completed');
+  ok(s.swStartTimestamp >= before, 'it starts from now, not from whenever the watch was last touched');
+  eq(s.swTargetSeconds, 180, "the target comes from the exercise's own rest field");
+  eq(s.swCompletionBeeped, false, 'and the beep is armed for this period');
+  ok(JSON.parse(store.sw_state).exercise === 'Bench Press',
+    'persisted to sessionStorage, so a trip to Stats and back does not lose the rest');
+  eq(calls.render.length, 1, 'the watch is repainted immediately rather than waiting a second for the interval');
+}
+
+// ── 2. an exercise with no rest in the template still gets a countdown ─────
+{
+  fresh();
+  app.startRestAfter('Pallof Press');
+  eq(app.state().swTargetSeconds, 60, 'no rest field falls back to 60s rather than to no target at all');
+
+  // The same default, straight from the parser, for the shapes the templates actually use.
+  eq(app.swParseRest('90s'), 90, "'90s' reads as 90");
+  eq(app.swParseRest(undefined), 60, 'and a missing value as the default');
+}
+
+// ── 3. nothing to start on ─────────────────────────────────────────────────
+// completeExercise() returns before this on every failure path, so in practice the name is always
+// real — but a rest timer running against an exercise that was never saved would be a lie on screen.
+{
+  fresh();
+  app.startRestAfter(null);
+  eq(app.state().swRunning, false, 'no exercise name starts no timer');
+  app.startRestAfter(undefined);
+  eq(app.state().swRunning, false, 'and neither does undefined');
+  eq(store.sw_state, undefined, 'nothing is persisted either');
+}
+
+// ── 4. re-tapping Mark Done restarts the period, it does not bank it ───────
+// Re-tapping is how a typo gets fixed, and by then the watch has been running since the *previous*
+// Mark Done — an interval covering the set itself. swStop() would PATCH that onto the last typed set
+// as a rest time, which is a wrong number written over a right one. Restarting is the correct read.
+{
+  fresh();
+  app.startRestAfter('Bench Press');
+  const first = app.state();
+
+  app.startRestAfter('Bench Press');
+  const second = app.state();
+
+  eq(calls.stop, 0, 'a re-tap on the same exercise never goes through swStop, so no rest is written');
+  ok(second.swStartTimestamp >= first.swStartTimestamp, 'the period restarts from the second tap');
+  eq(second.swCompletionBeeped, false, 'and the completion beep is re-armed for it');
+  eq(calls.cleared.length, 2, 'the old ring interval is cleared rather than left running alongside the new one');
+}
+
+// ── 5. moving on to the next exercise ──────────────────────────────────────
+{
+  fresh();
+  app.startRestAfter('Bench Press');
+  app.startRestAfter('Incline Curl');
+  const s = app.state();
+
+  eq(calls.stop, 1, "the previous exercise's timer is stopped — and stopping it saves its rest normally");
+  eq(s.swActiveExercise, 'Incline Curl', 'the watch moves to the new exercise');
+  eq(s.swTargetSeconds, 90, 'with the new target');
+  eq(JSON.parse(store.sw_state).exercise, 'Incline Curl', 'and the persisted state follows it');
+}
+
+// ── 6. where it is called from ─────────────────────────────────────────────
+// The behaviour that can't be reached through the extracted function, and the one that would be worst
+// to get wrong: a Mark Done that failed to save must not start a rest.
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  const body = src.slice(src.indexOf('async function completeExercise('), src.indexOf('function startRestAfter('));
+
+  const start = body.indexOf('startRestAfter(');
+  ok(start > 0, 'completeExercise starts the rest timer');
+  ok(body.indexOf('not saved (${failedStatus})') < start,
+    'and only past the save-failure return, so a failed Mark Done leaves you mid-set, not resting');
+  ok(body.indexOf('Fill in at least one set first') < start,
+    'and past the nothing-typed return');
+  ok(body.indexOf('lastCompletedExercise = saved[saved.length - 1]') < start,
+    'and it times the last member of a superset — the block the single Mark Done button sits on');
+
+  // iOS only allows an AudioContext to be created or resumed inside a user gesture. completeExercise
+  // awaits the network before it reaches swStart(), so the unlock has to happen before the first
+  // await or the auto-started timer counts down in silence.
+  const unlock = body.indexOf('swUnlockAudio()');
+  ok(unlock > 0, 'completeExercise unlocks audio itself');
+  ok(unlock < body.indexOf('await '), 'before its first await, while it is still inside the tap');
+
+  // One call site. A second one somewhere else would be a rest timer starting for reasons the user
+  // can't see, which is exactly the class of bug the watch's manual tap never had.
+  eq(src.split('startRestAfter(').length - 1, 2,
+    'startRestAfter appears twice in the source — its declaration and that one call');
+}
+
+process.on('exit', () => {
+  console.log(`  ${pass} passed, ${fail} failed`);
+  if (fail) process.exitCode = 1;
+});
