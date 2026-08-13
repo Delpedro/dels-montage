@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1407';
+const APP_BUILD = '2026-08-13-1419';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -488,8 +488,14 @@ function handleLogout() {
   const token = authSession?.access_token;
   // Revokes the refresh token server-side. Fire-and-forget: a failure here must not stop the
   // client-side logout, and the local tokens are gone either way.
+  //
+  // `scope=local` is deliberate and must not be dropped. GoTrue defaults to scope=global, which
+  // revokes EVERY session on the account — so logging out in the browser on the PC would silently
+  // sign the phone out too, and that would be discovered mid-session in the gym. Logout means
+  // "log out this device". There is no sign-out-everywhere button; if a device is ever lost, revoke
+  // the sessions from the PC (see CODEBASE.md → Auth).
   if (token) {
-    fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+    fetch(`${SUPABASE_URL}/auth/v1/logout?scope=local`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` }
     }).catch(() => {});
