@@ -282,8 +282,27 @@ function dateAt(iso) {
     h.fields['pw-new'].value = 'short1';
     h.fields['pw-confirm'].value = 'short1';
     await h.savePassword();
-    eq(h.err(), 'Use at least 8 characters', 'the length floor still applies');
+    eq(h.err(), 'Your new password needs at least 8 characters', 'the length floor still applies');
     eq(h.requests.length, 0, 'and short-circuits before the network');
+  }
+
+  // Del's 13 Aug UAT: current password filled, the other two boxes empty. The length check fired and
+  // read as though the box he HAD filled was too short. Each empty box now names itself.
+  {
+    const h = build({ authFetch: okRes });
+    h.fields['pw-new'].value = '';
+    h.fields['pw-confirm'].value = '';
+    await h.savePassword();
+    eq(h.err(), 'Enter a new password', 'an empty new password says so instead of blaming the length');
+    eq(h.requests.length, 0, 'and nothing leaves the phone');
+  }
+
+  {
+    const h = build({ authFetch: okRes });
+    h.fields['pw-confirm'].value = '';
+    await h.savePassword();
+    eq(h.err(), 'Type your new password again to confirm it', 'an empty confirm box is not a mismatch');
+    eq(h.requests.length, 0, 'still no round trip');
   }
 
   {

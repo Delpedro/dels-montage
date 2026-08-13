@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1722';
+const APP_BUILD = '2026-08-13-1808';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -609,9 +609,14 @@ async function savePassword() {
   const err = document.getElementById('pw-error');
   const fail = (msg) => { err.textContent = msg; err.style.display = 'block'; };
 
+  // Every message names the field it means. An empty new-password box used to fall straight through
+  // to the length check and read as "Use at least 8 characters", which looks like a complaint about
+  // the current-password box you just filled in.
   // GoTrue's own minimum is 6; 8 is the floor worth having on an account holding a year of data.
   if (!current) return fail('Enter your current password');
-  if (pw.length < 8) return fail('Use at least 8 characters');
+  if (!pw) return fail('Enter a new password');
+  if (pw.length < 8) return fail('Your new password needs at least 8 characters');
+  if (!confirm) return fail('Type your new password again to confirm it');
   if (pw !== confirm) return fail("Those don't match");
   if (pw === current) return fail("That's the password you already have");
 
