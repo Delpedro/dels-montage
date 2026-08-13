@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1448';
+const APP_BUILD = '2026-08-13-1458';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1763,7 +1763,7 @@ function renderExerciseBlock(ex, session) {
     html += `<div class="variation-toggle">`;
     ex.variations.forEach(v => {
       const isSelected = v === defaultVar ? 'selected' : '';
-      html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${jsAttr(ex.name)}', '${jsAttr(v)}', this)">${esc(v)}</button>`;
+      html += `<button class="var-btn ${isSelected}" onclick="selectVariation('${jsAttr(ex.name)}', '${jsAttr(v)}')">${esc(v)}</button>`;
     });
     html += `</div>`;
   }
@@ -2034,11 +2034,11 @@ async function buildWorkoutLogger(session) {
   <button class="btn btn-save btn-full" onclick="saveWorkout()" style="margin-bottom:1rem;">Save Workout</button>`;
 
   logger.innerHTML = html;
-  restoreDraft(session);
+  const draftVariations = restoreDraft(session);
 
   // Restore already-saved sets on resume: paint rest times, fill empty inputs, mark exercises done
   if (currentWorkoutId) {
-    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds,weight,reps,superset_group`);
+    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds,weight,reps,superset_group,variation`);
     // Rebuild the groups from what's already saved (covers resuming a workout after the draft has
     // gone) — everything sharing a group tag was one superset.
     if (!supersetGroups.length) {
@@ -2060,6 +2060,15 @@ async function buildWorkoutLogger(session) {
       if (wEl && wEl.tagName === 'INPUT' && !wEl.value && s.weight != null) wEl.value = s.weight;
       if (rEl && !rEl.value && s.reps != null) rEl.value = s.reps;
     });
+    // Variations of exercises already written to the DB. The draft wins where it has one — it also
+    // carries a toggle changed *after* Mark Done, which the saved rows can't know about yet. This
+    // branch is what covers a resume with no draft at all (24h expiry, or another device).
+    const fromSaved = {};
+    (savedSets || []).forEach(s => { if (s.variation && !fromSaved[s.exercise]) fromSaved[s.exercise] = s.variation; });
+    Object.entries(fromSaved).forEach(([exName, v]) => {
+      if (!draftVariations[exName]) applyVariation(exName, v);
+    });
+
     // Mark any exercise that has at least one saved set as done (green)
     const doneExercises = new Set((savedSets || []).map(s => s.exercise));
     doneExercises.forEach(exName => {
@@ -2403,6 +2412,10 @@ function saveDraft(sessionId) {
     sets: {},
     notes: document.getElementById('workout-notes')?.value || '',
     pendingRest: pendingRest,   // persist rest times too, so they survive reload
+    // The toggle is the only record of which variation today's sets belong to until Mark Done writes
+    // them. Without this a refresh snapped it back to last session's variation and the rest of the
+    // workout saved under the wrong one.
+    variations: { ...selectedVariations },
     timestamp: Date.now()
   };
   selectedSession.exercises.forEach(ex => {
@@ -2442,13 +2455,16 @@ function saveDraft(sessionId) {
   localStorage.setItem('workout_draft', JSON.stringify(draft));
 }
 
+// Returns the variations it restored (`{}` if none), so buildWorkoutLogger knows which exercises
+// still need one recovering from their already-saved sets.
 function restoreDraft(session) {
+  const restoredVariations = {};
   try {
     const raw = localStorage.getItem('workout_draft');
-    if (!raw) return;
+    if (!raw) return restoredVariations;
     const draft = JSON.parse(raw);
-    if (draft.sessionId !== session.id) return;
-    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) { localStorage.removeItem('workout_draft'); return; }  // Expire drafts after 24hrs
+    if (draft.sessionId !== session.id) return restoredVariations;
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) { localStorage.removeItem('workout_draft'); return restoredVariations; }  // Expire drafts after 24hrs
     session.exercises.forEach(ex => {
       for (let i = 1; i <= ex.sets; i++) {
         const key = `${ex.name}-${i}`;
@@ -2476,15 +2492,33 @@ function restoreDraft(session) {
         });
       });
     }
+
+    // Re-select the variation toggles. Last, because applyVariation() repaints the prev badges for
+    // the chosen variation and must not be undone by anything above it.
+    Object.entries(draft.variations || {}).forEach(([exName, v]) => {
+      if (v && applyVariation(exName, v)) restoredVariations[exName] = v;
+    });
   } catch(e) {}
+  return restoredVariations;
 }
 
-function selectVariation(exName, variation, btn) {
-  selectedVariations[exName] = variation;
-  btn.parentElement.querySelectorAll('.var-btn').forEach(b => b.classList.remove('selected'));
-  btn.classList.add('selected');
+// Applies a variation to `selectedVariations` and to the UI: the toggle highlight, the band weight
+// labels and the per-set prev badges. Split out of selectVariation() because a refresh/resume has to
+// re-select the variation that was actually logged, and there is no click event to hang that off —
+// renderExerciseBlock has by then reset every toggle to *last session's* variation. Getting that
+// wrong writes sets under the wrong variation, which is the key History's deltas and PRs use.
+// Returns false if the variation isn't one this exercise offers (e.g. renamed since it was logged).
+function applyVariation(exName, variation) {
   const ex = selectedSession?.exercises.find(e => e.name === exName);
-  if (!ex) return;
+  if (!ex || !ex.variations || !ex.variations.includes(variation)) return false;
+  selectedVariations[exName] = variation;
+
+  // Matched by index rather than by button text: the label is esc()'d in the HTML, so comparing
+  // rendered text against the raw variation name would miss on anything with a metacharacter.
+  const idx = ex.variations.indexOf(variation);
+  const btns = document.getElementById(`block-${exName}`)?.querySelectorAll('.variation-toggle .var-btn');
+  if (btns) btns.forEach((b, i) => b.classList.toggle('selected', i === idx));
+
   if (ex.band) {
     for (let i = 1; i <= ex.sets; i++) {
       const wEl = document.getElementById(`w-${exName}-${i}`);
@@ -2505,6 +2539,14 @@ function selectVariation(exName, variation, btn) {
       if (badge) badge.textContent = setValueLabel(ex, set);
     }
   }
+  return true;
+}
+
+// The onclick on every variation button. Saves the draft as well as applying the choice — otherwise
+// toggling a variation and then refreshing without typing anything loses the toggle.
+function selectVariation(exName, variation) {
+  if (!applyVariation(exName, variation)) return;
+  if (selectedSession) saveDraft(selectedSession.id);
 }
 
 // ─── COMPLETE EXERCISE ────────────────────────────────────

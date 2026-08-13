@@ -56,15 +56,20 @@ function sliceDeclaration(src, name) {
 
 // names: function names to lift out. decls: top-level let/const names they close over.
 // deps: an object of stubs (fetch, showToast, …) made visible to the extracted code.
-function load({ functions = [], decls = [], deps = {} }) {
+// accessors: `{ name: 'arrow function source' }`, evaluated *inside* the extracted scope and returned
+//   alongside the functions. This is how a test reads or sets a lifted `let` — `selectedVariations`
+//   and friends are closed-over bindings, so handing back a snapshot would go stale the moment the
+//   code under test reassigns one. e.g. `{ state: '() => ({ selectedVariations })' }`.
+function load({ functions = [], decls = [], deps = {}, accessors = {} }) {
   const src = fs.readFileSync(APP, 'utf8');
   const body = [
     ...decls.map(d => sliceDeclaration(src, d)),
     ...functions.map(f => sliceFunction(src, f)),
   ].join('\n\n');
 
+  const returned = [...functions, ...Object.entries(accessors).map(([k, v]) => `${k}: (${v})`)];
   const depNames = Object.keys(deps);
-  const factory = new Function(...depNames, `${body}\nreturn { ${functions.join(', ')} };`);
+  const factory = new Function(...depNames, `${body}\nreturn { ${returned.join(', ')} };`);
   return factory(...depNames.map(n => deps[n]));
 }
 
