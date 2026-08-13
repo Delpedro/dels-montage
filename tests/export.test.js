@@ -109,10 +109,11 @@ console.log('data export');
     'half past midnight is still today, not yesterday');
 }
 
-// ── 4. the export list and the backup script agree ─────────────────────────
-// A new table added to one and not the other silently isn't backed up by that route. This asserts
-// the app's list against tools/backup.js's, so the drift is caught here rather than discovered when
-// a restore is needed.
+// ── 4. nothing quietly drops a table ───────────────────────────────────────
+// This used to compare the app's EXPORT_TABLES against a hardcoded TABLES array in tools/backup.js.
+// That array is gone (13 Aug 2026) — the backup now asks the database which tables exist, so it
+// cannot drift by definition. **The in-app export is the only one of the two that still can**, so
+// that is what this pins.
 {
   const fs = require('fs');
   const path = require('path');
@@ -120,12 +121,30 @@ console.log('data export');
     decls: ['EXPORT_TABLES'],
     accessors: { activities: '() => EXPORT_TABLES' },
   });
-  const backupSrc = fs.readFileSync(path.join(__dirname, '..', 'tools', 'backup.js'), 'utf8');
-  const backupList = backupSrc.match(/const TABLES = \[([\s\S]*?)\]/)[1]
-    .split(',').map(s => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
 
-  eq([...exportTables()].sort().join(','), [...backupList].sort().join(','),
-    'the in-app export and tools/backup.js cover exactly the same tables');
+  // The public schema as of 13 Aug 2026, verified against pg_tables the day the backup was rewritten.
+  // Adding a table means adding it here and to EXPORT_TABLES. tools/backup.js needs nothing.
+  const KNOWN_TABLES = [
+    'cardio_logs', 'conditioning_logs', 'custom_exercises', 'daily_logs', 'goals',
+    'quotes', 'session_exercises', 'session_templates', 'workout_sets', 'workouts',
+  ];
+
+  eq([...exportTables()].sort().join(','), [...KNOWN_TABLES].sort().join(','),
+    'the in-app export covers every table in the schema');
+
+  // The enumeration is the whole reason the backup is drift-proof. If someone reintroduces a
+  // hardcoded list, that guarantee is gone silently — so fail here instead.
+  const backupSrc = fs.readFileSync(path.join(__dirname, '..', 'tools', 'backup.js'), 'utf8');
+  ok(/from pg_tables where schemaname = 'public'/.test(backupSrc),
+    'tools/backup.js still enumerates its tables from the schema');
+  ok(!/const TABLES = \[/.test(backupSrc),
+    'tools/backup.js has not grown a hardcoded table list again');
+
+  // A backup tool that can write is a backup tool that can destroy what it is backing up. --linked
+  // runs privileged, so this is the only thing standing between a typo and the live database.
+  ok(!/\b(insert into|update |delete from|drop |alter |truncate )/i.test(
+    backupSrc.replace(/^\s*\/\/.*$/gm, '')),
+    'tools/backup.js contains no statement that could write to the database');
 }
 
 process.on('exit', () => {

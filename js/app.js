@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1808';
+const APP_BUILD = '2026-08-13-1838';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -655,8 +655,9 @@ async function savePassword() {
 // (that one runs unattended, which is the point of it), but it means a backup is never more than a
 // tap away.
 //
-// Same table list as tools/backup.js. **A new table has to be added in both places or it silently
-// isn't in either.**
+// **A new table has to be added here or it silently isn't in the export.** tools/backup.js used to
+// carry a matching list and now enumerates the schema instead, so it needs nothing — this is the
+// only one of the two backup routes that can still fall behind. A test pins it against the schema.
 const EXPORT_TABLES = [
   'workouts', 'workout_sets', 'cardio_logs', 'conditioning_logs', 'daily_logs',
   'goals', 'custom_exercises', 'session_templates', 'session_exercises', 'quotes',

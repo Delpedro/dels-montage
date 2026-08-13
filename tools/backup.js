@@ -8,106 +8,82 @@
 // USAGE
 //   node tools/backup.js
 //
-// CREDENTIALS — never hardcoded, never printed. Either:
-//   set DLOG_EMAIL / DLOG_PASSWORD as environment variables, or
-//   create .backup-credentials.json in the project root (gitignored):
-//     { "email": "...", "password": "..." }
-//   The password is the D-LOG login (Del's, in 1Password). It reads through the same per-user RLS
-//   policies as the app, so this backs up exactly what the logged-in user can see — no service_role
-//   key involved, nothing with more power than the app itself.
+// NO CREDENTIALS. NOWHERE. THAT IS THE POINT OF THIS DESIGN.
+// It shells out to `supabase db query --linked`, which authenticates with the Supabase CLI token
+// already sitting in Del's user profile from when the project was linked. No password, no prompt,
+// no Docker, no env vars, no gitignored secrets file. Nothing here is usable by anyone who isn't
+// already sitting at this PC — unlike a stored password, which works from anywhere on earth the
+// moment the file holding it leaks. Rotate/revoke it from the Supabase dashboard if it ever needs
+// killing.
+//
+// THE ONE CAVEAT, STATED HONESTLY RATHER THAN BURIED: `--linked` runs as a privileged role, so it
+// bypasses RLS and can read (and would happily write) anything. For a single-user app it returns
+// the same rows the app would either way, but it means **this script must only ever SELECT.** If
+// you are editing it and you are about to type UPDATE, DELETE, INSERT, DROP or ALTER — don't. A
+// backup tool has no business writing to the thing it is backing up.
 //
 // SAFETY: dumps land in .backup/, which is gitignored. Do not move them into the repo — it is
 // public, and these files are the whole database.
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
-// Read the project URL and publishable key out of js/app.js rather than repeating them here — one
-// source of truth, so rotating the key can't leave the backup silently pointing at the old project.
-const APP_SRC = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
-function appConst(name) {
-  const m = APP_SRC.match(new RegExp(`^const ${name} = '([^']+)';`, 'm'));
-  if (!m) throw new Error(`backup: ${name} not found in js/app.js`);
-  return m[1];
-}
-const SUPABASE_URL = appConst('SUPABASE_URL');
-const SUPABASE_KEY = appConst('SUPABASE_KEY');
+const ROOT = path.join(__dirname, '..');
 
-// Every table the app owns. A table missing from this list is silently not backed up, so it belongs
-// in the same mental checklist as the RLS trap in CURRENT_STATUS.md → Traps: **new table => add it
-// here as well as giving it a user_id policy.**
-const TABLES = [
-  'workouts',
-  'workout_sets',
-  'cardio_logs',
-  'conditioning_logs',
-  'daily_logs',
-  'goals',
-  'custom_exercises',
-  'session_templates',
-  'session_exercises',
-  'quotes',
-];
+// The whole public schema is 10 tables as of Aug 2026 and every one of them holds something the app
+// can't be rebuilt without. Anything lower means the enumeration query half-worked, which would
+// otherwise write a confident-looking backup that is quietly missing tables.
+const MIN_TABLES = 10;
 
 // Tables that are expected to be non-empty. If one of these comes back empty the dump is almost
 // certainly a failure being written to disk as a success, which is worse than no backup at all —
 // it would quietly overwrite the reason to worry. Exit non-zero so a scheduled task reports it.
 const MUST_HAVE_ROWS = ['workouts', 'workout_sets', 'daily_logs'];
 
-const ROOT = path.join(__dirname, '..');
-
-function credentials() {
-  if (process.env.DLOG_EMAIL && process.env.DLOG_PASSWORD) {
-    return { email: process.env.DLOG_EMAIL, password: process.env.DLOG_PASSWORD };
+// `--agent no` is load-bearing: run under an AI agent the CLI wraps its JSON in an "untrusted data"
+// envelope, and the parse below would fall over. Pinning it keeps the output shape the same however
+// this gets invoked. `-o json` is today's default but is pinned for the same reason.
+function query(sql) {
+  let out;
+  try {
+    out = execFileSync(
+      'supabase',
+      ['db', 'query', '--linked', '--agent', 'no', '-o', 'json', sql],
+      { cwd: ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+  } catch (e) {
+    // stderr carries the real reason (not linked, token expired, no network). The version-update
+    // nag also lives there, which is why it is only surfaced when something has actually failed.
+    const why = (e.stderr || '').trim() || e.message;
+    throw new Error(why.split('\n').slice(0, 3).join(' '));
   }
-  const file = path.join(ROOT, '.backup-credentials.json');
-  if (fs.existsSync(file)) {
-    const { email, password } = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (email && password) return { email, password };
-  }
-  console.error(
-    'No credentials. Set DLOG_EMAIL and DLOG_PASSWORD, or create .backup-credentials.json\n' +
-    '(gitignored) in the project root: { "email": "...", "password": "..." }'
-  );
-  process.exit(2);
-}
-
-async function login({ email, password }) {
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    // Deliberately does not echo the response body — it can contain the submitted email.
-    console.error(`Login failed (${res.status}). Check the credentials.`);
-    process.exit(2);
-  }
-  return (await res.json()).access_token;
-}
-
-// PostgREST caps a plain select; page through so a big table can't be silently truncated.
-async function dumpTable(token, table) {
-  const PAGE = 1000;
-  const rows = [];
-  for (let from = 0; ; from += PAGE) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${token}`,
-        'Range-Unit': 'items',
-        'Range': `${from}-${from + PAGE - 1}`,
-      },
-    });
-    if (!res.ok && res.status !== 206) throw new Error(`${table}: HTTP ${res.status}`);
-    const page = await res.json();
-    rows.push(...page);
-    if (page.length < PAGE) return rows;
+  try {
+    return JSON.parse(out);
+  } catch (e) {
+    throw new Error(`unparseable response (${out.length} bytes) — did the CLI output format change?`);
   }
 }
 
 (async () => {
-  const token = await login(credentials());
+  // Enumerated from the schema, never from a hardcoded list. A hardcoded list is the same trap as
+  // the RLS checklist: it works until the day someone adds a table and forgets, and then the backup
+  // silently stops covering the new thing while still reporting success.
+  let tables;
+  try {
+    tables = query("select tablename from pg_tables where schemaname = 'public' order by tablename")
+      .map(r => r.tablename);
+  } catch (e) {
+    console.error(`Could not list the tables: ${e.message}`);
+    console.error('If this says the project is not linked, run: supabase link');
+    process.exit(2);
+  }
+
+  if (tables.length < MIN_TABLES) {
+    console.error(`Only ${tables.length} tables found, expected at least ${MIN_TABLES}.`);
+    console.error('Refusing to write a backup that is probably incomplete.');
+    process.exit(2);
+  }
 
   // YYYYMMDD-HHMMSS, matching the hand-made 13 Aug snapshot so they sort together.
   const stamp = new Date().toISOString()
@@ -118,18 +94,36 @@ async function dumpTable(token, table) {
   const counts = {};
   const problems = [];
 
-  for (const table of TABLES) {
+  for (const table of tables) {
     try {
-      const rows = await dumpTable(token, table);
-      fs.writeFileSync(path.join(dir, `${table}.json`), JSON.stringify(rows, null, 2));
-      counts[table] = rows.length;
+      // count(*) first, then the rows, then check they agree. This is the truncation guard: the CLI
+      // returns a whole table in one response, so there is no paging to get wrong, but "the file has
+      // fewer rows than the database" is exactly the failure that must never pass silently.
+      const expected = Number(query(`select count(*) as n from public."${table}"`)[0].n);
+      const rows = query(`select * from public."${table}"`);
+
+      if (rows.length !== expected) {
+        problems.push(`${table}: got ${rows.length} rows, database says ${expected} — TRUNCATED`);
+        continue;
+      }
       if (rows.length === 0 && MUST_HAVE_ROWS.includes(table)) {
         problems.push(`${table} came back EMPTY — this dump is not trustworthy`);
+        continue;
       }
+
+      fs.writeFileSync(path.join(dir, `${table}.json`), JSON.stringify(rows, null, 2));
+      counts[table] = rows.length;
     } catch (e) {
       problems.push(`${table}: ${e.message}`);
     }
   }
+
+  // Written last, so its presence is itself the signal that the run got to the end. A .backup folder
+  // with no manifest is a failed run, whatever else is sitting in it.
+  fs.writeFileSync(
+    path.join(dir, '_backup-manifest.json'),
+    JSON.stringify({ taken: new Date().toISOString(), tables: counts, problems }, null, 2)
+  );
 
   console.log(`Backup → .backup/${stamp}`);
   for (const [table, n] of Object.entries(counts)) console.log(`  ${String(n).padStart(6)}  ${table}`);
@@ -139,5 +133,5 @@ async function dumpTable(token, table) {
     problems.forEach(p => console.error(`  ${p}`));
     process.exit(1);
   }
-  console.log('\nAll tables dumped.');
+  console.log(`\nAll ${tables.length} tables dumped.`);
 })();
