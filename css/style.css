@@ -131,6 +131,12 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
    goes green like every other completed day. Before this, today never showed as done. */
 .week-day.today.done .wd-dot { background: var(--green); }
 
+/* The overdue-backup line on Home. Hidden by default and shown by renderBackupPrompt(), so a stale
+   cache or a JS failure leaves no empty box behind. Amber, not red: nothing is broken yet. */
+.backup-nudge { display: none; align-items: center; gap: 8px; margin-bottom: 0.875rem; padding: 10px 12px; background: rgba(240,160,80,0.1); border: 1px solid var(--amber); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--amber); cursor: pointer; }
+.backup-nudge::before { content: '⤓'; font-size: 15px; }
+.backup-nudge:active { background: rgba(240,160,80,0.2); }
+
 .history-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
 .history-date { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
 .history-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 5px; }

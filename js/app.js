@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1850';
+const APP_BUILD = '2026-08-13-1900';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -754,6 +754,8 @@ async function exportAllData() {
 
     const how = await deliverExport(json, filename);
     if (how === 'cancelled') return;
+    markBackupDone();
+    renderBackupPrompt();
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     showToast(`Exported ${total.toLocaleString()} rows`, 'success');
   } catch (e) {
@@ -762,6 +764,60 @@ async function exportAllData() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Export my data'; }
   }
+}
+
+// ─── BACKUP REMINDER ──────────────────────────────────────
+// The phone half of the backup answer. tools/backup.js only runs when the PC is on, so a fortnight
+// away from it is a fortnight with the training history in exactly one place — a free-tier database
+// with no automated backups. This is the part that doesn't depend on Del's PC being awake: Home says
+// how long it's been and the line itself is the button.
+//
+// Deliberately localStorage and not the database: it's a per-device nag about a per-device action,
+// it must work with no network, and a backup reminder that needs a successful read to appear would
+// be silent in exactly the situation worth worrying about. Losing it (new phone, cleared storage)
+// makes the app ask for a backup one extra time, which is the harmless direction to fail in.
+const BACKUP_STORE = 'dlog_last_backup';
+const BACKUP_STALE_DAYS = 7;
+
+// Whole calendar days between two dates, local time. Not `(b - a) / 86400000` on the raw timestamps:
+// an export at 22:00 and a check at 09:00 nine days later is 8.5 raw days, and "8 days ago" for
+// something that happened on the 9th preceding date is the wrong number to put in front of someone.
+// Rounding after flattening to local midnight also absorbs the 23- and 25-hour days at the DST
+// boundaries.
+function daysSince(iso, now = new Date()) {
+  const then = new Date(iso);
+  if (!iso || isNaN(then.getTime())) return null;
+  const a = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((b - a) / 86400000);
+}
+
+// Pure, so the wording and the threshold are testable without a DOM. null = say nothing.
+// A date in the future (a phone clock that's wrong, or one that was wrong when the export ran) reads
+// as fresh rather than as a nag with a negative number in it.
+function backupPromptText(lastIso, now = new Date()) {
+  const days = daysSince(lastIso, now);
+  if (days === null) return 'No backup yet — tap to save a copy of your training history';
+  if (days < BACKUP_STALE_DAYS) return null;
+  return `Last backup ${days} days ago — back up now`;
+}
+
+function readLastBackup() {
+  try { return localStorage.getItem(BACKUP_STORE); } catch (e) { return null; }
+}
+
+// Only ever called after a file has actually been handed over — a cancelled share sheet or a failed
+// read must not reset the clock, or the reminder starts lying about a backup that doesn't exist.
+function markBackupDone(when = new Date()) {
+  try { localStorage.setItem(BACKUP_STORE, when.toISOString()); } catch (e) {}
+}
+
+function renderBackupPrompt() {
+  const el = document.getElementById('backup-nudge');
+  if (!el) return;
+  const text = backupPromptText(readLastBackup());
+  el.textContent = text || '';
+  el.style.display = text ? 'flex' : 'none';
 }
 
 let lastTypedSet = null;
@@ -1013,6 +1069,11 @@ async function loadHomePage() {
 
   const buildTag = document.getElementById('build-tag');
   if (buildTag) buildTag.textContent = `build ${APP_BUILD}`;
+
+  // Before the awaits below — this one needs no network, so it still appears on gym Wi-Fi that
+  // can't reach Supabase, which is the trip most likely to be far from the PC that runs the other
+  // half of the backup.
+  renderBackupPrompt();
 
   const [latest, todayLog, weekWorkouts] = await Promise.all([
     sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),

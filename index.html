@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-13-1850">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-13-1900">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -81,6 +81,8 @@
       </div>
     </div>
     <div class="week-strip" id="home-week-strip"></div>
+    <!-- Only visible when the last export is over a week old. The whole line is the button. -->
+    <div class="backup-nudge" id="backup-nudge" onclick="exportAllData()"></div>
     <div class="landing-actions">
       <div class="landing-btn primary" onclick="showPage('today')">
         <div class="landing-btn-icon">📋</div>
@@ -490,6 +492,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-13-1850"></script>
+<script src="js/app.js?v=2026-08-13-1900"></script>
 </body>
 </html>
