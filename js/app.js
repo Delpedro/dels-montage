@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1419';
+const APP_BUILD = '2026-08-13-1448';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -267,9 +267,23 @@ function sbHeaders(token, method) {
   };
 }
 
-// `opts.quiet` suppresses the generic write-failure toast below — pass it when the caller reports
-// the failure itself with a more specific message, or when the write is background housekeeping the
-// user shouldn't be told about.
+// A dead connection makes fetch() *throw* rather than return a failed response, so every network
+// error has to be caught before the .ok checks below are ever reached. netFail() is the single place
+// that decides what the user is told. It throttles because one screen fires several requests — an
+// offline History load would otherwise re-fire the same toast four times in a row.
+let lastNetToastAt = 0;
+function netFail(what, path, err) {
+  console.error(`sb() ${what} network failure: ${path}`, err);
+  const now = Date.now();
+  if (now - lastNetToastAt < 4000) return;
+  lastNetToastAt = now;
+  showToast(what === 'GET' ? "No signal — couldn't load" : 'No signal — NOT saved', 'error');
+}
+
+// `opts.quiet` suppresses the generic failure toast below — pass it when the caller reports the
+// failure itself with a more specific message, or when the request is background housekeeping the
+// user shouldn't be told about. It suppresses the offline toast too: a write the user never asked
+// for shouldn't announce that the gym has no signal.
 async function sb(path, method = 'GET', body = null, { quiet = false } = {}) {
   const opts = { method };
   if (body) opts.body = JSON.stringify(body);
@@ -282,22 +296,35 @@ async function sb(path, method = 'GET', body = null, { quiet = false } = {}) {
   }
 
   opts.headers = sbHeaders(token, method);
-  let res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
 
-  // A 401 here means PostgREST rejected the JWT even though we thought it was live — clock skew,
-  // a password change on another device, or a token revoked server-side. Refresh once and retry
-  // before treating it as a real failure, so a token expiring mid-save doesn't lose the save.
-  if (res.status === 401) {
-    const fresh = await refreshSession(true);
-    if (fresh) {
-      opts.headers = sbHeaders(fresh, method);
-      res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+    // A 401 here means PostgREST rejected the JWT even though we thought it was live — clock skew,
+    // a password change on another device, or a token revoked server-side. Refresh once and retry
+    // before treating it as a real failure, so a token expiring mid-save doesn't lose the save.
+    if (res.status === 401) {
+      const fresh = await refreshSession(true);
+      if (fresh) {
+        opts.headers = sbHeaders(fresh, method);
+        res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+      }
     }
+  } catch (e) {
+    // Offline, DNS gone, Supabase unreachable, request aborted. Return the same shapes a failed
+    // request returns so no caller has to know the difference: [] for a read, a not-ok Response for
+    // a write. 503 rather than 0 because Response rejects a status outside 200–599.
+    if (!quiet) netFail(method, path, e);
+    return method === 'GET' ? [] : new Response(null, { status: 503 });
   }
 
   if (method === 'GET') {
     if (!res.ok) {
+      // A failed read used to return [] in silence, which renders as "you have no data" — the
+      // read-side twin of the write bug that lost the July cardio. The [] stays (callers do
+      // (rows || []).forEach and must not throw), but it is no longer silent.
       console.error(`sb() GET failed (${res.status}): ${path}`);
+      if (!quiet) showToast(`Couldn't load (${res.status})`, 'error');
       return [];
     }
     return res.json();
@@ -326,13 +353,22 @@ async function createWorkoutRow(sessionId) {
   const token = await validAccessToken();
   if (!token) { forceLogout('Session expired — log in again'); return null; }
 
-  let res = await send(token);
-  if (res.status === 401) {
-    const fresh = await refreshSession(true);
-    if (!fresh) return null;
-    res = await send(fresh);
+  let res;
+  try {
+    res = await send(token);
+    if (res.status === 401) {
+      const fresh = await refreshSession(true);
+      if (!fresh) return null;
+      res = await send(fresh);
+    }
+  } catch (e) {
+    // Offline. Before this catch existed the exception escaped the whole call chain, so tapping a
+    // session tile in a basement gym did nothing at all — no error, no session, no explanation.
+    // Deliberately silent here: every caller that matters already toasts on a null return, and
+    // toasting twice would just overwrite the better message with a worse one.
+    console.error('createWorkoutRow network failure', e);
+    return null;
   }
-  if (!res.ok) return null;
   const rows = await res.json();
   return rows[0]?.id ?? null;
 }

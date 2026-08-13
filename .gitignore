@@ -5,4 +5,5 @@ package-lock.json
 .claude/
 TDLR.md
 .backup/
+.backup-credentials.json
 SECRET_FIRST_LOGIN.txt

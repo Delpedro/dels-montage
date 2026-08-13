@@ -3,7 +3,9 @@
     "HOW TO USE:",
     "  Install dependencies (first time only): npm install",
     "  Run dev server (live reload):           npm start",
-    "  Site runs at:                           http://localhost:8080  (live-server default)"
+    "  Site runs at:                           http://localhost:8080  (live-server default)",
+    "Run the tests (no deps, plain node):    npm test",
+    "Run a single test file:                 node tests/sb-offline.test.js"
   ],
   "name": "fitness",
   "version": "1.0.0",
@@ -11,7 +13,7 @@
   "main": "index.js",
   "scripts": {
     "start": "live-server",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node tests/run-all.js"
   },
   "repository": {
     "type": "git",
