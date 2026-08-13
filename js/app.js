@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1838';
+const APP_BUILD = '2026-08-13-1850';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -699,8 +699,13 @@ function exportFilename(now = new Date()) {
 // and a plain <a download> inside a standalone web app often does nothing visible. Falls back to the
 // download link on desktop, and also if share() refuses — Safari can reject it when the user gesture
 // has been "spent" by the awaits above, which is exactly what happens here.
+// `charset=utf-8` is declared on both the File and the Blob. The bytes were always correct — the
+// Blob constructor encodes strings as UTF-8 regardless — but without the declaration a viewer is
+// free to guess, and Windows editors guess ANSI, which renders every smart quote in Del's notes as
+// mojibake ("I’d" → "Iâ€™d"). Nothing would be wrong with the file; it would just *look* like the
+// history had been corrupted, and this project has already lost an hour to exactly that panic.
 async function deliverExport(json, filename) {
-  const file = new File([json], filename, { type: 'application/json' });
+  const file = new File([json], filename, { type: 'application/json;charset=utf-8' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: 'D-LOG export' });
@@ -709,7 +714,7 @@ async function deliverExport(json, filename) {
       if (e && e.name === 'AbortError') return 'cancelled';   // user tapped away; not a failure
     }
   }
-  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json;charset=utf-8' }));
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
