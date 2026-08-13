@@ -26,7 +26,9 @@ begin;
 do $$
 declare
   t text;
-  owner_id uuid := (select id from auth.users where email = 'delpeter@gmail.com');
+  -- Looked up by id, not by email: this file is in a public repo and an email address here
+  -- would hand a reader the login identity for the app. The uuid grants nothing on its own.
+  owner_id uuid := (select id from auth.users where id = '10575e31-6c18-4d95-8f71-8fff682d29ef');
   tables text[] := array[
     'workouts', 'workout_sets', 'daily_logs', 'cardio_logs', 'conditioning_logs',
     'custom_exercises', 'session_templates', 'session_exercises', 'goals'
@@ -34,7 +36,7 @@ declare
 begin
   -- Fail loudly rather than backfilling NULLs and then failing the NOT NULL halfway through.
   if owner_id is null then
-    raise exception 'No auth.users row for delpeter@gmail.com — create the account before running this';
+    raise exception 'No auth.users row for the owner id — create the account before running this';
   end if;
 
   foreach t in array tables loop
