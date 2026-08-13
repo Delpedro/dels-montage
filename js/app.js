@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-12-1215';
+const APP_BUILD = '2026-08-13-1407';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -221,11 +221,15 @@ let currentWorkoutHasSets = false;
 let lastCompletedExercise = null;
 
 // ─── HTML ESCAPING ────────────────────────────────────────
-// This app renders everything by interpolating strings into innerHTML, and the database is writable
-// by anyone holding the publishable key (see the Phase 2 auth item in CURRENT_STATUS.md). So an
-// exercise name, a session name or a check-in note is untrusted input even though only one person
-// types into this app: a row written straight to the REST API with a name like
-// `<img src=x onerror=…>` would execute here on the next load.
+// This app renders everything by interpolating strings into innerHTML, so an exercise name, a
+// session name or a check-in note is untrusted input: a row containing `<img src=x onerror=…>`
+// would execute here on the next load.
+//
+// When this was written (11 Aug) the database was writable by anyone holding the publishable key,
+// which made it a live stored-XSS chain rather than self-XSS. That hole is closed as of 13 Aug
+// (see the auth section below) — but none of this comes out. Escaping and access control are
+// different defences: one stops data executing, the other stops it being written. The app needs
+// both, and the escaping is what still holds if a second user is ever added.
 //
 // The rule: escape at the point a value is interpolated into HTML, not inside the helper that
 // produced it — helpers like setValueLabel() are also used with .textContent, where escaping would
@@ -251,21 +255,46 @@ function jsAttr(v) {
 }
 
 // ─── SUPABASE ─────────────────────────────────────────────
+// Every request carries the logged-in user's JWT, not the publishable key. Since 13 Aug 2026 the
+// key on its own opens nothing: `anon` has no grant on any table, and every policy is
+// `user_id = auth.uid()` for the `authenticated` role only. See the auth section below.
+function sbHeaders(token, method) {
+  return {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'Prefer': method === 'POST' ? 'return=minimal' : ''
+  };
+}
+
 // `opts.quiet` suppresses the generic write-failure toast below — pass it when the caller reports
 // the failure itself with a more specific message, or when the write is background housekeeping the
 // user shouldn't be told about.
 async function sb(path, method = 'GET', body = null, { quiet = false } = {}) {
-  const opts = {
-    method,
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': method === 'POST' ? 'return=minimal' : ''
-    }
-  };
+  const opts = { method };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+
+  const token = await validAccessToken();
+  if (!token) {
+    // No usable session at all. Don't fire a request that can only 401 — sign out cleanly instead.
+    forceLogout('Session expired — log in again');
+    return method === 'GET' ? [] : new Response(null, { status: 401 });
+  }
+
+  opts.headers = sbHeaders(token, method);
+  let res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+
+  // A 401 here means PostgREST rejected the JWT even though we thought it was live — clock skew,
+  // a password change on another device, or a token revoked server-side. Refresh once and retry
+  // before treating it as a real failure, so a token expiring mid-save doesn't lose the save.
+  if (res.status === 401) {
+    const fresh = await refreshSession(true);
+    if (fresh) {
+      opts.headers = sbHeaders(fresh, method);
+      res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+    }
+  }
+
   if (method === 'GET') {
     if (!res.ok) {
       console.error(`sb() GET failed (${res.status}): ${path}`);
@@ -284,78 +313,198 @@ async function sb(path, method = 'GET', body = null, { quiet = false } = {}) {
   return res;
 }
 
+// Needs the inserted row back (for its id), so it can't use sb()'s `return=minimal` POST — but it
+// still goes through the same token + 401-retry path rather than hand-rolling headers.
 async function createWorkoutRow(sessionId) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/workouts`, {
+  const body = JSON.stringify({ date: todayStr(), session_type: sessionId, notes: '' });
+  const send = (token) => fetch(`${SUPABASE_URL}/rest/v1/workouts`, {
     method: 'POST',
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'return=representation'
-    },
-    body: JSON.stringify({ date: todayStr(), session_type: sessionId, notes: '' })
+    headers: { ...sbHeaders(token, 'POST'), 'Prefer': 'return=representation' },
+    body
   });
+
+  const token = await validAccessToken();
+  if (!token) { forceLogout('Session expired — log in again'); return null; }
+
+  let res = await send(token);
+  if (res.status === 401) {
+    const fresh = await refreshSession(true);
+    if (!fresh) return null;
+    res = await send(fresh);
+  }
   if (!res.ok) return null;
   const rows = await res.json();
   return rows[0]?.id ?? null;
 }
 
 // ─── AUTH ─────────────────────────────────────────────────
-async function sha256(str) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+// Supabase Auth (GoTrue), talked to over plain fetch — no SDK, because this app has no build step.
+//
+// What this replaced, 13 Aug 2026: the login screen used to check a client-side SHA-256 of the
+// password against an app_user table, then set `sessionStorage.del_auth = '1'`. That flag WAS the
+// security model — anyone could type it into devtools — and it protected nothing anyway, because
+// every table was readable and writable by the publishable key alone. Now the password is checked
+// by GoTrue, the app holds a short-lived JWT, and the JWT is the only thing the database accepts.
+//
+// Tokens live in localStorage, not sessionStorage: the access token expires in an hour and is
+// refreshed automatically, so a session that survives the phone killing the PWA's web view is the
+// point. sessionStorage would have meant logging in again every time iOS discarded the app.
+const AUTH_STORE = 'dlog_session';
+let authSession = null;      // { access_token, refresh_token, expires_at (ms), email }
+let refreshInFlight = null;  // dedupes concurrent refreshes — initApp fires many requests at once
+
+function storeSession(tok) {
+  authSession = {
+    access_token: tok.access_token,
+    refresh_token: tok.refresh_token,
+    // Trust expires_in over the server's expires_at: it's a duration, so a phone with a wrong
+    // clock still refreshes on time relative to its own Date.now().
+    expires_at: Date.now() + (tok.expires_in ?? 3600) * 1000,
+    email: tok.user?.email ?? authSession?.email ?? ''
+  };
+  localStorage.setItem(AUTH_STORE, JSON.stringify(authSession));
+  return authSession;
+}
+
+function loadStoredSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORE);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return s?.refresh_token ? s : null;
+  } catch (e) { return null; }
+}
+
+function clearSession() {
+  authSession = null;
+  localStorage.removeItem(AUTH_STORE);
+}
+
+// Returns a token that should be accepted, refreshing first if it's close to expiry.
+// The 60s margin covers a request that's in flight as the clock ticks over.
+async function validAccessToken() {
+  if (!authSession) authSession = loadStoredSession();
+  if (!authSession) return null;
+  if (Date.now() < authSession.expires_at - 60000) return authSession.access_token;
+  return refreshSession();
+}
+
+// The offline case is the one that matters here: in a gym basement with no signal this throws, and
+// the right answer is to hand back the token we already have and let the actual request fail with a
+// network error. Being bounced to a login screen you have no connection to reach is far worse than
+// a failed save you can retry. Only a 4xx — a genuine "this refresh token is dead" from GoTrue —
+// ends the session.
+async function refreshSession(force = false) {
+  if (!authSession?.refresh_token) return null;
+  if (!force && Date.now() < authSession.expires_at - 60000) return authSession.access_token;
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: authSession.refresh_token })
+      });
+      if (res.ok) return storeSession(await res.json()).access_token;
+      if (res.status >= 400 && res.status < 500) {
+        forceLogout('Session expired — log in again');
+        return null;
+      }
+      return authSession?.access_token ?? null;   // 5xx: Supabase blip, keep going
+    } catch (e) {
+      return authSession?.access_token ?? null;   // offline
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
 }
 
 async function handleLogin() {
   const email = document.getElementById('login-email').value.trim();
   const pw = document.getElementById('login-password').value;
+  const err = document.getElementById('login-error');
   if (!email || !pw) return;
-  const hash = await sha256(pw);
-  // Verified server-side via the login() RPC (SECURITY DEFINER) — app_user itself has no
-  // anon-readable policy, so credentials can't be dumped directly via the REST API.
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/login`, {
-    method: 'POST',
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ p_email: email, p_password_hash: hash })
-  });
-  const ok = res.ok && await res.json();
-  if (ok) {
-    sessionStorage.setItem('del_auth', '1');
-    sessionStorage.setItem('del_page', 'home');
-    document.documentElement.classList.remove('login-active');
-    window.scrollTo(0, 0);
-    await new Promise(r => requestAnimationFrame(r));
-    await new Promise(r => requestAnimationFrame(r));
-    document.getElementById('login-screen').style.display = 'none';
-    initApp();
-  } else {
-    document.getElementById('login-error').style.display = 'block';
+
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pw })
+    });
+  } catch (e) {
+    // Worth telling apart from a wrong password — otherwise a dead connection reads as
+    // "I've forgotten my own password" and you retype it five times.
+    err.textContent = "Can't reach the server — check your connection";
+    err.style.display = 'block';
+    return;
   }
+
+  if (!res.ok) {
+    err.textContent = res.status === 400 ? 'Wrong email or password' : `Login failed (${res.status})`;
+    err.style.display = 'block';
+    return;
+  }
+
+  storeSession(await res.json());
+  err.style.display = 'none';
+  document.getElementById('login-password').value = '';
+  sessionStorage.setItem('del_page', 'home');
+  await enterApp('home');
 }
 
-function handleLogout() {
-  sessionStorage.clear();
-  localStorage.removeItem('workout_draft');  // Clear any mid-workout draft so next login starts fresh
+// Shared by a fresh login and by restoring a stored session on load — the two-frame wait is what
+// stops the login card flashing over the app as the scroll lock is released.
+async function enterApp(page = 'home') {
+  document.documentElement.classList.remove('login-active');
+  window.scrollTo(0, 0);
+  await new Promise(r => requestAnimationFrame(r));
+  await new Promise(r => requestAnimationFrame(r));
+  document.getElementById('login-screen').style.display = 'none';
+  initApp(page);
+}
+
+function showLoginScreen(message) {
+  const err = document.getElementById('login-error');
+  if (message) { err.textContent = message; err.style.display = 'block'; }
+  else { err.style.display = 'none'; }
   window.scrollTo(0, 0);
   document.documentElement.classList.add('login-active');
   document.getElementById('login-screen').style.display = 'flex';
+}
+
+// Deliberately keeps the workout draft. This fires on token expiry as well as a real logout, and
+// binning a half-logged session because a JWT lapsed would be the same class of data loss the app
+// has already been burned by. handleLogout() clears it explicitly; expiry doesn't.
+function forceLogout(message) {
+  clearSession();
+  sessionStorage.clear();
+  showLoginScreen(message);
+}
+
+function handleLogout() {
+  const token = authSession?.access_token;
+  // Revokes the refresh token server-side. Fire-and-forget: a failure here must not stop the
+  // client-side logout, and the local tokens are gone either way.
+  if (token) {
+    fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` }
+    }).catch(() => {});
+  }
+  clearSession();
+  sessionStorage.clear();
+  localStorage.removeItem('workout_draft');  // Clear any mid-workout draft so next login starts fresh
+  showLoginScreen();
 }
 
 document.getElementById('login-password').addEventListener('keydown', e => {
   if (e.key === 'Enter') handleLogin();
 });
 
-window.addEventListener('load', () => {
-  if (sessionStorage.getItem('del_auth')) {
-    document.documentElement.classList.remove('login-active');
-    document.getElementById('login-screen').style.display = 'none';
-    const savedPage = sessionStorage.getItem('del_page') || 'home';
-    initApp(savedPage);
-  }
+window.addEventListener('load', async () => {
   const pill = document.getElementById('sw-pill');
   if (pill) {
     pill.addEventListener('pointerdown', swPillPointerDown);
@@ -363,7 +512,63 @@ window.addEventListener('load', () => {
     pill.addEventListener('pointerleave', swPillPointerCancel);
     pill.addEventListener('pointercancel', swPillPointerCancel);
   }
+
+  authSession = loadStoredSession();
+  if (!authSession) return;
+  // Refreshes if stale. Offline this returns the stored token rather than logging out, so the app
+  // still opens on a dead connection — it just can't reach the database, same as before.
+  const token = await validAccessToken();
+  if (!token) return;
+  await enterApp(sessionStorage.getItem('del_page') || 'home');
 });
+
+// ─── CHANGE PASSWORD ──────────────────────────────────────
+// Exists so the temporary password the account was created with can be replaced without going
+// through a database migration, and so a password can be rotated at any point from the phone.
+function openPasswordModal() {
+  document.getElementById('pw-new').value = '';
+  document.getElementById('pw-confirm').value = '';
+  const err = document.getElementById('pw-error');
+  err.textContent = '';
+  err.style.display = 'none';
+  document.getElementById('password-modal').style.display = 'block';
+}
+
+function closePasswordModal() {
+  document.getElementById('password-modal').style.display = 'none';
+}
+
+async function savePassword() {
+  const pw = document.getElementById('pw-new').value;
+  const confirm = document.getElementById('pw-confirm').value;
+  const err = document.getElementById('pw-error');
+  const fail = (msg) => { err.textContent = msg; err.style.display = 'block'; };
+
+  // GoTrue's own minimum is 6; 8 is the floor worth having on an account holding a year of data.
+  if (pw.length < 8) return fail('Use at least 8 characters');
+  if (pw !== confirm) return fail("Those don't match");
+
+  const token = await validAccessToken();
+  if (!token) return fail('Session expired — log out and back in');
+
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    });
+  } catch (e) { return fail("Can't reach the server"); }
+
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.msg || ''; } catch (e) {}
+    return fail(detail || `Couldn't change it (${res.status})`);
+  }
+
+  closePasswordModal();
+  showToast('Password changed', 'success');
+}
 
 let lastTypedSet = null;
 let pendingRest = {};

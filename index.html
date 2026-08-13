@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-12-1215">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-13-1407">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -92,6 +92,9 @@
         <div class="landing-btn-label">Log Workout</div>
         <div class="landing-btn-sub">Track your session</div>
       </div>
+    </div>
+    <div class="account-row">
+      <button type="button" class="account-link" onclick="openPasswordModal()">Change password</button>
     </div>
     <!-- Which build the phone is actually running. Read this out before reporting a missing feature. -->
     <div class="build-tag" id="build-tag" onclick="checkForUpdate(true)"></div>
@@ -320,6 +323,28 @@
 </div>
 
 <!-- MACRO TARGETS MODAL -->
+<!-- CHANGE PASSWORD MODAL -->
+<div id="password-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
+  <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+      <div style="font-family:'Bebas Neue',sans-serif; font-size:20px;">Change Password</div>
+      <button onclick="closePasswordModal()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;">✕</button>
+    </div>
+    <div class="card" style="border:none; padding:0;">
+      <div class="field-group">
+        <label class="field-label">New password</label>
+        <input type="password" class="field-input" id="pw-new" autocomplete="new-password" placeholder="At least 8 characters" />
+      </div>
+      <div class="field-group">
+        <label class="field-label">Confirm new password</label>
+        <input type="password" class="field-input" id="pw-confirm" autocomplete="new-password" placeholder="Type it again" />
+      </div>
+      <div class="login-error" id="pw-error" style="display:none;"></div>
+      <button class="btn btn-save btn-full" onclick="savePassword()">Save Password</button>
+    </div>
+  </div>
+</div>
+
 <div id="goals-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
   <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -460,6 +485,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-12-1215"></script>
+<script src="js/app.js?v=2026-08-13-1407"></script>
 </body>
 </html>
