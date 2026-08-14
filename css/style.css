@@ -557,6 +557,8 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .last-time-ex { color: var(--text); }
 .last-time-var { color: var(--muted); font-weight: 400; }
 .last-time-sets { color: var(--muted2); font-family: 'DM Mono', monospace; text-align: right; flex-shrink: 0; }
+/* Rest sits under the sets, dimmer and smaller — it's the second question you ask, never the first */
+.last-time-rest { color: var(--muted); font-size: 10px; margin-top: 1px; }
 /* Cardio rows in the "Last time" card sit under the lifts, dimmed to read as a different kind of work */
 .last-time-cardio .last-time-ex { color: var(--muted2); }
 

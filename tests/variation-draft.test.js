@@ -110,7 +110,7 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
   };
 
   const api = load({
-    functions: ['applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft'],
+    functions: ['prevSetsForVariation', 'applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets', 'pendingRest',
             'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder'],
     deps,

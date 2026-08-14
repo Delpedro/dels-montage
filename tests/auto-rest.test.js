@@ -39,6 +39,7 @@ const app = load({
     swStartTimestamp: null,
     swTargetSeconds: 60,
     swCompletionBeeped: false,
+    swSaveOnStop: true,
     swInterval: null,
     selectedSession: null,
     swStop: () => { calls.stop++; },
@@ -54,10 +55,10 @@ const app = load({
     clearInterval: id => calls.cleared.push(id),
   },
   accessors: {
-    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionBeeped, swInterval })',
+    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionBeeped, swSaveOnStop, swInterval })',
     reset: `(session) => {
       swRunning = false; swActiveExercise = null; swStartTimestamp = null;
-      swTargetSeconds = 60; swCompletionBeeped = false; swInterval = null;
+      swTargetSeconds = 60; swCompletionBeeped = false; swSaveOnStop = true; swInterval = null;
       selectedSession = session;
     }`,
   },
@@ -93,6 +94,24 @@ function fresh() {
   ok(JSON.parse(store.sw_state).exercise === 'Bench Press',
     'persisted to sessionStorage, so a trip to Stats and back does not lose the rest');
   eq(calls.render.length, 1, 'the watch is repainted immediately rather than waiting a second for the interval');
+
+  // The 14 Aug correction. Mark Done is tapped when the exercise is over, so this timer measures the
+  // walk to the next machine — swStop() would have hung it on the last set as a "rest" (166s onto Leg
+  // Curl set 3, 380s onto Abductor set 2, against genuine between-set rests of 90–110s) and dragged
+  // every avg-rest figure in the app with it.
+  eq(s.swSaveOnStop, false, 'an auto-started rest is display-only — it must never be written to a set');
+  eq(JSON.parse(store.sw_state).save, false,
+    'and the flag is persisted too, so resuming after a trip to Stats does not turn it back into a saved rest');
+}
+
+// ── 1b. a timer the user started by hand still records ────────────────────
+// The distinction the whole fix rests on: tapping the watch is a deliberate "time this rest", and that
+// one still writes. Only the automatic one is silent.
+{
+  fresh();
+  app.swStart('Bench Press');
+  eq(app.state().swSaveOnStop, true, 'swStart defaults to saving — a hand-tapped rest is still a rest');
+  eq(JSON.parse(store.sw_state).save, true, 'and says so in the persisted state');
 }
 
 // ── 2. an exercise with no rest in the template still gets a countdown ─────
@@ -143,7 +162,7 @@ function fresh() {
   app.startRestAfter('Incline Curl');
   const s = app.state();
 
-  eq(calls.stop, 1, "the previous exercise's timer is stopped — and stopping it saves its rest normally");
+  eq(calls.stop, 1, "the previous exercise's timer is stopped rather than left running alongside the new one");
   eq(s.swActiveExercise, 'Incline Curl', 'the watch moves to the new exercise');
   eq(s.swTargetSeconds, 90, 'with the new target');
   eq(JSON.parse(store.sw_state).exercise, 'Incline Curl', 'and the persisted state follows it');

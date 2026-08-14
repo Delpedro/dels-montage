@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-13-1910';
+const APP_BUILD = '2026-08-14-1516';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -219,6 +219,9 @@ let currentPage = 'home';
 let currentWorkoutId = null;
 let currentWorkoutHasSets = false;
 let lastCompletedExercise = null;
+// True while a Mark Done save is mid-flight. Blocks a second tap from starting a concurrent
+// delete-then-reinsert of the same rows — see the comment in completeExercise().
+let completeInFlight = false;
 
 // ─── HTML ESCAPING ────────────────────────────────────────
 // This app renders everything by interpolating strings into innerHTML, so an exercise name, a
@@ -1087,19 +1090,24 @@ async function loadHomePage() {
   }
   document.getElementById('home-sessions').textContent = weekWorkouts.length;
 
+  // ── ONE WINDOW, ONE REQUEST (14 Aug 2026) ────────────────────────────────────────────────────
+  // Steps averaged over the rolling last 7 days while weight and calories averaged over Mon–today,
+  // so Home and Stats printed different average calories on the same morning and there was no way
+  // to tell which was wrong — Del's "Home and stats don't match". Both are now the rolling 7 days,
+  // which is what Stats has always used and the more useful of the two anyway: on a Monday, "this
+  // week" is one day, and one breakfast is not an average. The two `sessions this week` tiles are
+  // untouched — those are genuinely Mon-anchored (getWeekStart) on both screens and always agreed.
+  // Also one request instead of two, which matters on gym Wi-Fi more than it looks.
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekLogs = await sb(`daily_logs?date=gte.${dateStr(weekAgo)}&select=steps`);
+  const weekLogs = await sb(`daily_logs?date=gte.${dateStr(weekAgo)}&select=steps,weight_kg,calories`);
   // `!= null` — a recorded 0 belongs in the average (you walked nothing that day); only a day with
   // no reading at all should be left out of it.
   const stepsArr = (weekLogs || []).filter(l => l.steps != null).map(l => Number(l.steps));
   const avgSteps = stepsArr.length ? Math.round(stepsArr.reduce((a,b)=>a+b,0)/stepsArr.length) : null;
   document.getElementById('home-steps').textContent = avgSteps != null ? avgSteps.toLocaleString() : '--';
 
-  // This week (Mon-today), same boundary as the sessions/week tile above — separate from the
-  // rolling-7-day steps average, which pre-dates this and is left as-is to avoid regressions.
-  const thisWeekLogs = await sb(`daily_logs?date=gte.${getWeekStart()}&select=weight_kg,calories`);
-  const weightArr = (thisWeekLogs || []).filter(l => l.weight_kg != null).map(l => l.weight_kg);
-  const calsArr = (thisWeekLogs || []).filter(l => l.calories != null).map(l => l.calories);
+  const weightArr = (weekLogs || []).filter(l => l.weight_kg != null).map(l => l.weight_kg);
+  const calsArr = (weekLogs || []).filter(l => l.calories != null).map(l => l.calories);
   const avgWeight = weightArr.length ? (weightArr.reduce((a,b)=>a+b,0)/weightArr.length).toFixed(1) : null;
   const avgCals = calsArr.length ? Math.round(calsArr.reduce((a,b)=>a+b,0)/calsArr.length) : null;
   document.getElementById('home-avg-weight').textContent = avgWeight ?? '--';
@@ -1717,6 +1725,28 @@ function setValueLabel(ex, s, bandFallback = 'Band') {
   return `${label}×${s.reps}`;
 }
 
+// Which of an exercise's previous sets belong to the variation currently selected.
+//
+// `previousSets[name]` is a CONCATENATION: the most recent workout's sets, then any other variation
+// backfilled from its own most recent occurrence (see loadPreviousSetsForSession). So it is a mixed
+// list and slicing it by set index without filtering reads rows from two different sessions.
+//
+// The old rule was `filter(variation) || everything`, and the fallback is what Del caught on 14 Aug:
+// Leg Curl has never been logged as "Machine", so selecting Machine matched nothing, fell back to the
+// whole list, and showed the "Single Leg" numbers — 52×13 / 54×10 / 54×10 — under a Machine heading.
+// Toggling between the two variations showed IDENTICAL past numbers, which is what made it obvious.
+// That is worse than showing nothing: the badge is what you load the machine off, and a variation you
+// have never done is exactly where a borrowed number does damage.
+//
+// Untagged rows are still a legitimate fallback. Variations were added to an exercise after months of
+// logging, so its older rows carry `variation: null` — they are that exercise, unspecified, not some
+// other variation of it. A named variation's rows never stand in for a different named variation.
+function prevSetsForVariation(prev, variation) {
+  const exact = prev.filter(p => p.variation === variation);
+  if (exact.length) return exact;
+  return prev.filter(p => !p.variation);
+}
+
 // ─── SUPERSETS ────────────────────────────────────────────
 // Two (or more) exercises done back-to-back with no rest between them. There's no pairing UI in the
 // template — a superset is decided in the moment, in the gym — so it's per-workout state. The partner
@@ -1959,8 +1989,7 @@ function renderExerciseBlock(ex, session) {
   const defaultVar = ex.variations ? (prevVariation || ex.variations[0]) : null;
   let filteredPrev = prev;
   if (ex.variations && !ex.band && defaultVar) {
-    filteredPrev = prev.filter(p => p.variation === defaultVar);
-    if (filteredPrev.length === 0) filteredPrev = prev;
+    filteredPrev = prevSetsForVariation(prev, defaultVar);
   }
 
   let html = `<div class="exercise-block" id="block-${esc(ex.name)}" data-rest-target="${swParseRest(ex.rest)}">
@@ -2102,7 +2131,9 @@ async function fetchLastSessionSnapshot(session) {
   // Cardio fetched alongside the sets — "what did I do last time" has to include the bike/treadmill
   // work, not just the lifts, or the card silently under-reports the session.
   const [sets, cardio] = await Promise.all([
-    sb(`workout_sets?workout_id=eq.${workout.id}&order=set_number.asc&select=exercise,set_number,weight,reps,variation`),
+    // rest_seconds joins the select so the card can answer "how long did I rest last time" — the
+    // number this app records and then never showed you anywhere you'd be standing when you need it.
+    sb(`workout_sets?workout_id=eq.${workout.id}&order=set_number.asc&select=exercise,set_number,weight,reps,variation,rest_seconds`),
     sb(`cardio_logs?workout_id=eq.${workout.id}&select=activity,duration_mins,distance,floors,incline,speed_kmh`)
   ]);
   const byExercise = {};
@@ -2110,15 +2141,34 @@ async function fetchLastSessionSnapshot(session) {
   return { date: workout.date, exercises: byExercise, cardio: cardio || [] };
 }
 
+// "Rest 1:30 avg" for one exercise's sets, or '' when nothing was timed.
+//
+// Averaged over the sets that actually carry a rest, not over every set. The last set of an exercise
+// has no rest after it (and since 14 Aug never records one — see swStop), so dividing by the set
+// count would drag every figure down by a third on a 3-set lift. Same shape as the History card's
+// `rest 1:30 avg`, deliberately: it's the same number, and the two screens shouldn't word it
+// differently. Rounds to the nearest 5s — you are reading this to decide whether to start the next
+// set, and "1:28 vs 1:31" is precision the number doesn't have.
+function lastTimeRestLabel(sets) {
+  const rests = (sets || []).map(s => parseInt(s.rest_seconds)).filter(n => !isNaN(n) && n > 0);
+  if (!rests.length) return '';
+  const avg = rests.reduce((a, b) => a + b, 0) / rests.length;
+  return `rest ${fmtRest(Math.round(avg / 5) * 5)} avg`;
+}
+
 function renderLastTimeCard(snapshot, session) {
   if (!snapshot) return '';
   const dateStr = new Date(snapshot.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+  const restSpan = sets => {
+    const txt = lastTimeRestLabel(sets);
+    return txt ? `<div class="last-time-rest">${esc(txt)}</div>` : '';
+  };
   let rows = session.exercises.map(ex => {
     const sets = snapshot.exercises[ex.name] || (ex.aliases || []).flatMap(a => snapshot.exercises[a] || []);
     if (!sets.length) return '';
     const variationTag = sets[0].variation ? ` <span class="last-time-var">(${esc(sets[0].variation)})</span>` : '';
     const setsStr = sets.map(s => setValueLabel(ex, s)).join(', ');
-    return `<div class="last-time-row"><span class="last-time-ex">${esc(ex.name)}${variationTag}</span><span class="last-time-sets">${esc(setsStr)}</span></div>`;
+    return `<div class="last-time-row"><span class="last-time-ex">${esc(ex.name)}${variationTag}</span><span class="last-time-sets">${esc(setsStr)}${restSpan(sets)}</span></div>`;
   }).join('');
   // Exercises the template no longer contains (a one-off swap last time) would otherwise vanish
   // from the card entirely — list them after the template's own, so nothing logged goes unshown.
@@ -2127,7 +2177,7 @@ function renderLastTimeCard(snapshot, session) {
     const sets = snapshot.exercises[name];
     const variationTag = sets[0].variation ? ` <span class="last-time-var">(${esc(sets[0].variation)})</span>` : '';
     const setsStr = sets.map(s => setValueLabel({ name }, s)).join(', ');
-    rows += `<div class="last-time-row"><span class="last-time-ex">${esc(name)}${variationTag}</span><span class="last-time-sets">${esc(setsStr)}</span></div>`;
+    rows += `<div class="last-time-row"><span class="last-time-ex">${esc(name)}${variationTag}</span><span class="last-time-sets">${esc(setsStr)}${restSpan(sets)}</span></div>`;
   });
   (snapshot.cardio || []).forEach(c => {
     const detail = cardioDetailParts(c).join(', ') || '—';
@@ -2784,8 +2834,7 @@ function applyVariation(exName, variation) {
     }
   } else {
     const prev = previousSets[exName] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
-    let filteredPrev = prev.filter(p => p.variation === variation);
-    if (filteredPrev.length === 0) filteredPrev = prev;
+    const filteredPrev = prevSetsForVariation(prev, variation);
     // The per-set grey badges are the only place last time's numbers are shown. There used to be a
     // `Previous (…): …` line written to a `prev-${exName}` element here as well — no such element
     // has ever been rendered, so it was dead code that read like a live path.
@@ -2901,6 +2950,31 @@ async function completeExercise(exName) {
     showToast('Session error — go back and re-select the workout', 'error');
     return;
   }
+  // ── THE RE-ENTRANCY GUARD (14 Aug 2026) — do not remove ──────────────────────────────────────
+  // saveExerciseSets() is GET → DELETE → POST, three round trips, and on gym Wi-Fi that is over a
+  // second during which the button sat enabled and said "Mark Done". Tapping it again started a
+  // SECOND run whose DELETE had already happened before the first run's POST landed, so both POSTs
+  // inserted and the exercise ended up with two copies of every set. Confirmed in live data on
+  // 14 Aug: Leg Press carried THREE copies of sets 1 and 2 (created_at 23ms apart), Hip Thrusts two.
+  // The damage is silent and spreads — set counts, volume and avg rest are all computed off these
+  // rows, and the stopwatch PATCHes onto `existing[0]` so the rest lands on one copy and not the
+  // others. One save at a time, app-wide: there is one pair of thumbs.
+  if (completeInFlight) return;
+  completeInFlight = true;
+  const tappedBtn = document.getElementById(`done-btn-${exName}`);
+  const tappedLabel = tappedBtn ? tappedBtn.textContent : null;
+  if (tappedBtn && !tappedBtn.dataset.done) tappedBtn.textContent = 'Saving…';
+  try {
+    await completeExerciseInner(exName);
+  } finally {
+    completeInFlight = false;
+    // Only restore if the save didn't repaint it green itself — markExerciseBlockDone() writes
+    // "✓ Done", and putting "Mark Done" back over the top of that would undo the confirmation.
+    if (tappedBtn && !tappedBtn.dataset.done && tappedLabel !== null) tappedBtn.textContent = tappedLabel;
+  }
+}
+
+async function completeExerciseInner(exName) {
   const map = supersetGroupMap();
   const group = map[exName] ? (supersetGroupOf(exName) || []).filter(n => map[n]) : [];
   const names = group.length > 1 ? group : [exName];
@@ -2950,11 +3024,13 @@ async function completeExercise(exName) {
 //   round actually ends — not the block whose name was passed in.
 // - **A re-tap restarts the period instead of banking it.** swStart() overwrites a timer already
 //   running for the same exercise without going through swStop(), and that's the point: an interval
-//   that spans the set you just logged isn't a rest for any set, and swStop() would PATCH it onto the
-//   last typed set as though it were one. Stopping by hand (tap the watch) still saves normally.
+//   that spans the set you just logged isn't a rest for any set.
+// - **`save: false`** (14 Aug 2026). The original version let this timer PATCH itself onto the last
+//   typed set when it stopped, which put the walk-to-the-next-machine into `rest_seconds` and wrecked
+//   every average built on it. It counts and beeps; it does not record. See swStop().
 function startRestAfter(exName) {
   if (!exName) return;
-  swStart(exName);
+  swStart(exName, { save: false });
 }
 
 function selectEditVariation(exName, variation, btn) {
@@ -3564,7 +3640,11 @@ function computeExerciseProgress(workouts, setsByWorkout) {
       const wt = parseFloat(s.weight);
       const reps = parseInt(s.reps) || 0;
       if (!isNaN(wt) && wt > 0) {
+        // `bestReps` is the best reps at the best weight, not the reps of whichever heaviest set
+        // happened to be read first. 56×10 then 56×12 in one session used to report 56×10, which
+        // then made the rep PR below un-winnable on the session that actually won it.
         if (e.best === null || wt > e.best) { e.best = wt; e.bestReps = reps; }
+        else if (wt === e.best && reps > (e.bestReps || 0)) e.bestReps = reps;
       } else if (e.best === null && reps > (e.bestReps || 0)) {
         e.bestReps = reps;   // bodyweight/band: reps are the only progression signal (seconds, for timed exercises)
       }
@@ -3578,16 +3658,49 @@ function computeExerciseProgress(workouts, setsByWorkout) {
   const out = {};
   Object.keys(byExercise).forEach(key => {
     const list = byExercise[key].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    // ── WHAT COUNTS AS A PR (widened 14 Aug 2026) ────────────────────────────────────────────────
+    // It used to be `heaviest weight ever` and nothing else, so two thirds of real progress went
+    // unbadged: adding a rep at the same load is the normal way a lift moves — you sit at 56kg for
+    // three weeks going 8→10→12 before the weight ever changes — and a bodyweight exercise has no
+    // weight to beat at all, so Pull Ups, Dead Bug and the leg raises could never earn a badge in
+    // their entire history. Three running bests now, and a session takes the badge if it beats any
+    // one that applies to it:
+    //   runningMax       — heaviest weight ever                       → a heavier top set
+    //   runningRepsAtMax — most reps ever done AT that heaviest weight → same top weight, more reps
+    //   runningBwReps    — most reps ever, for work carrying no weight → more reps / a longer hold
+    // Reps at a LIGHTER weight are deliberately not a PR: 40×15 doesn't beat 56×10, and badging it
+    // would put a PR on every deload week and teach you to ignore the badge.
     let runningMax = null;
+    let runningRepsAtMax = 0;
+    let runningBwReps = 0;
     list.forEach((entry, i) => {
       const prev = i > 0 ? list[i - 1] : null;
       const delta = (entry.best !== null && prev && prev.best !== null) ? entry.best - prev.best : null;
+      const reps = entry.bestReps || 0;
+
       // First-ever occurrence isn't flagged as a PR — otherwise every old entry wears a badge.
-      const isPR = i > 0 && entry.best !== null && runningMax !== null && entry.best > runningMax;
-      if (entry.best !== null) runningMax = runningMax === null ? entry.best : Math.max(runningMax, entry.best);
+      let isPR = false, prKind = null;
+      if (i > 0) {
+        if (entry.best !== null && runningMax !== null) {
+          if (entry.best > runningMax) { isPR = true; prKind = 'weight'; }
+          else if (entry.best === runningMax && reps > runningRepsAtMax) { isPR = true; prKind = 'reps'; }
+        } else if (entry.best === null && runningBwReps > 0 && reps > runningBwReps) {
+          isPR = true; prKind = 'reps';
+        }
+      }
+
+      if (entry.best !== null) {
+        // A new heaviest weight RESETS the rep record rather than keeping the old one — the reps you
+        // managed at 54kg say nothing about what's a good day at 56kg.
+        if (runningMax === null || entry.best > runningMax) { runningMax = entry.best; runningRepsAtMax = reps; }
+        else if (entry.best === runningMax) runningRepsAtMax = Math.max(runningRepsAtMax, reps);
+      } else {
+        runningBwReps = Math.max(runningBwReps, reps);
+      }
+
       out[`${entry.workoutId}|${key}`] = {
         exercise: entry.exercise, variation: entry.variation, supersetGroup: entry.supersetGroup,
-        best: entry.best, bestReps: entry.bestReps, delta, isPR,
+        best: entry.best, bestReps: entry.bestReps, delta, isPR, prKind,
         avgRest: entry.rests.length ? Math.round(entry.rests.reduce((a, b) => a + b, 0) / entry.rests.length) : null,
         setCount: entry.setCount
       };
@@ -3852,7 +3965,7 @@ function renderHistoryPage() {
           // Supersets: the lifts in one group carry the same tag, so they read as a pair on the card.
           const ssTag = p.supersetGroup ? `<span class="pf-ss">s/s ${esc(p.supersetGroup)}</span>` : '';
           return `<div class="pf-lift${p.supersetGroup ? ' pf-ss-row' : ''}">
-            <span><span class="pf-lname">${label}${ssTag}${p.isPR ? '<span class="pf-badge">PR</span>' : ''}</span><div class="pf-sub">${esc(restTxt)}</div></span>
+            <span><span class="pf-lname">${label}${ssTag}${p.isPR ? `<span class="pf-badge">${p.prKind === 'reps' ? 'REP PR' : 'PR'}</span>` : ''}</span><div class="pf-sub">${esc(restTxt)}</div></span>
             <span class="pf-lval">${esc(value)}</span>
             ${p.best !== null ? deltaCell(p.delta, {decimals:1}) : '<span class="pf-d same">—</span>'}
           </div>`;
@@ -4295,6 +4408,9 @@ let swActiveExercise = null;   // which exercise the watch is attached to
 let swLongPressTimer = null;
 let swLongPressFired = false;
 let swCompletionBeeped = false; // so we beep only once per rest
+// False when the running timer was auto-started by Mark Done — it counts down the gap before the
+// NEXT exercise, which is not a rest for any set, so swStop() must not write it. See swStop().
+let swSaveOnStop = true;
 const SW_RING_CIRCUMFERENCE = 75.4; // 2 * π * r where r=12
 
 // ─── STOPWATCH HELPERS ────────────────────────────────────
@@ -4429,7 +4545,7 @@ function swRenderAll() {
 }
 
 // ─── START / STOP / RESET ────────────────────────────────
-function swStart(exName) {
+function swStart(exName, { save = true } = {}) {
   // UNLOCK AUDIO — must happen inside this tap handler or iOS blocks sound
   swUnlockAudio();
 
@@ -4442,12 +4558,14 @@ function swStart(exName) {
   swActiveExercise = exName;
   swRunning = true;
   swCompletionBeeped = false;
+  swSaveOnStop = save;
 
   // Persist across page navigation — sessionStorage survives Stats→Workout
   sessionStorage.setItem('sw_state', JSON.stringify({
     start: swStartTimestamp,
     target: swTargetSeconds,
-    exercise: exName
+    exercise: exName,
+    save: swSaveOnStop
   }));
 
   swVibrate(10);
@@ -4472,6 +4590,19 @@ async function swStop() {
   sessionStorage.removeItem('sw_state');
   swVibrate(10);
   swRenderWatch(exName);   // snap the ring back to idle now — don't wait on the network save below
+
+  // ── A TIMER STARTED BY MARK DONE DOES NOT RECORD A REST (14 Aug 2026) ────────────────────────
+  // Mark Done is tapped when the exercise is finished, so what this timer measures is the walk to
+  // the next machine, not a rest between two sets. swFindLastTypedSetForExercise() would hang it on
+  // the LAST set — a set that has no rest after it by definition — and the number is the wrong shape
+  // entirely: 14 Aug wrote 166s onto Leg Curl set 3 and 380s onto Abductor set 2 (that one spans the
+  // walk to cardio), against genuine between-set rests of 90–110s. Those inflate every avg-rest
+  // figure in History and Stats. It still runs and still beeps — the countdown to the next exercise
+  // is useful — it just isn't a data point. Stopping it by hand doesn't rescue it either; only a
+  // timer you started by tapping the watch is a rest you chose to measure.
+  const saveIt = swSaveOnStop;
+  swSaveOnStop = true;
+  if (!saveIt) return;
 
   // Save the rest to the last typed set for THIS exercise
   const target = swFindLastTypedSetForExercise(exName);
@@ -4561,6 +4692,8 @@ function swRestoreFromStorage() {
     swTargetSeconds = s.target || 60;
     swActiveExercise = s.exercise;
     swRunning = true;
+    // `!== false` so a state written by an older build (no `save` key) keeps saving, as it did then.
+    swSaveOnStop = s.save !== false;
     swCompletionBeeped = (Date.now() - s.start) / 1000 >= s.target;
     swRenderWatch(s.exercise);
     clearInterval(swInterval);
