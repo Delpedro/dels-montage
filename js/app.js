@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-14-1516';
+const APP_BUILD = '2026-08-14-1532';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -287,7 +287,7 @@ function netFail(what, path, err) {
 // failure itself with a more specific message, or when the request is background housekeeping the
 // user shouldn't be told about. It suppresses the offline toast too: a write the user never asked
 // for shouldn't announce that the gym has no signal.
-async function sb(path, method = 'GET', body = null, { quiet = false } = {}) {
+async function sb(path, method = 'GET', body = null, { quiet = false, upsert = false } = {}) {
   const opts = { method };
   if (body) opts.body = JSON.stringify(body);
 
@@ -299,6 +299,11 @@ async function sb(path, method = 'GET', body = null, { quiet = false } = {}) {
   }
 
   opts.headers = sbHeaders(token, method);
+  // `upsert: true` turns a POST into PostgREST's insert-or-update. The caller still has to name the
+  // constraint in the path (?on_conflict=…) — this only adds the half that lives in a header, which
+  // is why it isn't inferred. Added to sbHeaders' output here rather than to sbHeaders itself so its
+  // signature stays what the auth test harness pulls out of this file.
+  if (upsert && method === 'POST') opts.headers.Prefer = 'return=minimal,resolution=merge-duplicates';
   let res;
   try {
     res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
@@ -664,6 +669,11 @@ async function savePassword() {
 const EXPORT_TABLES = [
   'workouts', 'workout_sets', 'cardio_logs', 'conditioning_logs', 'daily_logs',
   'goals', 'custom_exercises', 'session_templates', 'session_exercises', 'quotes',
+  // Nothing you'd miss if it were lost — one row saying when you last backed up. It's here because
+  // "the export is every table" is a rule worth keeping absolute: the moment there's a judgement
+  // call about which tables count, the list starts drifting, which is the exact failure this and
+  // tools/backup.js are both built to prevent. It costs one line in the file.
+  'app_meta',
 ];
 
 // Tables that must not come back empty. An export that succeeds while empty is worse than no export
@@ -757,8 +767,11 @@ async function exportAllData() {
 
     const how = await deliverExport(json, filename);
     if (how === 'cancelled') return;
-    markBackupDone();
+    const backedUpAt = markBackupDone();
     renderBackupPrompt();
+    // After the paint, and not awaited into the toast below: the file is already in his hands, so
+    // publishing the fact to the other devices must not be able to delay or fail the export.
+    pushBackupTimestamp(backedUpAt);
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     showToast(`Exported ${total.toLocaleString()} rows`, 'success');
   } catch (e) {
@@ -775,12 +788,23 @@ async function exportAllData() {
 // with no automated backups. This is the part that doesn't depend on Del's PC being awake: Home says
 // how long it's been and the line itself is the button.
 //
-// Deliberately localStorage and not the database: it's a per-device nag about a per-device action,
-// it must work with no network, and a backup reminder that needs a successful read to appear would
-// be silent in exactly the situation worth worrying about. Losing it (new phone, cleared storage)
-// makes the app ask for a backup one extra time, which is the harmless direction to fail in.
+// WHERE THE TIMESTAMP LIVES — changed 14 Aug 2026, and the history matters.
+//
+// It was localStorage only, on the reasoning that this is a per-device nag about a per-device action
+// that must work with no network. Del exported on his phone on 13 Aug, opened the app in a PC browser
+// the next day, and Home said "No backup yet" — correct by that design and wrong about the thing it
+// actually claims, because what gets backed up is the database, not the device. A reminder that
+// contradicts what you did yesterday is one you learn to ignore, so it was worse than none.
+//
+// Now BOTH, newest wins: localStorage stays as the offline-readable copy (so the nag still renders on
+// gym Wi-Fi that can't reach Supabase — the trip furthest from the PC that runs the other half), and
+// app_meta.last_backup_at carries it across devices. syncBackupState() reconciles the two on app open.
 const BACKUP_STORE = 'dlog_last_backup';
 const BACKUP_STALE_DAYS = 7;
+
+// The account-wide value, filled by syncBackupState(). Null until the network answers, so the first
+// paint falls back to localStorage rather than stalling or claiming there's no backup.
+let remoteLastBackup = null;
 
 // Whole calendar days between two dates, local time. Not `(b - a) / 86400000` on the raw timestamps:
 // an export at 22:00 and a check at 09:00 nine days later is 8.5 raw days, and "8 days ago" for
@@ -805,20 +829,80 @@ function backupPromptText(lastIso, now = new Date()) {
   return `Last backup ${days} days ago — back up now`;
 }
 
-function readLastBackup() {
+// Pure. Whichever of two ISO strings is later, ignoring anything unparseable — a device with a wrong
+// clock, or a storage value someone has poked at, must not be able to silence the reminder forever.
+function laterIso(a, b) {
+  const ta = Date.parse(a || '');
+  const tb = Date.parse(b || '');
+  if (isNaN(ta)) return isNaN(tb) ? null : b;
+  if (isNaN(tb)) return a;
+  return ta >= tb ? a : b;
+}
+
+function readLocalBackup() {
   try { return localStorage.getItem(BACKUP_STORE); } catch (e) { return null; }
+}
+
+function writeLocalBackup(iso) {
+  try { localStorage.setItem(BACKUP_STORE, iso); } catch (e) {}
+}
+
+// What every reader should ask for: this device's copy or the account's, whichever is more recent.
+function lastBackupAt() {
+  return laterIso(readLocalBackup(), remoteLastBackup);
 }
 
 // Only ever called after a file has actually been handed over — a cancelled share sheet or a failed
 // read must not reset the clock, or the reminder starts lying about a backup that doesn't exist.
+// localStorage first and synchronously: the nag must go away the instant the file lands, whether or
+// not the database write gets through.
 function markBackupDone(when = new Date()) {
-  try { localStorage.setItem(BACKUP_STORE, when.toISOString()); } catch (e) {}
+  const iso = when.toISOString();
+  writeLocalBackup(iso);
+  remoteLastBackup = laterIso(remoteLastBackup, iso);
+  return iso;
+}
+
+// Fire-and-forget, and quiet on purpose: the export itself succeeded, so a failed sync is not
+// something to put a red toast in front of someone about. It self-heals on the next app open.
+// merge-duplicates is safe here because `iso` was generated from now() — it is always the newest
+// value anyone has.
+async function pushBackupTimestamp(iso) {
+  await sb('app_meta?on_conflict=user_id', 'POST',
+    { last_backup_at: iso, updated_at: new Date().toISOString() },
+    { quiet: true, upsert: true });
+}
+
+// Reconciles the two stores on app open. Runs after the first paint, so a slow or dead network only
+// ever delays the cross-device half — the localStorage value has already rendered.
+async function syncBackupState() {
+  const rows = await sb('app_meta?select=last_backup_at&limit=1', 'GET', null, { quiet: true });
+  const local = readLocalBackup();
+
+  if (rows && rows.length) {
+    // The row exists and we know its value, so both directions are safe.
+    remoteLastBackup = rows[0].last_backup_at || null;
+    const newest = laterIso(local, remoteLastBackup);
+    if (newest && newest !== local) writeLocalBackup(newest);            // another device backed up
+    if (newest && newest !== remoteLastBackup) await pushBackupTimestamp(newest);  // heal a lost write
+  } else if (local) {
+    // Empty array means EITHER no row yet OR a failed read — sb() returns [] for both, and guessing
+    // wrong the second way would overwrite a newer remote value with this device's older one, which
+    // is precisely the "lying about backups" failure this whole change exists to stop.
+    // So: a plain INSERT, no on_conflict. If the read lied and a row is really there, the UNIQUE on
+    // user_id rejects this with a 409 and nothing is clobbered. The constraint does the deciding.
+    const res = await sb('app_meta', 'POST',
+      { last_backup_at: local, updated_at: new Date().toISOString() }, { quiet: true });
+    if (res && res.ok) remoteLastBackup = local;
+  }
+
+  renderBackupPrompt();
 }
 
 function renderBackupPrompt() {
   const el = document.getElementById('backup-nudge');
   if (!el) return;
-  const text = backupPromptText(readLastBackup());
+  const text = backupPromptText(lastBackupAt());
   el.textContent = text || '';
   el.style.display = text ? 'flex' : 'none';
 }
@@ -1075,8 +1159,10 @@ async function loadHomePage() {
 
   // Before the awaits below — this one needs no network, so it still appears on gym Wi-Fi that
   // can't reach Supabase, which is the trip most likely to be far from the PC that runs the other
-  // half of the backup.
+  // half of the backup. syncBackupState() then repaints it once the account-wide value arrives,
+  // deliberately un-awaited so a slow network can't hold up the rest of Home.
   renderBackupPrompt();
+  syncBackupState();
 
   const [latest, todayLog, weekWorkouts] = await Promise.all([
     sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),

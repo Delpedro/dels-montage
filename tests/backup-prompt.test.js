@@ -94,6 +94,136 @@ const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
     'and only after the empty-export refusal, so a refused export never counts as a backup');
 }
 
+// ── 4. picking the later of two timestamps ─────────────────────────────────
+{
+  const { laterIso } = load({ functions: ['laterIso'] });
+
+  const A = '2026-08-01T10:00:00.000Z';
+  const B = '2026-08-13T10:00:00.000Z';
+
+  eq(laterIso(A, B), B, 'the later of the two wins');
+  eq(laterIso(B, A), B, 'and the order of the arguments does not matter');
+  eq(laterIso(null, B), B, 'a missing local value falls through to the remote one');
+  eq(laterIso(A, null), A, 'and a missing remote value falls through to the local one');
+  eq(laterIso(null, null), null, 'neither means neither, not a bare null string');
+  eq(laterIso(A, A), A, 'identical timestamps return that timestamp');
+
+  // A garbage value must lose to a real one rather than beat it. If unparseable input won, one
+  // corrupted localStorage entry would silence the reminder permanently — the exact failure mode
+  // this feature exists to prevent.
+  eq(laterIso('not a date', B), B, 'a corrupted stored value loses to a real one');
+  eq(laterIso(B, 'not a date'), B, 'in either position');
+  eq(laterIso('not a date', ''), null, 'two unusable values collapse to null, not to whichever garbage came first');
+}
+
+// ── 5. reconciling the device and the account ──────────────────────────────
+// The bug this whole change exists for: Del exported on his phone on 13 Aug, opened a PC browser on
+// the 14th, and Home said "No backup yet". localStorage is per-device; the database is not.
+(async () => {
+  const PHONE = '2026-08-13T18:00:00.000Z';
+  const OLD   = '2026-08-01T09:00:00.000Z';
+
+  // Builds a fresh extraction with its own fake storage and a scripted sb(). Returns the calls made
+  // so the test can assert on what went over the wire, not just on what ended up in storage.
+  function harness({ stored = null, get = [], writeOk = true }) {
+    const store = new Map();
+    if (stored) store.set('dlog_last_backup', stored);
+    const calls = [];
+    const deps = {
+      localStorage: {
+        getItem: (k) => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => store.set(k, v),
+      },
+      renderBackupPrompt: () => {},
+      sb: async (path, method = 'GET', body = null, opts = {}) => {
+        calls.push({ path, method, body, opts });
+        if (method === 'GET') return get;
+        return { ok: writeOk, status: writeOk ? 201 : 409 };
+      },
+    };
+    const api = load({
+      functions: ['laterIso', 'readLocalBackup', 'writeLocalBackup', 'lastBackupAt',
+                  'markBackupDone', 'pushBackupTimestamp', 'syncBackupState'],
+      decls: ['BACKUP_STORE', 'remoteLastBackup'],
+      deps,
+      accessors: { remote: '() => remoteLastBackup' },
+    });
+    return { ...api, calls, local: () => store.get('dlog_last_backup') ?? null };
+  }
+
+  // The reported bug, end to end.
+  {
+    const h = harness({ stored: null, get: [{ last_backup_at: PHONE }] });
+    await h.syncBackupState();
+    eq(h.lastBackupAt(), PHONE, 'a PC browser that has never exported learns about the phone backup');
+    eq(h.local(), PHONE, 'and caches it locally, so it survives the next offline open');
+    eq(h.calls.filter(c => c.method === 'POST').length, 0, 'nothing is written back — there is nothing to teach the server');
+  }
+
+  // The other direction: this device is ahead because a previous push failed.
+  {
+    const h = harness({ stored: PHONE, get: [{ last_backup_at: OLD }] });
+    await h.syncBackupState();
+    eq(h.lastBackupAt(), PHONE, 'a local value newer than the server wins');
+    const posts = h.calls.filter(c => c.method === 'POST');
+    eq(posts.length, 1, 'and is pushed up, healing the write that never landed');
+    eq(posts[0].body.last_backup_at, PHONE, 'with the newer timestamp');
+    ok(/on_conflict=user_id/.test(posts[0].path), 'as an upsert, because the row is known to exist');
+    eq(posts[0].opts.upsert, true, 'and the header half of the upsert is asked for too');
+  }
+
+  // No row on the server yet, something stored locally: publish it, but as a plain INSERT.
+  {
+    const h = harness({ stored: PHONE, get: [] });
+    await h.syncBackupState();
+    const posts = h.calls.filter(c => c.method === 'POST');
+    eq(posts.length, 1, 'a first-ever sync publishes the local timestamp');
+    ok(!/on_conflict/.test(posts[0].path), 'as a plain insert, NOT an upsert');
+    eq(h.remote(), PHONE, 'and remembers it succeeded');
+  }
+
+  // THE ONE THAT MATTERS. sb() returns [] for a failed GET *and* for no-rows, so the empty branch
+  // cannot tell them apart. Guessing "no row" when the read actually failed would overwrite a newer
+  // server value with this device's older one — re-creating the bug in the opposite direction and
+  // silencing the reminder on the device that was right. The UNIQUE on user_id is what stops it: the
+  // insert 409s and nothing is clobbered.
+  {
+    const h = harness({ stored: OLD, get: [], writeOk: false });
+    await h.syncBackupState();
+    const posts = h.calls.filter(c => c.method === 'POST');
+    eq(posts.length, 1, 'it still tries, because most of the time there genuinely is no row');
+    ok(!/on_conflict/.test(posts[0].path),
+      'but never as an upsert — an upsert here WOULD overwrite the newer server value');
+    eq(h.remote(), null, 'a rejected insert is not recorded as a successful publish');
+    eq(h.local(), OLD, 'and the local value is left exactly as it was');
+  }
+
+  // Nothing anywhere: don't write a row just to say "no backup".
+  {
+    const h = harness({ stored: null, get: [] });
+    await h.syncBackupState();
+    eq(h.calls.filter(c => c.method === 'POST').length, 0, 'a device with no backup writes nothing');
+    eq(h.lastBackupAt(), null, 'and still reports no backup, which is the truth');
+  }
+
+  // Offline: the GET returns [] and the POST fails, and the reminder must survive on local alone.
+  {
+    const h = harness({ stored: PHONE, get: [], writeOk: false });
+    await h.syncBackupState();
+    eq(h.lastBackupAt(), PHONE, 'with no network at all, the local value still answers');
+  }
+
+  // markBackupDone is synchronous and does not wait for the network — the nag has to clear the
+  // instant the file lands, whether or not the database ever hears about it.
+  {
+    const h = harness({ stored: null, get: [] });
+    const iso = h.markBackupDone(new Date('2026-08-14T15:00:00.000Z'));
+    eq(iso, '2026-08-14T15:00:00.000Z', 'it returns the timestamp it recorded, for the caller to publish');
+    eq(h.local(), iso, 'localStorage is written immediately');
+    eq(h.lastBackupAt(), iso, 'and the prompt reads it back with no network involved');
+  }
+})();
+
 process.on('exit', () => {
   console.log(`  ${pass} passed, ${fail} failed`);
   if (fail) process.exitCode = 1;

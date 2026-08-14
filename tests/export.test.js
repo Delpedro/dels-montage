@@ -122,10 +122,11 @@ console.log('data export');
     accessors: { activities: '() => EXPORT_TABLES' },
   });
 
-  // The public schema as of 13 Aug 2026, verified against pg_tables the day the backup was rewritten.
-  // Adding a table means adding it here and to EXPORT_TABLES. tools/backup.js needs nothing.
+  // The public schema as of 14 Aug 2026, verified against pg_tables the day the backup was rewritten
+  // and again when app_meta was added. Adding a table means adding it here and to EXPORT_TABLES.
+  // tools/backup.js needs nothing.
   const KNOWN_TABLES = [
-    'cardio_logs', 'conditioning_logs', 'custom_exercises', 'daily_logs', 'goals',
+    'app_meta', 'cardio_logs', 'conditioning_logs', 'custom_exercises', 'daily_logs', 'goals',
     'quotes', 'session_exercises', 'session_templates', 'workout_sets', 'workouts',
   ];
 
