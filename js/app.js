@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-14-1532';
+const APP_BUILD = '2026-08-14-1612';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1373,6 +1373,11 @@ function showProgrammeSessions(programmeId) {
 // ─── SESSION TEMPLATE EDITOR ────────────────────────────────
 // Permanent reorder / add / remove exercises / add-remove sets for a fixed session (Upper A, etc).
 // Works on a cloned buffer (editingTemplateExercises) — nothing touches the live SESSIONS/DB until Save.
+//
+// editingTemplateExercises is the BASE order — the order with no supersets applied, exactly like the
+// logger's supersetBaseOrder. What's on screen is derived from it (templateDisplayOrder), so pairing
+// never moves anything and unpairing needs no undo. Only ↑/↓ rewrites it. See the 14 Aug note on
+// moveTemplateExercise for the bug that made this necessary.
 let editingTemplateSessionId = null;
 let editingTemplateExercises = [];
 // Supersets saved into the template, as membership lists — same model as the in-gym `supersetGroups`,
@@ -1390,7 +1395,6 @@ function openSessionEditor(sessionId) {
   editingTemplateExercises.forEach(e => { if (e.supersetGroup) (byTag[e.supersetGroup] ||= []).push(e.name); });
   editingTemplateGroups = Object.values(byTag).filter(g => g.length > 1);
   editingTemplatePickerFor = null;
-  applyTemplateUnitOrder();   // a template saved with its pairs apart opens with them together
   document.getElementById('edit-session-title').textContent = `Edit ${session.name}`;
   const delLink = document.getElementById('delete-session-link');
   if (delLink) delLink.style.display = session.programme === CUSTOM_PROGRAMME_ID ? 'block' : 'none';
@@ -1444,11 +1448,15 @@ function templateUnits() {
   return units;
 }
 
-// Rewrites editingTemplateExercises in unit order, so a superset's members sit next to each other.
-function applyTemplateUnitOrder(units) {
-  const byName = {};
-  editingTemplateExercises.forEach(e => { byName[e.name] = e; });
-  editingTemplateExercises = (units || templateUnits()).flat().map(n => byName[n]).filter(Boolean);
+// What the editor actually shows: base order, with each superset emitted whole at the earliest slot
+// any of its members holds. Pure function of base order + groups — the same shape as the logger's
+// displayExerciseOrder(), and the reason pairing no longer has to move anything.
+function templateDisplayOrder() {
+  return templateUnits().flat();
+}
+
+function templateExerciseByName(name) {
+  return editingTemplateExercises.find(e => e.name === name) || null;
 }
 
 function toggleTemplateSupersetPicker(name) {
@@ -1465,15 +1473,13 @@ function pairTemplateSuperset(name, partner) {
   if (group) group.push(partner);
   else editingTemplateGroups.push([name, partner]);
   editingTemplatePickerFor = null;
-  applyTemplateUnitOrder();   // the new partner slides up next to its group rather than staying put
-  renderTemplateEditorRows();
+  renderTemplateEditorRows();   // the partner slides up next to its group on screen only — base order is untouched
 }
 
 function clearTemplateSuperset(name) {
   editingTemplateGroups = editingTemplateGroups.map(g => g.filter(n => n !== name)).filter(g => g.length > 1);
   editingTemplatePickerFor = null;
-  applyTemplateUnitOrder();
-  renderTemplateEditorRows();
+  renderTemplateEditorRows();   // drops back into its original slot, because that slot was never given up
 }
 
 function templateSupersetPickerHtml(name) {
@@ -1488,10 +1494,28 @@ function templateSupersetPickerHtml(name) {
     html += `<button type="button" class="ss-pick" onclick="pairTemplateSuperset('${jsAttr(name)}','${jsAttr(n)}')">${esc(n)}${moving ? '<span class="ss-pick-note">moves out of its current superset</span>' : ''}</button>`;
   });
   if (!others.length) html += `<div class="ss-picker-empty">Nothing else in this session to pair with.</div>`;
+
+  // The half the editor was missing until 14 Aug: "superset this with something that isn't in the
+  // template yet" was inexpressible here, so the nearest wrong name got picked instead — which is how
+  // pairing Seated Calf Raise with Single Leg Curl grabbed Lower B's existing Leg Curl.
+  html += `<select class="field-input ss-pick-add" onchange="addTemplateSupersetPartner('${jsAttr(name)}', this)">${exerciseAddOptionsHtml(editingTemplateExercises.map(e => e.name), '+ Something not in this session…')}</select>`;
   if (partners.length) {
     html += `<button type="button" class="ss-pick ss-pick-clear" onclick="clearTemplateSuperset('${jsAttr(name)}')">✕ Remove ${esc(name)} from this superset</button>`;
   }
   return html + `</div>`;
+}
+
+// Adds the exercise to the template and pairs it in one step — the template equivalent of the gym
+// picker's addSupersetPartner(). Adding it lands it at the end of the base order; the pairing is what
+// pulls it up next to its partner on screen, so unpairing later still returns it to the end.
+async function addTemplateSupersetPartner(name, selectEl) {
+  const val = selectEl.value;
+  if (!val) return;
+  selectEl.value = '';
+  const partner = val === '__custom__' ? await promptTemplateCustomExercise() : val;
+  if (!partner) return;
+  if (val !== '__custom__') addTemplateExercise(partner);   // the custom path already adds it
+  pairTemplateSuperset(name, partner);
 }
 
 function renderTemplateEditorRows() {
@@ -1502,7 +1526,11 @@ function renderTemplateEditorRows() {
   const units = templateUnits();
   const unitIndex = {};
   units.forEach((u, ui) => u.forEach(n => { unitIndex[n] = ui; }));
-  list.innerHTML = editingTemplateExercises.map((ex, i) => {
+  // Rows are keyed by NAME, not by index into editingTemplateExercises — the two orders are no longer
+  // the same thing now that the display order is derived, and an index would act on the wrong row.
+  list.innerHTML = templateDisplayOrder().map(exName => {
+    const ex = templateExerciseByName(exName);
+    if (!ex) return '';
     const tag = groupMap[ex.name];
     const partners = tag ? (templateGroupOf(ex.name) || []).filter(n => n !== ex.name && groupMap[n]) : [];
     const ui = unitIndex[ex.name] ?? 0;
@@ -1510,12 +1538,12 @@ function renderTemplateEditorRows() {
     <div class="template-ex-row${tag ? ' in-superset' : ''}">
       <div class="template-ex-name">${esc(ex.name)}${tag ? `<span class="pf-ss">s/s ${esc(tag)}</span>` : ''}</div>
       <div class="template-ex-controls">
-        <button type="button" class="btn btn-outline template-ex-btn" ${ui === 0 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, -1)" aria-label="Move up">↑</button>
-        <button type="button" class="btn btn-outline template-ex-btn" ${ui === units.length - 1 ? 'disabled' : ''} onclick="moveTemplateExercise(${i}, 1)" aria-label="Move down">↓</button>
-        <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets(${i}, -1)" aria-label="Remove set">−</button>
+        <button type="button" class="btn btn-outline template-ex-btn" ${ui === 0 ? 'disabled' : ''} onclick="moveTemplateExercise('${jsAttr(ex.name)}', -1)" aria-label="Move up">↑</button>
+        <button type="button" class="btn btn-outline template-ex-btn" ${ui === units.length - 1 ? 'disabled' : ''} onclick="moveTemplateExercise('${jsAttr(ex.name)}', 1)" aria-label="Move down">↓</button>
+        <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets('${jsAttr(ex.name)}', -1)" aria-label="Remove set">−</button>
         <span class="template-ex-sets">${ex.sets} sets</span>
-        <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets(${i}, 1)" aria-label="Add set">+</button>
-        <button type="button" class="ex-remove-btn" onclick="removeTemplateExercise(${i})" aria-label="Remove exercise" title="Remove">✕</button>
+        <button type="button" class="btn btn-outline template-ex-btn" onclick="changeTemplateExerciseSets('${jsAttr(ex.name)}', 1)" aria-label="Add set">+</button>
+        <button type="button" class="ex-remove-btn" onclick="removeTemplateExercise('${jsAttr(ex.name)}')" aria-label="Remove exercise" title="Remove">✕</button>
       </div>
       <button type="button" class="ss-btn${partners.length ? ' active' : ''}" onclick="toggleTemplateSupersetPicker('${jsAttr(ex.name)}')">${partners.length ? `⇄ Superset with ${esc(partners.join(' + '))}` : '⇄ Superset'}</button>
       ${editingTemplatePickerFor === ex.name ? templateSupersetPickerHtml(ex.name) : ''}
@@ -1528,37 +1556,57 @@ function renderTemplateEditorRows() {
 // Moves the whole superset the exercise belongs to, never one half of it. Plain adjacent-swap was
 // the bug: nudging an s/s member up stepped it over its own partner, leaving the tag intact but the
 // two rows split apart — and the logger would silently snap them back together on the day anyway.
-function moveTemplateExercise(index, dir) {
-  const name = editingTemplateExercises[index]?.name;
-  if (!name) return;
+//
+// This is the ONLY thing that rewrites the base order, and deliberately so: ↑/↓ is Del saying "this
+// block belongs here", which should stick. Pairing is not, which is why it no longer touches it.
+// The rewrite swaps the two units *within the slots those units already occupy*, so every exercise
+// not involved in the move — including the members of other supersets — keeps its base position and
+// can still be unpaired back into it.
+function moveTemplateExercise(name, dir) {
+  if (!templateExerciseByName(name)) return;
   const units = templateUnits();
   const u = units.findIndex(unit => unit.includes(name));
   const target = u + dir;
   if (u < 0 || target < 0 || target >= units.length) return;
-  [units[u], units[target]] = [units[target], units[u]];
-  applyTemplateUnitOrder(units);
+
+  const seq = dir < 0 ? [...units[u], ...units[target]] : [...units[target], ...units[u]];
+  const moving = new Set(seq);
+  const order = editingTemplateExercises.map(e => e.name);
+  const slots = order.reduce((acc, n, i) => (moving.has(n) ? [...acc, i] : acc), []);
+  slots.forEach((slot, k) => { order[slot] = seq[k]; });
+
+  const byName = {};
+  editingTemplateExercises.forEach(e => { byName[e.name] = e; });
+  editingTemplateExercises = order.map(n => byName[n]).filter(Boolean);
   renderTemplateEditorRows();
 }
 
-function changeTemplateExerciseSets(index, delta) {
-  const ex = editingTemplateExercises[index];
+function changeTemplateExerciseSets(name, delta) {
+  const ex = templateExerciseByName(name);
   if (!ex) return;
   ex.sets = Math.max(1, ex.sets + delta);
   renderTemplateEditorRows();
 }
 
-function removeTemplateExercise(index) {
-  editingTemplateExercises.splice(index, 1);
+function removeTemplateExercise(name) {
+  editingTemplateExercises = editingTemplateExercises.filter(e => e.name !== name);
   renderTemplateEditorRows();
 }
 
-function templateAddExerciseOptionsHtml() {
-  const chosen = new Set(editingTemplateExercises.map(e => e.name));
+// The three add-an-exercise dropdowns — the template editor's, the in-gym superset picker's and the
+// template superset picker's — are the same list of everything not already chosen, plus the type-it-in
+// option. They differ only in the placeholder, so they share one builder rather than drifting apart
+// the way the two cardio renderers did.
+function exerciseAddOptionsHtml(chosenNames, placeholder) {
+  const chosen = new Set(chosenNames);
   const names = Object.keys(EXERCISE_LIBRARY).filter(n => !chosen.has(n)).sort();
-  let opts = `<option value="" selected disabled>Add an exercise…</option>`;
+  let opts = `<option value="" selected disabled>${esc(placeholder)}</option>`;
   names.forEach(n => { opts += `<option value="${esc(n)}">${esc(n)}</option>`; });
-  opts += `<option value="__custom__">+ Type a new exercise…</option>`;
-  return opts;
+  return opts + `<option value="__custom__">+ Type a new exercise…</option>`;
+}
+
+function templateAddExerciseOptionsHtml() {
+  return exerciseAddOptionsHtml(editingTemplateExercises.map(e => e.name), 'Add an exercise…');
 }
 
 async function handleTemplateExerciseSelect(selectEl) {
@@ -1598,6 +1646,7 @@ async function promptTemplateCustomExercise() {
   }
   EXERCISE_LIBRARY[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
   addTemplateExercise(name);
+  return name;   // so the superset picker can pair with what was just typed in
 }
 
 // Delete-all-then-reinsert for this session's exercises — same idiom completeExercise() already
@@ -1608,6 +1657,10 @@ async function saveSessionTemplate() {
   const delRes = await sb(`session_exercises?session_id=eq.${id}`, 'DELETE', null, { quiet: true });
   if (!delRes.ok) { showToast(`Save failed (${delRes.status})`, 'error'); return; }
   const groupMap = templateGroupMap();   // presence-filtered, so a removed partner can't leave a tag behind
+  // sort_order is the BASE order, not what's on screen: the pairs are stored as tags and both the
+  // editor and the logger re-derive the together-on-screen order from them on open. Writing the
+  // derived order instead would bake a pairing into the sort permanently, so unpairing next week
+  // would leave the exercise stranded next to its ex-partner — the 13 Aug Lower B bug, one save later.
   const rows = editingTemplateExercises.map((ex, i) => ({
     session_id: id, name: ex.name, sets: ex.sets, reps: ex.reps, rest: ex.rest,
     note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
@@ -1948,12 +2001,7 @@ function supersetPickerHtml(exName) {
 }
 
 function supersetAddOptionsHtml() {
-  const chosen = new Set((selectedSession?.exercises || []).map(e => e.name));
-  const names = Object.keys(EXERCISE_LIBRARY).filter(n => !chosen.has(n)).sort();
-  let opts = `<option value="" selected disabled>+ Something not in this session…</option>`;
-  names.forEach(n => { opts += `<option value="${esc(n)}">${esc(n)}</option>`; });
-  opts += `<option value="__custom__">+ Type a new exercise…</option>`;
-  return opts;
+  return exerciseAddOptionsHtml((selectedSession?.exercises || []).map(e => e.name), '+ Something not in this session…');
 }
 
 // Adds an exercise to today's session and pairs it in one go — the whole point being that the lift you
