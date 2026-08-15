@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-14-1612';
+const APP_BUILD = '2026-08-15-1417';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1263,7 +1263,8 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   // Real sessions only — an abandoned row would otherwise paint a day green with nothing logged on it
   const workouts = await realWorkoutsBetween(weekDates[0], weekDates[6]);
   strip.innerHTML = '';  // Clear AFTER fetch — prevents race between concurrent calls
-  const doneDates = new Set((workouts || []).map(w => w.date));
+  const byDate = {};
+  (workouts || []).forEach(w => { (byDate[w.date] ||= []).push(sessionDisplayName(w.session_type)); });
 
   weekDates.forEach((date, i) => {
     const div = document.createElement('div');
@@ -1272,10 +1273,29 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
     // trained never turned green — the one day of the week you'd actually look at for confirmation.
     // The CSS keeps today's accent border and gives the dot to `done` when they land together.
     if (i === dow) div.classList.add('today');
-    if (doneDates.has(date)) div.classList.add('done');
-    div.innerHTML = `<div class="wd-name">${days[i]}</div><div class="wd-dot"></div>`;
+    const names = byDate[date] || [];
+    if (names.length) div.classList.add('done');
+    // The name of what was trained replaces the dot rather than sitting under it: a day carrying a
+    // label is a day that was trained, so the dot alongside it would be saying the same thing twice
+    // in a tile a seventh of a phone wide. Untrained days keep the dot.
+    const label = names.map(shortSessionLabel).filter(Boolean).join(' ');
+    div.innerHTML = `<div class="wd-name">${days[i]}</div>` + (label
+      ? `<div class="wd-session" title="${esc(names.join(', '))}">${esc(label)}</div>`
+      : `<div class="wd-dot"></div>`);
     strip.appendChild(div);
   });
+}
+
+// Squeezes a session name into a seventh of a phone's width — "Upper A" → UA, "Full Body A" → FBA,
+// "CV + Pump" → CVP. Initials, except that a word already written in capitals is an acronym and is
+// kept whole (dropping CV to a bare C would lose the only part that identifies the session).
+// A one-word name keeps its first five letters instead, since its initial alone says nothing.
+// The full name rides along in the tile's `title`, and History spells every session out in full.
+function shortSessionLabel(name) {
+  const words = (name || '').replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  if (!words.length) return '';
+  if (words.length === 1) return words[0].slice(0, 5).toUpperCase();
+  return words.map(w => (w === w.toUpperCase() ? w : w[0])).join('').slice(0, 5).toUpperCase();
 }
 
 // ─── PROGRAMME / SESSION GRID ─────────────────────────────
@@ -2054,10 +2074,22 @@ function refreshSupersetUi() {
     // member of the group; the others hide theirs until the group is broken up again.
     const group = map[ex.name] ? (supersetGroupOf(ex.name) || []).filter(n => map[n]) : [];
     const inGroup = group.length > 1;
+    const isLastOfGroup = !inGroup || group[group.length - 1] === ex.name;
     const doneBtn = document.getElementById(`done-btn-${ex.name}`);
     if (doneBtn) {
-      doneBtn.style.display = (inGroup && group[group.length - 1] !== ex.name) ? 'none' : '';
+      doneBtn.style.display = isLastOfGroup ? '' : 'none';
       if (!doneBtn.dataset.done) doneBtn.textContent = inGroup ? 'Mark Superset Done' : 'Mark Done';
+    }
+
+    // One superset, one stopwatch — same rule, same member as the Mark Done above. You rest after the
+    // round, not after each half of it, so two watches on a pair offered the same rest twice and made
+    // you pick one. It has to be the LAST member specifically: startRestAfter() hands the auto-started
+    // rest to whichever exercise finished the group, so parking the watch on the first member would
+    // leave a Mark Done rest counting down on a button that isn't on screen.
+    const watchBtn = document.getElementById(`watch-${ex.name}`);
+    if (watchBtn) {
+      watchBtn.style.display = isLastOfGroup ? '' : 'none';
+      if (!isLastOfGroup && swRunning && swActiveExercise === ex.name) swHandOverWatch(group[group.length - 1]);
     }
 
     const btn = document.getElementById(`ss-${ex.name}`);
@@ -4746,6 +4778,34 @@ async function swStop() {
     swFlashWatch(exName);
     saveDraft(selectedSession?.id);   // persist rest to localStorage so it survives reload
   }
+}
+
+// Moves a RUNNING timer onto another exercise's watch without stopping it — same start timestamp, so
+// no elapsed time is lost and nothing is written to the DB on the way past.
+//
+// One caller: refreshSupersetUi(), when pairing hides the watch the timer is currently attached to.
+// A running timer on a hidden button is a trap rather than a cosmetic problem — it keeps counting and
+// still beeps, and the tap that stops it (and the long-press that resets it) live on the button that
+// just disappeared, so there is no way to end it.
+function swHandOverWatch(toExName) {
+  if (!swRunning || !toExName || swActiveExercise === toExName) return;
+  const from = swActiveExercise;
+  swActiveExercise = toExName;
+  const ex = selectedSession?.exercises.find(e => e.name === toExName);
+  swTargetSeconds = swParseRest(ex?.rest);
+  // Re-derived, not carried over: the new target can be shorter than the elapsed time (already past
+  // it, don't beep again) or longer than it (not there yet, so the beep is still to come).
+  swCompletionBeeped = swElapsed() >= swTargetSeconds;
+  sessionStorage.setItem('sw_state', JSON.stringify({
+    start: swStartTimestamp,
+    target: swTargetSeconds,
+    exercise: toExName,
+    save: swSaveOnStop
+  }));
+  clearInterval(swInterval);
+  swInterval = setInterval(() => swRenderWatch(toExName), 1000);
+  swRenderWatch(from);      // back to idle — its ring would otherwise stay frozen mid-sweep
+  swRenderWatch(toExName);
 }
 
 // Long-press = wipe the timer without saving (in case of mis-tap)

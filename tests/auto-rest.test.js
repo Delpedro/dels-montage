@@ -193,8 +193,11 @@ function fresh() {
 
   // One call site. A second one somewhere else would be a rest timer starting for reasons the user
   // can't see, which is exactly the class of bug the watch's manual tap never had.
-  eq(src.split('startRestAfter(').length - 1, 2,
-    'startRestAfter appears twice in the source — its declaration and that one call');
+  // Comment lines are dropped first: this is a claim about code, and the prose elsewhere in app.js
+  // legitimately names startRestAfter() when explaining why the superset watch sits where it does.
+  const code = src.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  eq(code.split('startRestAfter(').length - 1, 2,
+    'startRestAfter appears twice in the code — its declaration and that one call');
 }
 
 process.on('exit', () => {

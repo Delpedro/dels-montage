@@ -127,6 +127,10 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .wd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border2); margin: 0 auto; }
 .week-day.done .wd-dot { background: var(--green); }
 .week-day.today .wd-dot { background: var(--accent); }
+/* What was trained that day, in place of the dot — "UA", "FBA", "CVP" (see shortSessionLabel()).
+   nowrap + ellipsis rather than a fixed character budget: two sessions in one day joins two labels,
+   and a tile this narrow must clip rather than wrap and make the strip ragged. */
+.wd-session { font-size: 9px; line-height: 10px; font-weight: 700; letter-spacing: 0.3px; color: var(--green); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Today, once it's been trained: the accent border still marks which day you're on, but the dot
    goes green like every other completed day. Before this, today never showed as done. */
 .week-day.today.done .wd-dot { background: var(--green); }
