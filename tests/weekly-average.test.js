@@ -34,23 +34,18 @@ function fakeDom() {
   });
   const els = {};
   const get = id => (els[id] ||= mk());
-  ['weekavg-card', 'weekavg-weeks', 'weekavg-val', 'weekavg-range', 'weekavg-cmp'].forEach(get);
-  return {
-    els, get,
-    document: {
-      getElementById: id => get(id),
-      // Only ever called with '.weekavg-wk' — every pill this run has created.
-      querySelectorAll: () => Object.keys(els).filter(k => k.startsWith('weekavg-wk-')).map(k => els[k])
-    }
-  };
+  ['weekavg-card', 'weekavg-wk-name', 'weekavg-range', 'weekavg-val', 'weekavg-cmp',
+   'weekavg-prev', 'weekavg-next'].forEach(get);
+  return { els, get, document: { getElementById: id => get(id) } };
 }
 
 function harness(today) {
   const dom = fakeDom();
   const app = load({
     functions: ['isoWeek', 'isoWeekKey', 'mondayOf', 'weekRangeLabel',
-                'renderWeeklyAverage', 'showWeeklyAverage', 'dateStr', 'weekIndex'],
-    decls: ['_weekAvgs'],
+                'renderWeeklyAverage', 'showWeeklyAverage', 'stepWeeklyAverage',
+                'dateStr', 'weekIndex'],
+    decls: ['_weekAvgs', '_weekAvgKey'],
     deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today }
   });
   return { app, els: dom.els, get: dom.get };
@@ -109,22 +104,30 @@ console.log('Weekly average weight');
 
   ok(els['weekavg-card'].style.display === 'block', 'card is shown once there is at least one weigh-in');
 
-  // Pills, not a <select> — a native dropdown renders as unstyleable OS chrome and stretches the
-  // full width of a desktop window. See the CSS note on .weekavg-weeks.
-  ok(!/<option|<select/.test(els['weekavg-weeks'].innerHTML), 'the picker is not a native select');
-  ok(/class="weekavg-wk"/.test(els['weekavg-weeks'].innerHTML), 'it is a row of pill buttons');
-  ok(/W33/.test(els['weekavg-weeks'].innerHTML), 'the row lists week 33');
-
   // Opens on the last COMPLETED week. Opening on the current one would compare it against itself.
-  ok(get('weekavg-wk-2026-33').classList.contains('active'), 'opens on week 33, not on week 34');
-  ok(!get('weekavg-wk-2026-34').classList.contains('active'), 'the current week is not the one selected');
+  eq(els['weekavg-wk-name'].textContent, 'Week 33', 'opens on week 33, not on week 34');
+  eq(els['weekavg-range'].textContent, '10 – 16 Aug', 'with its dates under the name');
   eq(els['weekavg-val'].innerHTML.startsWith('80.5'), true, 'week 33 averages 80.5 from 80 and 81');
-  eq(els['weekavg-range'].textContent, 'Week 33 · 10 – 16 Aug', 'the dates sit under the number');
 
-  // Newest first, so the week you most likely want needs no scrolling and April's junk weeks are
-  // simply further along the swipe.
-  const order = (els['weekavg-weeks'].innerHTML.match(/>W(\d+)</g) || []).map(s => +s.slice(2, -1));
-  eq(JSON.stringify(order), JSON.stringify([34, 33, 29]), 'weeks are listed newest first');
+  // A stepper, so nothing is on screen but the week you're on — and no list of any kind. Both
+  // earlier pickers were rejected; see the CSS note on .weekavg-body.
+  app.stepWeeklyAverage(-1);
+  eq(els['weekavg-wk-name'].textContent, 'Week 29', '‹ steps back in time');
+  app.stepWeeklyAverage(1);
+  eq(els['weekavg-wk-name'].textContent, 'Week 33', '› steps forward again');
+
+  // Running off either end must stop dead, not wrap — wrapping would jump from this week to April.
+  app.stepWeeklyAverage(-1);
+  eq(els['weekavg-prev'].disabled, true, 'the oldest week disables ‹');
+  eq(els['weekavg-next'].disabled, false, 'but not ›');
+  app.stepWeeklyAverage(-1);
+  eq(els['weekavg-wk-name'].textContent, 'Week 29', 'stepping past the oldest week does nothing');
+
+  app.showWeeklyAverage('2026-34');
+  eq(els['weekavg-next'].disabled, true, 'the newest week disables ›');
+  app.stepWeeklyAverage(1);
+  eq(els['weekavg-wk-name'].textContent, 'Week 34', 'stepping past the newest week does nothing');
+  app.showWeeklyAverage('2026-33');
 
   // The one comparison the card makes, and the only one Del asked for.
   eq(els['weekavg-cmp'].textContent, '▼ 1.5kg vs this week (79.0kg)', 'week 33 vs this week');
@@ -134,8 +137,6 @@ console.log('Weekly average weight');
   eq(els['weekavg-val'].innerHTML.startsWith('81.5'), true, 'week 29 averages 81.5');
   eq(els['weekavg-cmp'].textContent, '▼ 2.5kg vs this week (79.0kg)',
      'week 29 is still compared to THIS week — never to week 33 in between');
-  ok(get('weekavg-wk-2026-29').classList.contains('active'), 'the tapped pill lights up');
-  ok(!get('weekavg-wk-2026-33').classList.contains('active'), 'and the previous one lets go');
 
   // Selecting the current week has nothing to compare against; say so rather than printing 0.0kg.
   app.showWeeklyAverage('2026-34');

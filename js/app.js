@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-17-1619';
+const APP_BUILD = '2026-08-17-1649';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -3810,11 +3810,11 @@ function weekRangeLabel(mondayIso) {
 }
 
 let _weekAvgs = [];
+let _weekAvgKey = null;
 
 function renderWeeklyAverage(allWeights) {
   const card = document.getElementById('weekavg-card');
-  const row = document.getElementById('weekavg-weeks');
-  if (!card || !row) return;
+  if (!card) return;
 
   const buckets = {};
   (allWeights || []).forEach(l => {
@@ -3836,15 +3836,16 @@ function renderWeeklyAverage(allWeights) {
   // and print nothing useful on a card you tapped to be told something.
   const thisKey = isoWeekKey(todayStr());
   const dflt = _weekAvgs.filter(w => w.key !== thisKey).slice(-1)[0] || _weekAvgs[_weekAvgs.length - 1];
-
-  // Newest first, so the weeks you actually care about need no scrolling and the ancient ones are
-  // simply further along the swipe. That's the whole reason this is a scroll row and not a menu —
-  // there are weigh-ins in here from April, months before this programme started, and in a dropdown
-  // they were seven junk rows you had to read past.
-  row.innerHTML = _weekAvgs.slice().reverse().map(w =>
-    `<button type="button" class="weekavg-wk" id="weekavg-wk-${esc(w.key)}" onclick="showWeeklyAverage('${jsAttr(w.key)}')">W${w.week}</button>`
-  ).join('');
   showWeeklyAverage(dflt.key);
+}
+
+// One week back or forward. `_weekAvgs` is oldest-first, so ‹ is -1 and › is +1, and there is no
+// wrapping — running off either end is a disabled arrow, not a jump from this week to April.
+function stepWeeklyAverage(delta) {
+  const i = _weekAvgs.findIndex(w => w.key === _weekAvgKey);
+  if (i === -1) return;
+  const next = _weekAvgs[i + delta];
+  if (next) showWeeklyAverage(next.key);
 }
 
 // The only comparison this card makes: the week you picked against the week you're in.
@@ -3852,15 +3853,20 @@ function showWeeklyAverage(key) {
   const valEl = document.getElementById('weekavg-val');
   const cmpEl = document.getElementById('weekavg-cmp');
   const rangeEl = document.getElementById('weekavg-range');
+  const nameEl = document.getElementById('weekavg-wk-name');
   const picked = _weekAvgs.find(w => w.key === key);
   if (!picked || !valEl || !cmpEl) return;
+  _weekAvgKey = key;
 
-  document.querySelectorAll('.weekavg-wk').forEach(b => b.classList.remove('active'));
-  const pill = document.getElementById(`weekavg-wk-${key}`);
-  if (pill) pill.classList.add('active');
+  const i = _weekAvgs.indexOf(picked);
+  const prevBtn = document.getElementById('weekavg-prev');
+  const nextBtn = document.getElementById('weekavg-next');
+  if (prevBtn) prevBtn.disabled = i === 0;
+  if (nextBtn) nextBtn.disabled = i === _weekAvgs.length - 1;
 
+  if (nameEl) nameEl.textContent = `Week ${picked.week}`;
+  if (rangeEl) rangeEl.textContent = weekRangeLabel(picked.monday);
   valEl.innerHTML = `${picked.avg.toFixed(1)}<span class="weekavg-unit">kg</span>`;
-  if (rangeEl) rangeEl.textContent = `Week ${picked.week} · ${weekRangeLabel(picked.monday)}`;
 
   const now = _weekAvgs.find(w => w.key === isoWeekKey(todayStr()));
   if (!now) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'No weigh-in yet this week'; return; }

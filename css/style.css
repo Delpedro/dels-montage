@@ -495,27 +495,29 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
    One card, one job: pick a week, see that week's average, see it against the week you're in.
    No sessions, no calories, no week-on-week deltas — every one of those was tried in a mockup and
    they all buried the number the card exists for. */
-/* A scrolling row of pills, NOT a <select>. A native select opens the OS dropdown — unstyleable
-   white highlight bar, system font, and full viewport width on a desktop browser. It looked like a
-   1998 web form sat in the middle of this app. Pills also scale where a dropdown doesn't: a year of
-   weeks is a longer swipe, not a 52-row menu. Same shape as .var-btn / .history-tab. */
-.weekavg-weeks {
-  display: flex; gap: 6px; overflow-x: auto; margin: -2px -2px 2px; padding: 2px;
-  scrollbar-width: none; -ms-overflow-style: none;
+/* A stepper — one week at a time, no list of any kind. Two earlier attempts were rejected: a native
+   <select> (OS dropdown chrome, full window width on desktop) and a scrolling pill row (there are
+   weigh-ins in the database from April, so five irrelevant pills sat in front of the useful ones).
+   A stepper has neither problem: nothing is on screen except the week you're looking at, and April
+   is seventeen deliberate taps away rather than in your face.
+   Everything lives in a fixed-width column that is centred explicitly — the card is full-window
+   width on a desktop browser, and relying on text-align alone left the number visibly off-centre. */
+.weekavg-body { max-width: 260px; margin: 0 auto; text-align: center; }
+.weekavg-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.weekavg-arrow {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid var(--border2); background: var(--bg3); color: var(--muted2);
+  font-size: 22px; line-height: 1; font-family: 'DM Sans', sans-serif; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
 }
-.weekavg-weeks::-webkit-scrollbar { display: none; }
-.weekavg-wk {
-  flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border2); border-radius: 20px;
-  padding: 7px 14px; color: var(--muted); font-size: 12px; font-weight: 600;
-  font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
-  font-variant-numeric: tabular-nums;
-}
-.weekavg-wk.active { border-color: var(--accent); background: rgba(232,93,47,0.15); color: var(--accent); }
-.weekavg-val { font-family: 'Bebas Neue', sans-serif; font-size: 56px; line-height: 1; letter-spacing: 1px; color: var(--accent); text-align: center; margin-top: 1rem; }
+.weekavg-arrow:active { border-color: var(--accent); color: var(--accent); }
+.weekavg-arrow:disabled { opacity: 0.25; cursor: default; }
+.weekavg-wk { flex: 1 1 auto; min-width: 0; }
+.weekavg-wk-name { font-family: 'Bebas Neue', sans-serif; font-size: 23px; letter-spacing: 0.5px; line-height: 1; color: var(--text); }
+.weekavg-range { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; margin-top: 4px; white-space: nowrap; }
+.weekavg-val { font-family: 'Bebas Neue', sans-serif; font-size: 56px; line-height: 1; letter-spacing: 1px; color: var(--accent); margin-top: 1rem; }
 .weekavg-unit { font-family: 'DM Sans', sans-serif; font-size: 15px; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
-/* The dates belong under the number, not inside the pill — the pill has to stay thumb-sized. */
-.weekavg-range { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; text-align: center; margin-top: 7px; }
-.weekavg-cmp { font-size: 12.5px; font-weight: 600; text-align: center; margin-top: 5px; min-height: 18px; }
+.weekavg-cmp { font-size: 12.5px; font-weight: 600; margin-top: 5px; min-height: 18px; }
 .weekavg-cmp.down { color: var(--green); }
 .weekavg-cmp.up   { color: var(--amber); }
 .weekavg-cmp.flat { color: var(--muted); }
