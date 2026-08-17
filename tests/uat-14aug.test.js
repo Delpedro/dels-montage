@@ -195,7 +195,10 @@ console.log('Last Time card carries rest');
   // PostgREST hands numerics back as strings often enough that this has bitten twice before.
   eq(app.lastTimeRestLabel([{ rest_seconds: '120' }]), 'rest 2:00 avg', 'a string rest still counts');
 
-  ok(SRC.includes('select=exercise,set_number,weight,reps,variation,rest_seconds'),
+  // Rewritten 15 Aug 2026 for PostgREST embedding — the column list moved from a standalone
+  // `workout_sets?select=…` into `workout_sets(…)` nested in the workouts query. The claim is
+  // unchanged and still the one worth pinning: the snapshot has to ask for rest_seconds.
+  ok(SRC.includes('workout_sets(exercise,set_number,weight,reps,variation,rest_seconds)'),
     'fetchLastSessionSnapshot actually asks the database for rest_seconds — the card cannot show what it never fetched');
 }
 

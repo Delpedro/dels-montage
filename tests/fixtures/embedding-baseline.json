@@ -1,0 +1,519 @@
+{
+  "realWorkoutsBetween: open-ended range": {
+    "result": [
+      {
+        "id": "w1",
+        "date": "2026-08-01",
+        "session_type": "lower-a",
+        "notes": "",
+        "completed_at": "2026-08-01T10:00:00"
+      },
+      {
+        "id": "w2",
+        "date": "2026-08-03",
+        "session_type": "upper-a",
+        "notes": "",
+        "completed_at": "2026-08-03T10:00:00"
+      },
+      {
+        "id": "w3",
+        "date": "2026-08-05",
+        "session_type": "cv-pump",
+        "notes": "legs felt heavy",
+        "completed_at": "2026-08-05T10:00:00"
+      },
+      {
+        "id": "w5",
+        "date": "2026-08-07",
+        "session_type": "open",
+        "notes": "",
+        "completed_at": "2026-08-07T10:00:00"
+      },
+      {
+        "id": "w6",
+        "date": "2026-08-08",
+        "session_type": "upper-a",
+        "notes": "  ",
+        "completed_at": "2026-08-08T10:00:00"
+      },
+      {
+        "id": "w7",
+        "date": "2026-08-09",
+        "session_type": "lower-a",
+        "notes": "",
+        "completed_at": null
+      },
+      {
+        "id": "w8",
+        "date": "2026-08-10",
+        "session_type": "open",
+        "notes": "",
+        "completed_at": null
+      }
+    ],
+    "requests": [
+      "workouts?date=gte.2026-08-01&select=id,date,session_type,notes,completed_at",
+      "workout_sets?workout_id=in.(\"w1\",\"w2\",\"w3\",\"w4\",\"w5\",\"w6\",\"w7\",\"w8\")&select=workout_id",
+      "cardio_logs?workout_id=in.(\"w1\",\"w2\",\"w3\",\"w4\",\"w5\",\"w6\",\"w7\",\"w8\")&select=workout_id"
+    ]
+  },
+  "realWorkoutsBetween: bounded range": {
+    "result": [
+      {
+        "id": "w3",
+        "date": "2026-08-05",
+        "session_type": "cv-pump",
+        "notes": "legs felt heavy",
+        "completed_at": "2026-08-05T10:00:00"
+      },
+      {
+        "id": "w5",
+        "date": "2026-08-07",
+        "session_type": "open",
+        "notes": "",
+        "completed_at": "2026-08-07T10:00:00"
+      },
+      {
+        "id": "w6",
+        "date": "2026-08-08",
+        "session_type": "upper-a",
+        "notes": "  ",
+        "completed_at": "2026-08-08T10:00:00"
+      },
+      {
+        "id": "w7",
+        "date": "2026-08-09",
+        "session_type": "lower-a",
+        "notes": "",
+        "completed_at": null
+      }
+    ],
+    "requests": [
+      "workouts?date=gte.2026-08-05&date=lte.2026-08-09&select=id,date,session_type,notes,completed_at",
+      "workout_sets?workout_id=in.(\"w3\",\"w4\",\"w5\",\"w6\",\"w7\")&select=workout_id",
+      "cardio_logs?workout_id=in.(\"w3\",\"w4\",\"w5\",\"w6\",\"w7\")&select=workout_id"
+    ]
+  },
+  "realWorkoutsBetween: nothing in range": {
+    "result": [],
+    "requests": [
+      "workouts?date=gte.2026-09-01&select=id,date,session_type,notes,completed_at"
+    ]
+  },
+  "loadPreviousSetsForSession: fixed session, two variations": {
+    "result": {
+      "Lat Pulldown": [
+        {
+          "weight": 65,
+          "reps": 8,
+          "variation": "Narrow"
+        },
+        {
+          "weight": 65,
+          "reps": 7,
+          "variation": "Narrow"
+        },
+        {
+          "weight": 60,
+          "reps": 10,
+          "variation": "Wide"
+        },
+        {
+          "weight": 60,
+          "reps": 9,
+          "variation": "Wide"
+        }
+      ],
+      "Dips": [
+        {
+          "weight": null,
+          "reps": 12,
+          "variation": null
+        }
+      ]
+    },
+    "requests": [
+      "workouts?session_type=eq.upper-a&order=date.desc&limit=10&select=id,date",
+      "workout_sets?workout_id=in.(w6,w2)&select=workout_id,exercise,set_number,weight,reps,variation"
+    ]
+  },
+  "loadPreviousSetsForSession: excludes the workout in progress": {
+    "result": {
+      "Lat Pulldown": [
+        {
+          "weight": 60,
+          "reps": 10,
+          "variation": "Wide"
+        },
+        {
+          "weight": 60,
+          "reps": 9,
+          "variation": "Wide"
+        }
+      ],
+      "Dips": [
+        {
+          "weight": null,
+          "reps": 12,
+          "variation": null
+        }
+      ]
+    },
+    "requests": [
+      "workouts?session_type=eq.upper-a&order=date.desc&limit=10&select=id,date",
+      "workout_sets?workout_id=in.(w2)&select=workout_id,exercise,set_number,weight,reps,variation"
+    ]
+  },
+  "loadPreviousSetsForSession: no history for this session type": {
+    "result": {},
+    "requests": [
+      "workouts?session_type=eq.full-body-a&order=date.desc&limit=10&select=id,date"
+    ]
+  },
+  "loadPreviousSetsForSession: open workout": {
+    "result": {
+      "Lat Pulldown": [
+        {
+          "weight": 55,
+          "reps": 12,
+          "variation": "Close"
+        }
+      ],
+      "Hammer Curl": [
+        {
+          "weight": 14,
+          "reps": 10,
+          "variation": null
+        }
+      ]
+    },
+    "requests": [
+      "workouts?session_type=eq.open&completed_at=not.is.null&order=date.desc&limit=20&select=id,date",
+      "workout_sets?workout_id=in.(w5)&exercise=in.(%22Hammer%20Curl%22%2C%22Lat%20Pulldown%22%2C%22Never%20Done%20This%22)&select=workout_id,exercise,set_number,weight,reps,variation"
+    ]
+  },
+  "fetchOpenPreviousSets: directly": {
+    "result": {
+      "Lat Pulldown": [
+        {
+          "weight": 55,
+          "reps": 12,
+          "variation": "Close"
+        }
+      ],
+      "Hammer Curl": [
+        {
+          "weight": 14,
+          "reps": 10,
+          "variation": null
+        }
+      ]
+    },
+    "requests": [
+      "workouts?session_type=eq.open&completed_at=not.is.null&order=date.desc&limit=20&select=id,date",
+      "workout_sets?workout_id=in.(w5)&exercise=in.(%22Hammer%20Curl%22%2C%22Lat%20Pulldown%22)&select=workout_id,exercise,set_number,weight,reps,variation"
+    ]
+  },
+  "fetchOpenPreviousSets: no exercises picked yet": {
+    "result": {},
+    "requests": []
+  },
+  "fetchLastSessionSnapshot: sets only": {
+    "result": {
+      "date": "2026-08-08",
+      "exercises": {
+        "Lat Pulldown": [
+          {
+            "exercise": "Lat Pulldown",
+            "set_number": 1,
+            "weight": 65,
+            "reps": 8,
+            "variation": "Narrow",
+            "rest_seconds": 100
+          },
+          {
+            "exercise": "Lat Pulldown",
+            "set_number": 2,
+            "weight": 65,
+            "reps": 7,
+            "variation": "Narrow",
+            "rest_seconds": 0
+          }
+        ]
+      },
+      "cardio": []
+    },
+    "requests": [
+      "workouts?session_type=eq.upper-a&completed_at=not.is.null&order=date.desc&limit=1&select=id,date",
+      "workout_sets?workout_id=eq.w6&order=set_number.asc&select=exercise,set_number,weight,reps,variation,rest_seconds",
+      "cardio_logs?workout_id=eq.w6&select=activity,duration_mins,distance,floors,incline,speed_kmh"
+    ]
+  },
+  "fetchLastSessionSnapshot: a session with nothing logged in it": {
+    "result": {
+      "date": "2026-08-06",
+      "exercises": {},
+      "cardio": []
+    },
+    "requests": [
+      "workouts?session_type=eq.lower-a&completed_at=not.is.null&order=date.desc&limit=1&select=id,date",
+      "workout_sets?workout_id=eq.w4&order=set_number.asc&select=exercise,set_number,weight,reps,variation,rest_seconds",
+      "cardio_logs?workout_id=eq.w4&select=activity,duration_mins,distance,floors,incline,speed_kmh"
+    ]
+  },
+  "fetchLastSessionSnapshot: never trained": {
+    "result": null,
+    "requests": [
+      "workouts?session_type=eq.full-body-a&completed_at=not.is.null&order=date.desc&limit=1&select=id,date"
+    ]
+  },
+  "loadHistory": {
+    "result": {
+      "logs": [
+        {
+          "id": "d1",
+          "date": "2026-08-09",
+          "weight": 82.4,
+          "steps": 9000,
+          "calories": 2100
+        },
+        {
+          "id": "d2",
+          "date": "2026-08-08",
+          "weight": 82.6,
+          "steps": 7400,
+          "calories": 1980
+        }
+      ],
+      "workouts": [
+        {
+          "id": "w8",
+          "date": "2026-08-10",
+          "session_type": "open",
+          "notes": ""
+        },
+        {
+          "id": "w7",
+          "date": "2026-08-09",
+          "session_type": "lower-a",
+          "notes": ""
+        },
+        {
+          "id": "w6",
+          "date": "2026-08-08",
+          "session_type": "upper-a",
+          "notes": "  "
+        },
+        {
+          "id": "w5",
+          "date": "2026-08-07",
+          "session_type": "open",
+          "notes": ""
+        },
+        {
+          "id": "w3",
+          "date": "2026-08-05",
+          "session_type": "cv-pump",
+          "notes": "legs felt heavy"
+        },
+        {
+          "id": "w2",
+          "date": "2026-08-03",
+          "session_type": "upper-a",
+          "notes": ""
+        },
+        {
+          "id": "w1",
+          "date": "2026-08-01",
+          "session_type": "lower-a",
+          "notes": ""
+        }
+      ],
+      "setsByWorkout": {
+        "w1": [
+          {
+            "workout_id": "w1",
+            "exercise": "Leg Press",
+            "weight": 100,
+            "reps": 10,
+            "rest_seconds": 90,
+            "set_number": 1,
+            "variation": null,
+            "superset_group": null,
+            "created_at": "2026-08-01T09:10:00"
+          },
+          {
+            "workout_id": "w1",
+            "exercise": "Leg Press",
+            "weight": 100,
+            "reps": 9,
+            "rest_seconds": 95,
+            "set_number": 2,
+            "variation": null,
+            "superset_group": null,
+            "created_at": "2026-08-01T09:10:00"
+          },
+          {
+            "workout_id": "w1",
+            "exercise": "Leg Press",
+            "weight": 100,
+            "reps": 8,
+            "rest_seconds": 0,
+            "set_number": 3,
+            "variation": null,
+            "superset_group": null,
+            "created_at": "2026-08-01T09:10:00"
+          },
+          {
+            "workout_id": "w1",
+            "exercise": "Seated Calf Raise",
+            "weight": 50,
+            "reps": 12,
+            "rest_seconds": 60,
+            "set_number": 1,
+            "variation": "Old Mach",
+            "superset_group": 1,
+            "created_at": "2026-08-01T09:25:00"
+          },
+          {
+            "workout_id": "w1",
+            "exercise": "Single Leg Curl",
+            "weight": 10,
+            "reps": 12,
+            "rest_seconds": 0,
+            "set_number": 1,
+            "variation": null,
+            "superset_group": 1,
+            "created_at": "2026-08-01T09:26:00"
+          }
+        ],
+        "w2": [
+          {
+            "workout_id": "w2",
+            "exercise": "Lat Pulldown",
+            "weight": 60,
+            "reps": 10,
+            "rest_seconds": 75,
+            "set_number": 1,
+            "variation": "Wide",
+            "superset_group": null,
+            "created_at": "2026-08-03T09:05:00"
+          },
+          {
+            "workout_id": "w2",
+            "exercise": "Lat Pulldown",
+            "weight": 60,
+            "reps": 9,
+            "rest_seconds": 0,
+            "set_number": 2,
+            "variation": "Wide",
+            "superset_group": null,
+            "created_at": "2026-08-03T09:05:00"
+          },
+          {
+            "workout_id": "w2",
+            "exercise": "Dips",
+            "weight": null,
+            "reps": 12,
+            "rest_seconds": 80,
+            "set_number": 1,
+            "variation": null,
+            "superset_group": null,
+            "created_at": "2026-08-03T09:20:00"
+          }
+        ],
+        "w5": [
+          {
+            "workout_id": "w5",
+            "exercise": "Lat Pulldown",
+            "weight": 55,
+            "reps": 12,
+            "rest_seconds": 70,
+            "set_number": 1,
+            "variation": "Close",
+            "superset_group": null,
+            "created_at": "2026-08-07T09:00:00"
+          },
+          {
+            "workout_id": "w5",
+            "exercise": "Hammer Curl",
+            "weight": 14,
+            "reps": 10,
+            "rest_seconds": 0,
+            "set_number": 1,
+            "variation": null,
+            "superset_group": null,
+            "created_at": "2026-08-07T09:15:00"
+          }
+        ],
+        "w6": [
+          {
+            "workout_id": "w6",
+            "exercise": "Lat Pulldown",
+            "weight": 65,
+            "reps": 8,
+            "rest_seconds": 100,
+            "set_number": 1,
+            "variation": "Narrow",
+            "superset_group": null,
+            "created_at": "2026-08-08T09:05:00"
+          },
+          {
+            "workout_id": "w6",
+            "exercise": "Lat Pulldown",
+            "weight": 65,
+            "reps": 7,
+            "rest_seconds": 0,
+            "set_number": 2,
+            "variation": "Narrow",
+            "superset_group": null,
+            "created_at": "2026-08-08T09:05:00"
+          }
+        ],
+        "w8": [
+          {
+            "workout_id": "w8",
+            "exercise": "Hammer Curl",
+            "weight": 16,
+            "reps": 8,
+            "rest_seconds": 0,
+            "set_number": 1,
+            "variation": null,
+            "superset_group": null,
+            "created_at": "2026-08-10T09:00:00"
+          }
+        ]
+      },
+      "cardioByWorkout": {
+        "w1": [
+          {
+            "workout_id": "w1",
+            "activity": "Treadmill",
+            "duration_mins": 15,
+            "distance": null,
+            "floors": null,
+            "incline": 14,
+            "speed_kmh": 5
+          }
+        ],
+        "w7": [
+          {
+            "workout_id": "w7",
+            "activity": "Bike",
+            "duration_mins": 20,
+            "distance": 8,
+            "floors": null,
+            "incline": null,
+            "speed_kmh": null
+          }
+        ]
+      }
+    },
+    "requests": [
+      "daily_logs?order=date.desc&select=*",
+      "workouts?order=date.desc&select=id,date,session_type,notes",
+      "workout_sets?workout_id=in.(\"w8\",\"w7\",\"w6\",\"w5\",\"w4\",\"w3\",\"w2\",\"w1\")&select=workout_id,exercise,weight,reps,rest_seconds,set_number,variation,superset_group,created_at&order=created_at.asc,set_number.asc",
+      "cardio_logs?workout_id=in.(\"w8\",\"w7\",\"w6\",\"w5\",\"w4\",\"w3\",\"w2\",\"w1\")&select=workout_id,activity,duration_mins,distance,floors,incline,speed_kmh"
+    ]
+  }
+}

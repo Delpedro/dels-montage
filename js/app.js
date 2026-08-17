@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-15-1417';
+const APP_BUILD = '2026-08-17-1520';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1214,20 +1214,18 @@ async function loadHomePage() {
 //
 // Deliberately not keyed on completed_at: autoCloseStaleWorkouts() stamps that onto abandoned rows
 // after 24h, which would let every one of them back in the next day.
+//
+// One request, not three (15 Aug 2026). It used to fetch the workouts, then fire two `in.(ids)`
+// queries to find out which of them had anything in them; PostgREST embedding answers all of that in
+// the same round trip. `workout_sets(id)` selects the cheapest possible column — nothing reads these
+// two arrays, they exist only to be counted — and both are stripped off before returning, so callers
+// get exactly the row shape they always got. See CODEBASE.md → "One request per screen, not fifteen".
 async function realWorkoutsBetween(fromDate, toDate = null) {
   const range = `date=gte.${fromDate}` + (toDate ? `&date=lte.${toDate}` : '');
-  const rows = await sb(`workouts?${range}&select=id,date,session_type,notes,completed_at`) || [];
-  if (!rows.length) return [];
-  const ids = rows.map(w => `"${w.id}"`).join(',');
-  const [sets, cardio] = await Promise.all([
-    sb(`workout_sets?workout_id=in.(${ids})&select=workout_id`),
-    sb(`cardio_logs?workout_id=in.(${ids})&select=workout_id`)
-  ]);
-  const logged = new Set([
-    ...(sets || []).map(s => s.workout_id),
-    ...(cardio || []).map(c => c.workout_id)
-  ]);
-  return rows.filter(w => logged.has(w.id) || (w.notes || '').trim() !== '');
+  const rows = await sb(`workouts?${range}&select=id,date,session_type,notes,completed_at,workout_sets(id),cardio_logs(id)`) || [];
+  return rows
+    .filter(w => (w.workout_sets || []).length > 0 || (w.cardio_logs || []).length > 0 || (w.notes || '').trim() !== '')
+    .map(({ workout_sets, cardio_logs, ...w }) => w);
 }
 
 // Monday-anchored. Everything week-shaped in the app (sessions/week, weekly averages, the
@@ -2223,12 +2221,16 @@ async function loadPreviousSetsForSession(session) {
     Object.assign(previousSets, await fetchOpenPreviousSets(session.exercises.map(e => e.name)));
     return;
   }
-  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=10&select=id,date`);
+  // One request, not two (15 Aug 2026) — the sets ride back embedded in their own workout. The
+  // session in progress is dropped *after* the fetch rather than being excluded from an id filter
+  // before it, so its sets come down and are discarded: one workout's worth of rows to save a whole
+  // round trip on the screen you're standing in a gym waiting for. Flattened straight back into the
+  // shape the grouping below has always taken, hence `workout_id` staying in the select.
+  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=10&select=id,date,workout_sets(workout_id,exercise,set_number,weight,reps,variation)`);
   const candidates = (prevWorkouts || []).filter(w => w.id !== currentWorkoutId);
   if (!candidates.length) return;
   const dateById = Object.fromEntries(candidates.map(w => [w.id, w.date]));
-  const idList = candidates.map(w => w.id).join(',');
-  const sets = await sb(`workout_sets?workout_id=in.(${idList})&select=workout_id,exercise,set_number,weight,reps,variation`);
+  const sets = candidates.flatMap(w => w.workout_sets || []);
   const byExercise = {};
   (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
 
@@ -2262,12 +2264,16 @@ async function loadPreviousSetsForSession(session) {
 async function fetchOpenPreviousSets(exNames) {
   const result = {};
   if (!exNames.length) return result;
-  const pastWorkouts = await sb(`workouts?session_type=eq.open&completed_at=not.is.null&order=date.desc&limit=20&select=id,date`);
+  // One request, not two (15 Aug 2026). The exercise filter moves onto the embedded resource
+  // (`workout_sets.exercise=in.(…)`), which filters the nested rows without dropping the parent —
+  // exactly what's wanted here, since a workout with none of tonight's exercises simply contributes
+  // an empty array rather than disappearing and taking its date with it.
+  const exFilter = encodeURIComponent(`in.(${exNames.map(n => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
+  const pastWorkouts = await sb(`workouts?session_type=eq.open&completed_at=not.is.null&order=date.desc&limit=20`
+    + `&select=id,date,workout_sets(workout_id,exercise,set_number,weight,reps,variation)&workout_sets.exercise=${exFilter}`);
   const relevant = (pastWorkouts || []).filter(w => w.id !== currentWorkoutId);
   if (!relevant.length) return result;
-  const idList = relevant.map(w => w.id).join(',');
-  const exFilter = encodeURIComponent(`in.(${exNames.map(n => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
-  const sets = await sb(`workout_sets?workout_id=in.(${idList})&exercise=${exFilter}&select=workout_id,exercise,set_number,weight,reps,variation`);
+  const sets = relevant.flatMap(w => w.workout_sets || []);
   const dateById = Object.fromEntries(relevant.map(w => [w.id, w.date]));
   const byExercise = {};
   (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
@@ -2290,21 +2296,20 @@ async function fetchOpenPreviousSets(exNames) {
 // recent occurrence across the last 10 workouts), this is deliberately one single most-recent workout,
 // so the whole card reflects exactly one prior session rather than a blend.
 async function fetchLastSessionSnapshot(session) {
-  const last = await sb(`workouts?session_type=eq.${session.id}&completed_at=not.is.null&order=date.desc&limit=1&select=id,date`);
+  // One request, not three (15 Aug 2026). Cardio comes back alongside the sets — "what did I do
+  // last time" has to include the bike/treadmill work, not just the lifts, or the card silently
+  // under-reports the session — and both now ride back embedded in the workout that owns them.
+  // rest_seconds joins the select so the card can answer "how long did I rest last time" — the
+  // number this app records and then never showed you anywhere you'd be standing when you need it.
+  const last = await sb(`workouts?session_type=eq.${session.id}&completed_at=not.is.null&order=date.desc&limit=1`
+    + `&select=id,date,workout_sets(exercise,set_number,weight,reps,variation,rest_seconds),cardio_logs(activity,duration_mins,distance,floors,incline,speed_kmh)`
+    + `&workout_sets.order=set_number.asc`);
   const candidates = (last || []).filter(w => w.id !== currentWorkoutId);
   if (!candidates.length) return null;
   const workout = candidates[0];
-  // Cardio fetched alongside the sets — "what did I do last time" has to include the bike/treadmill
-  // work, not just the lifts, or the card silently under-reports the session.
-  const [sets, cardio] = await Promise.all([
-    // rest_seconds joins the select so the card can answer "how long did I rest last time" — the
-    // number this app records and then never showed you anywhere you'd be standing when you need it.
-    sb(`workout_sets?workout_id=eq.${workout.id}&order=set_number.asc&select=exercise,set_number,weight,reps,variation,rest_seconds`),
-    sb(`cardio_logs?workout_id=eq.${workout.id}&select=activity,duration_mins,distance,floors,incline,speed_kmh`)
-  ]);
   const byExercise = {};
-  (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
-  return { date: workout.date, exercises: byExercise, cardio: cardio || [] };
+  (workout.workout_sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
+  return { date: workout.date, exercises: byExercise, cardio: workout.cardio_logs || [] };
 }
 
 // "Rest 1:30 avg" for one exercise's sets, or '' when nothing was timed.
@@ -3901,34 +3906,31 @@ function deltaCell(delta, opts = {}) {
 async function loadHistory() {
   const list = document.getElementById('history-list');
   list.innerHTML = '<div class="loading">Loading history...</div>';
+  // Two requests, not four (15 Aug 2026). The sets and the cardio come back nested inside their
+  // own workout via PostgREST embedding, so the two follow-up `in.(ids)` round trips are gone —
+  // and with them the URL-length ceiling those filters were heading for. `workout_sets.order`
+  // orders the rows *within* each workout, which is all the old global order ever achieved once
+  // the rows were grouped by workout anyway. `workout_id` stays in the select because the grouped
+  // rows are read downstream (computeExerciseProgress, the History cards) as standalone set rows.
   const [logs, workouts] = await Promise.all([
     sb(`daily_logs?order=date.desc&select=*`),
-    sb(`workouts?order=date.desc&select=id,date,session_type,notes`)
+    sb(`workouts?order=date.desc&select=id,date,session_type,notes`
+      + `,workout_sets(workout_id,exercise,weight,reps,rest_seconds,set_number,variation,superset_group,created_at)`
+      + `,cardio_logs(workout_id,activity,duration_mins,distance,floors,incline,speed_kmh)`
+      + `&workout_sets.order=created_at.asc,set_number.asc`)
   ]);
   allHistoryLogs = logs || [];
-  allHistoryWorkouts = workouts || [];
-  // Fetch all sets for visible workouts in one batched call — not one call per card
-const workoutIds = (workouts || []).map(w => `"${w.id}"`).join(',');
-// Ordered by created_at so exercises list in the order they were actually completed
-// (workout_sets has no explicit sequence column). rest_seconds drives the rest display.
-const allSets = workoutIds.length
-  ? await sb(`workout_sets?workout_id=in.(${workoutIds})&select=workout_id,exercise,weight,reps,rest_seconds,set_number,variation,superset_group,created_at&order=created_at.asc,set_number.asc`)
-  : [];
-// Group sets by workout_id for quick lookup when rendering cards
-window._setsByWorkout = {};
-(allSets || []).forEach(s => {
-  if (!window._setsByWorkout[s.workout_id]) window._setsByWorkout[s.workout_id] = [];
-  window._setsByWorkout[s.workout_id].push(s);
-});
-// Same batched-fetch pattern for cardio entries
-const allCardio = workoutIds.length
-  ? await sb(`cardio_logs?workout_id=in.(${workoutIds})&select=workout_id,activity,duration_mins,distance,floors,incline,speed_kmh`)
-  : [];
-window._cardioByWorkout = {};
-(allCardio || []).forEach(c => {
-  if (!window._cardioByWorkout[c.workout_id]) window._cardioByWorkout[c.workout_id] = [];
-  window._cardioByWorkout[c.workout_id].push(c);
-});
+  // Ordered by created_at so exercises list in the order they were actually completed
+  // (workout_sets has no explicit sequence column). rest_seconds drives the rest display.
+  window._setsByWorkout = {};
+  window._cardioByWorkout = {};
+  (workouts || []).forEach(w => {
+    if ((w.workout_sets || []).length) window._setsByWorkout[w.id] = w.workout_sets;
+    if ((w.cardio_logs || []).length) window._cardioByWorkout[w.id] = w.cardio_logs;
+  });
+  // The embedded arrays are lifted out above and dropped here: allHistoryWorkouts is filtered,
+  // sliced and rendered from all over this file, and it should stay the flat row it has always been.
+  allHistoryWorkouts = (workouts || []).map(({ workout_sets, cardio_logs, ...w }) => w);
 // Hide (never delete) abandoned sessions: a workouts row is created the instant a session
 // tile is tapped, so opening a session and walking away leaves a row with nothing in it.
 // Anything with sets, cardio, or notes is real and stays — notes is what keeps CV + Pump
@@ -4353,7 +4355,13 @@ async function openEditWorkout(workoutId, sessionType, notes) {
   editRemovedCardioIds = [];
   const cardioListEl = document.getElementById('edit-cardio-list');
   cardioListEl.innerHTML = '';
-  const cardioRows = await sb(`cardio_logs?workout_id=eq.${workoutId}&select=*`);
+  // One request, not two (15 Aug 2026) — the cardio rows and the sets both hang off this one
+  // workout, so they come back embedded in it rather than as two sequential round trips.
+  // created_at first, set_number second — same sort as loadHistory(), so the modal lists
+  // exercises in the order they were actually logged. Ordering by set_number alone returned
+  // all set 1s, then all set 2s, leaving the exercise order arbitrary.
+  const editRow = (await sb(`workouts?id=eq.${workoutId}&select=id,cardio_logs(*),workout_sets(*)&workout_sets.order=created_at.asc,set_number.asc`))?.[0];
+  const cardioRows = editRow?.cardio_logs || [];
   (cardioRows || []).forEach(row => {
     const id = editCardioCounter++;
     editCardioEntries.push({ id, dbId: row.id, activity: row.activity });
@@ -4370,10 +4378,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
   const cardioSelectEl = document.getElementById('edit-cardio-activity-select');
   cardioSelectEl.innerHTML = `<option value="" selected disabled>Choose an activity…</option>${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${esc(a)}">${esc(cardioDisplayName(a))}</option>`).join('')}`;
 
-  // created_at first, set_number second — same sort as loadHistory(), so the modal lists
-  // exercises in the order they were actually logged. Ordering by set_number alone returned
-  // all set 1s, then all set 2s, leaving the exercise order arbitrary.
-  const sets = await sb(`workout_sets?workout_id=eq.${workoutId}&order=created_at.asc,set_number.asc&select=*`);
+  const sets = editRow?.workout_sets || [];
   const setsByExercise = {};
   (sets || []).forEach(set => {
     if (!setsByExercise[set.exercise]) setsByExercise[set.exercise] = [];

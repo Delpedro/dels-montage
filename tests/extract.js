@@ -45,7 +45,8 @@ function matchPair(src, i, open, close, name) {
         else if (src[i] === '\n') break;   // not a regex after all — bail rather than run away
       }
     }
-    else if (c === "'" || c === '"' || c === '`') {
+    else if (c === '`') i = skipTemplate(src, i, name);
+    else if (c === "'" || c === '"') {
       const quote = c;
       for (i++; i < src.length; i++) {
         if (src[i] === '\\') i++;
@@ -54,6 +55,26 @@ function matchPair(src, i, open, close, name) {
     }
   }
   throw new Error(`extract: unbalanced ${open}${close} in ${name}()`);
+}
+
+// Returns the index of the backtick that closes the template starting at `i`.
+//
+// A template literal can't be scanned as "run to the next backtick", because its `${…}` holes
+// contain real code — including more template literals. fetchOpenPreviousSets() is the case that
+// forced this: it builds an `in.(…)` filter with a nested template inside a .map() inside a hole.
+// The naive scan took the *inner* opening backtick as the end of the outer string, carried on in
+// code mode inside what was actually a string, and sliced the function short — surfacing as a
+// "missing ) after argument list" from new Function() rather than anything pointing here.
+//
+// The holes are handed back to matchPair, which knows about strings, comments and regexes, so the
+// two functions recurse through each other for as deep as the nesting goes.
+function skipTemplate(src, i, name) {
+  for (i++; i < src.length; i++) {
+    if (src[i] === '\\') i++;
+    else if (src[i] === '`') return i;
+    else if (src[i] === '$' && src[i + 1] === '{') i = matchPair(src, i + 1, '{', '}', name);
+  }
+  throw new Error(`extract: unterminated template literal in ${name}()`);
 }
 
 // Brace-matching rather than regex: a function body contains braces, strings containing braces, and
