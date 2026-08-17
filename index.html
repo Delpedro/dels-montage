@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-17-1614">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-17-1619">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -213,8 +213,9 @@
          design (weight bounces day to day); this is the number that actually moves. -->
     <div class="card weekavg-card" id="weekavg-card" style="display:none;">
       <div class="card-title">Weekly average weight</div>
-      <select class="weekavg-select" id="weekavg-select"></select>
+      <div class="weekavg-weeks" id="weekavg-weeks"></div>
       <div class="weekavg-val" id="weekavg-val">--<span class="weekavg-unit">kg</span></div>
+      <div class="weekavg-range" id="weekavg-range"></div>
       <div class="weekavg-cmp" id="weekavg-cmp"></div>
     </div>
     <div class="stat-grid">
@@ -501,6 +502,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-17-1614"></script>
+<script src="js/app.js?v=2026-08-17-1619"></script>
 </body>
 </html>

@@ -20,14 +20,29 @@ function eq(actual, expected, label) {
   ok(actual === expected, `${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
 }
 
-// A DOM just big enough for the two render functions: they only ever touch these four ids.
+// A DOM just big enough for the two render functions. Ids are created on demand so the per-week
+// pill elements (`weekavg-wk-2026-33`) exist as soon as the code asks for one, which is what lets
+// the active-pill assertions below work.
 function fakeDom() {
-  const mk = () => ({ style: {}, innerHTML: '', textContent: '', className: '', onchange: null, value: '' });
-  const els = {
-    'weekavg-card': mk(), 'weekavg-select': mk(),
-    'weekavg-val': mk(), 'weekavg-cmp': mk()
+  const mk = () => ({
+    style: {}, innerHTML: '', textContent: '', className: '', value: '',
+    classList: {
+      _s: new Set(),
+      add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); },
+      contains(c) { return this._s.has(c); }
+    }
+  });
+  const els = {};
+  const get = id => (els[id] ||= mk());
+  ['weekavg-card', 'weekavg-weeks', 'weekavg-val', 'weekavg-range', 'weekavg-cmp'].forEach(get);
+  return {
+    els, get,
+    document: {
+      getElementById: id => get(id),
+      // Only ever called with '.weekavg-wk' — every pill this run has created.
+      querySelectorAll: () => Object.keys(els).filter(k => k.startsWith('weekavg-wk-')).map(k => els[k])
+    }
   };
-  return { els, document: { getElementById: id => els[id] || null } };
 }
 
 function harness(today) {
@@ -36,9 +51,9 @@ function harness(today) {
     functions: ['isoWeek', 'isoWeekKey', 'mondayOf', 'weekRangeLabel',
                 'renderWeeklyAverage', 'showWeeklyAverage', 'dateStr', 'weekIndex'],
     decls: ['_weekAvgs'],
-    deps: { document: dom.document, esc: s => String(s), todayStr: () => today }
+    deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today }
   });
-  return { app, els: dom.els };
+  return { app, els: dom.els, get: dom.get };
 }
 
 console.log('Weekly average weight');
@@ -89,18 +104,26 @@ console.log('Weekly average weight');
     { date: '2026-08-10', weight_kg: 80 }, { date: '2026-08-16', weight_kg: 81 },  // wk33 → 80.5
     { date: '2026-08-17', weight_kg: 79 }                                          // wk34 → 79.0
   ];
-  const { app, els } = harness('2026-08-17');
+  const { app, els, get } = harness('2026-08-17');
   app.renderWeeklyAverage(logs);
 
   ok(els['weekavg-card'].style.display === 'block', 'card is shown once there is at least one weigh-in');
 
-  // Opens on the last COMPLETED week. Opening on the current one would compare it against itself.
-  ok(/Week 33/.test(els['weekavg-select'].innerHTML), 'the picker lists week 33');
-  ok(/value="2026-33" selected/.test(els['weekavg-select'].innerHTML), 'and opens on it, not on week 34');
-  eq(els['weekavg-val'].innerHTML.startsWith('80.5'), true, 'week 33 averages 80.5 from 80 and 81');
+  // Pills, not a <select> — a native dropdown renders as unstyleable OS chrome and stretches the
+  // full width of a desktop window. See the CSS note on .weekavg-weeks.
+  ok(!/<option|<select/.test(els['weekavg-weeks'].innerHTML), 'the picker is not a native select');
+  ok(/class="weekavg-wk"/.test(els['weekavg-weeks'].innerHTML), 'it is a row of pill buttons');
+  ok(/W33/.test(els['weekavg-weeks'].innerHTML), 'the row lists week 33');
 
-  // Newest first, so the week you most likely want is the shortest scroll away.
-  const order = (els['weekavg-select'].innerHTML.match(/Week (\d+)/g) || []).map(s => +s.slice(5));
+  // Opens on the last COMPLETED week. Opening on the current one would compare it against itself.
+  ok(get('weekavg-wk-2026-33').classList.contains('active'), 'opens on week 33, not on week 34');
+  ok(!get('weekavg-wk-2026-34').classList.contains('active'), 'the current week is not the one selected');
+  eq(els['weekavg-val'].innerHTML.startsWith('80.5'), true, 'week 33 averages 80.5 from 80 and 81');
+  eq(els['weekavg-range'].textContent, 'Week 33 · 10 – 16 Aug', 'the dates sit under the number');
+
+  // Newest first, so the week you most likely want needs no scrolling and April's junk weeks are
+  // simply further along the swipe.
+  const order = (els['weekavg-weeks'].innerHTML.match(/>W(\d+)</g) || []).map(s => +s.slice(2, -1));
   eq(JSON.stringify(order), JSON.stringify([34, 33, 29]), 'weeks are listed newest first');
 
   // The one comparison the card makes, and the only one Del asked for.
@@ -111,6 +134,8 @@ console.log('Weekly average weight');
   eq(els['weekavg-val'].innerHTML.startsWith('81.5'), true, 'week 29 averages 81.5');
   eq(els['weekavg-cmp'].textContent, '▼ 2.5kg vs this week (79.0kg)',
      'week 29 is still compared to THIS week — never to week 33 in between');
+  ok(get('weekavg-wk-2026-29').classList.contains('active'), 'the tapped pill lights up');
+  ok(!get('weekavg-wk-2026-33').classList.contains('active'), 'and the previous one lets go');
 
   // Selecting the current week has nothing to compare against; say so rather than printing 0.0kg.
   app.showWeeklyAverage('2026-34');

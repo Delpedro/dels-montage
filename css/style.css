@@ -495,16 +495,27 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
    One card, one job: pick a week, see that week's average, see it against the week you're in.
    No sessions, no calories, no week-on-week deltas — every one of those was tried in a mockup and
    they all buried the number the card exists for. */
-.weekavg-select {
-  width: 100%; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px;
-  padding: 11px 13px; color: var(--text); font-size: 14px; font-weight: 600;
-  font-family: 'DM Sans', sans-serif; outline: none; cursor: pointer; text-align: center;
-  -webkit-appearance: none; appearance: none; color-scheme: dark;
+/* A scrolling row of pills, NOT a <select>. A native select opens the OS dropdown — unstyleable
+   white highlight bar, system font, and full viewport width on a desktop browser. It looked like a
+   1998 web form sat in the middle of this app. Pills also scale where a dropdown doesn't: a year of
+   weeks is a longer swipe, not a 52-row menu. Same shape as .var-btn / .history-tab. */
+.weekavg-weeks {
+  display: flex; gap: 6px; overflow-x: auto; margin: -2px -2px 2px; padding: 2px;
+  scrollbar-width: none; -ms-overflow-style: none;
 }
-.weekavg-select:focus { border-color: var(--accent); }
-.weekavg-val { font-family: 'Bebas Neue', sans-serif; font-size: 54px; line-height: 1; letter-spacing: 1px; color: var(--accent); text-align: center; margin-top: 0.9rem; }
+.weekavg-weeks::-webkit-scrollbar { display: none; }
+.weekavg-wk {
+  flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border2); border-radius: 20px;
+  padding: 7px 14px; color: var(--muted); font-size: 12px; font-weight: 600;
+  font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
+  font-variant-numeric: tabular-nums;
+}
+.weekavg-wk.active { border-color: var(--accent); background: rgba(232,93,47,0.15); color: var(--accent); }
+.weekavg-val { font-family: 'Bebas Neue', sans-serif; font-size: 56px; line-height: 1; letter-spacing: 1px; color: var(--accent); text-align: center; margin-top: 1rem; }
 .weekavg-unit { font-family: 'DM Sans', sans-serif; font-size: 15px; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
-.weekavg-cmp { font-size: 12.5px; font-weight: 600; text-align: center; margin-top: 6px; min-height: 18px; }
+/* The dates belong under the number, not inside the pill — the pill has to stay thumb-sized. */
+.weekavg-range { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; text-align: center; margin-top: 7px; }
+.weekavg-cmp { font-size: 12.5px; font-weight: 600; text-align: center; margin-top: 5px; min-height: 18px; }
 .weekavg-cmp.down { color: var(--green); }
 .weekavg-cmp.up   { color: var(--amber); }
 .weekavg-cmp.flat { color: var(--muted); }

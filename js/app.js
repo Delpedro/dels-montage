@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-17-1614';
+const APP_BUILD = '2026-08-17-1619';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -3813,8 +3813,8 @@ let _weekAvgs = [];
 
 function renderWeeklyAverage(allWeights) {
   const card = document.getElementById('weekavg-card');
-  const sel = document.getElementById('weekavg-select');
-  if (!card || !sel) return;
+  const row = document.getElementById('weekavg-weeks');
+  if (!card || !row) return;
 
   const buckets = {};
   (allWeights || []).forEach(l => {
@@ -3837,10 +3837,13 @@ function renderWeeklyAverage(allWeights) {
   const thisKey = isoWeekKey(todayStr());
   const dflt = _weekAvgs.filter(w => w.key !== thisKey).slice(-1)[0] || _weekAvgs[_weekAvgs.length - 1];
 
-  sel.innerHTML = _weekAvgs.slice().reverse().map(w =>
-    `<option value="${esc(w.key)}"${w.key === dflt.key ? ' selected' : ''}>Week ${w.week} · ${esc(weekRangeLabel(w.monday))}</option>`
+  // Newest first, so the weeks you actually care about need no scrolling and the ancient ones are
+  // simply further along the swipe. That's the whole reason this is a scroll row and not a menu —
+  // there are weigh-ins in here from April, months before this programme started, and in a dropdown
+  // they were seven junk rows you had to read past.
+  row.innerHTML = _weekAvgs.slice().reverse().map(w =>
+    `<button type="button" class="weekavg-wk" id="weekavg-wk-${esc(w.key)}" onclick="showWeeklyAverage('${jsAttr(w.key)}')">W${w.week}</button>`
   ).join('');
-  sel.onchange = () => showWeeklyAverage(sel.value);
   showWeeklyAverage(dflt.key);
 }
 
@@ -3848,10 +3851,16 @@ function renderWeeklyAverage(allWeights) {
 function showWeeklyAverage(key) {
   const valEl = document.getElementById('weekavg-val');
   const cmpEl = document.getElementById('weekavg-cmp');
+  const rangeEl = document.getElementById('weekavg-range');
   const picked = _weekAvgs.find(w => w.key === key);
   if (!picked || !valEl || !cmpEl) return;
 
+  document.querySelectorAll('.weekavg-wk').forEach(b => b.classList.remove('active'));
+  const pill = document.getElementById(`weekavg-wk-${key}`);
+  if (pill) pill.classList.add('active');
+
   valEl.innerHTML = `${picked.avg.toFixed(1)}<span class="weekavg-unit">kg</span>`;
+  if (rangeEl) rangeEl.textContent = `Week ${picked.week} · ${weekRangeLabel(picked.monday)}`;
 
   const now = _weekAvgs.find(w => w.key === isoWeekKey(todayStr()));
   if (!now) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'No weigh-in yet this week'; return; }
