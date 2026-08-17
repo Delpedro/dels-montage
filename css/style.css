@@ -3,6 +3,9 @@
   --border: #2a2a2a; --border2: #333;
   --text: #f0f0f0; --muted: #666; --muted2: #888;
   --accent: #e85d2f; --green: #4caf7d; --blue: #4a9eff; --amber: #f0a050; --red: #e05555;
+  /* Identity-only colours, added 17 Aug 2026 for the session/programme tiles. Deliberately NOT
+     reused for state anywhere — see the tile block below for why the split matters. */
+  --violet: #9b7ede; --teal: #3fb9b0;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -75,6 +78,53 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .session-day { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
 .session-name { font-size: 14px; font-weight: 600; color: var(--text); }
 .session-focus { font-size: 11px; color: var(--muted2); margin-top: 2px; }
+
+/* ─── SESSION / PROGRAMME TILE COLOUR (17 Aug 2026) ────────
+   The picker was seven identical grey boxes. The colour here is IDENTITY — what you're training
+   (upper / lower / full body / CV) on the session screen, which programme on the screen above it.
+   It is never state. That split is the whole design: `done` and `selected` overwrite --sc, so
+   "logged today" stays green on a violet tile instead of competing with it, and green keeps
+   meaning exactly one thing across the whole app.
+   One custom property drives the rail, the name and the tint, so a new session type is one line
+   rather than four rules. Only `.tinted` tiles get any of it — the ← Programmes tile stays plain. */
+.session-btn.tinted { padding-left: 1rem; background: var(--sc-bg); border-color: var(--sc-bd); }
+.session-btn.tinted::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--sc); border-radius: 10px 0 0 10px;
+}
+.session-btn.tinted .session-name {
+  font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 0.5px;
+  line-height: 1.05; color: var(--sc);
+}
+/* Violet and teal are new. Blue, green, amber and accent were all already carrying a meaning. */
+.sc-upper { --sc: var(--amber);  --sc-bg: rgba(240,160,80,0.05);  --sc-bd: rgba(240,160,80,0.28); }
+.sc-lower { --sc: var(--violet); --sc-bg: rgba(155,126,222,0.05); --sc-bd: rgba(155,126,222,0.28); }
+.sc-full  { --sc: var(--teal);   --sc-bg: rgba(63,185,176,0.05);  --sc-bd: rgba(63,185,176,0.28); }
+.sc-cv    { --sc: var(--blue);   --sc-bg: rgba(74,158,255,0.05);  --sc-bd: rgba(74,158,255,0.28); }
+.sc-open  { --sc: var(--violet); --sc-bg: rgba(155,126,222,0.05); --sc-bd: rgba(155,126,222,0.28); }
+.sc-own   { --sc: var(--muted2); --sc-bg: rgba(255,255,255,0.02); --sc-bd: var(--border2); }
+/* The folder, not the muscle — these two are the screen above. */
+.sc-prog-upper-lower  { --sc: var(--blue); --sc-bg: rgba(74,158,255,0.05); --sc-bd: rgba(74,158,255,0.28); }
+.sc-prog-full-body-cv { --sc: var(--teal); --sc-bg: rgba(63,185,176,0.05); --sc-bd: rgba(63,185,176,0.28); }
+/* State beats identity. Higher specificity than both `.session-btn.tinted` and the bare
+   `.session-btn.done` above, so it wins regardless of source order — don't rely on the ordering. */
+.session-btn.tinted.done     { --sc: var(--green);  --sc-bg: rgba(76,175,125,0.08); --sc-bd: var(--green); }
+.session-btn.tinted.selected { --sc: var(--accent); --sc-bg: rgba(232,93,47,0.1);   --sc-bd: var(--accent); }
+
+/* When you last did this one. Quiet and monospaced — it's context, not the thing you tapped for. */
+.session-last { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 7px; }
+.session-last.done { color: var(--green); font-family: 'DM Sans', sans-serif; font-weight: 600; }
+
+/* Both span the full grid rather than taking a cell: neither is a session, and a half-width
+   "← Programmes" reads as a fifth thing you could train. */
+.session-grid .grid-full { grid-column: 1 / -1; }
+.prog-band {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--sc-bd); background: var(--sc-bg); border-radius: 10px; padding: 9px 12px;
+}
+.prog-band-bar { width: 3px; align-self: stretch; border-radius: 2px; background: var(--sc); }
+.prog-band-name { font-family: 'Bebas Neue', sans-serif; font-size: 17px; letter-spacing: 0.5px; line-height: 1; color: var(--sc); }
+.prog-band-count { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
 
 .exercise-block { background: var(--bg3); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
 .ex-top { margin-bottom: 8px; }

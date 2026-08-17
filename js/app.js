@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-17-1520';
+const APP_BUILD = '2026-08-17-1608';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -136,12 +136,15 @@ const CUSTOM_PROGRAMME_ID = 'custom';
 const TRAINING_PROGRAMMES = [
   {
     id: 'upper-lower',
-    name: 'Upper / Lower Training Programme',
+    // Short names, 17 Aug 2026. These render in Bebas at 20px in a half-width tile now, and
+    // "Upper / Lower Training Programme" wrapped to three lines there. The `focus` line under it
+    // already says what's in the programme, so "Training Programme" was saying nothing twice.
+    name: 'Upper / Lower',
     focus: 'Upper A, Lower A, Upper B, Lower B'
   },
   {
     id: 'full-body-cv',
-    name: 'Full Body + CV Training Programme',
+    name: 'Full Body + CV',
     focus: '3 strength days, 2 CV + pump days'
   },
   // Kept so session_templates.programme has something to point at; never rendered as a tile.
@@ -1312,6 +1315,46 @@ function getSessionById(id) {
   return SESSIONS.find(s => s.id === id);
 }
 
+// ─── TILE COLOUR (17 Aug 2026) ────────────────────────────
+// Which colour a session tile wears. Keyed on the **id prefix**, never the name: the name is
+// editable in the ✎ template editor, the id isn't, so renaming "Lower B" to "Legs B" would
+// otherwise silently drop it back to grey. A session that matches nothing falls through to the
+// neutral class rather than picking a colour at random.
+function sessionColourClass(s) {
+  const id = s.id || '';
+  if (s.programme === CUSTOM_PROGRAMME_ID) return 'sc-own';
+  if (s.cardio || id.startsWith('cv')) return 'sc-cv';
+  if (id.startsWith('upper')) return 'sc-upper';
+  if (id.startsWith('lower')) return 'sc-lower';
+  if (id.startsWith('full-body')) return 'sc-full';
+  return 'sc-own';
+}
+
+// Most recent *real* session per session type, for the "last · 14 Aug" line. The embeds are here
+// for the same reason realWorkoutsBetween() has them: a `workouts` row is created the moment a tile
+// is tapped, so without this an opened-and-abandoned session would report itself as the last time
+// you trained. One request, ordered desc, first hit per type wins.
+async function lastTrainedBySession() {
+  const rows = await sb('workouts?select=session_type,date,notes,workout_sets(id),cardio_logs(id)&order=date.desc') || [];
+  const map = {};
+  rows.forEach(w => {
+    if (map[w.session_type]) return;
+    const real = (w.workout_sets || []).length > 0 || (w.cardio_logs || []).length > 0 || (w.notes || '').trim() !== '';
+    if (real) map[w.session_type] = w.date;
+  });
+  return map;
+}
+
+// "today" / "yesterday" / "14 Aug". The two recent cases get words because those are the ones you
+// read at a glance to answer "did I already do this one?".
+function lastTrainedLabel(date) {
+  if (!date) return null;
+  if (date === todayStr()) return 'today';
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  if (date === dateStr(y)) return 'yesterday';
+  return new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
 async function buildSessionGrid(programmeId = null) {
   const grid = document.getElementById('session-grid');
   const sub = document.getElementById('workout-subtitle');
@@ -1326,7 +1369,12 @@ async function buildSessionGrid(programmeId = null) {
     // so burying them a tap deeper than the programmes made them harder to reach than the thing they
     // replaced. Fetched before the grid is cleared, same race discipline as the session branch below.
     const customSessions = SESSIONS.filter(s => s.programme === CUSTOM_PROGRAMME_ID);
-    const doneTodaySessions = customSessions.length ? await sessionsDoneToday() : new Set();
+    // Both in one round trip. lastMap is wanted unconditionally now (every tile carries a
+    // last-trained line), doneToday still only when there are custom tiles that can show it.
+    const [doneTodaySessions, lastMap] = await Promise.all([
+      customSessions.length ? sessionsDoneToday() : Promise.resolve(new Set()),
+      lastTrainedBySession()
+    ]);
 
     grid.innerHTML = '';
     if (sub) sub.textContent = 'Choose your training programme';
@@ -1334,21 +1382,35 @@ async function buildSessionGrid(programmeId = null) {
     TRAINING_PROGRAMMES.forEach(p => {
       if (p.id === CUSTOM_PROGRAMME_ID) return;   // never a folder tile — see customSessions below
       const btn = document.createElement('div');
-      btn.className = 'session-btn programme-btn';
+      btn.className = `session-btn programme-btn tinted sc-prog-${p.id}`;
       btn.id = `programme-btn-${p.id}`;
-      btn.innerHTML = `<div class="session-name">${p.name}</div><div class="session-focus">${p.focus}</div>`;
+      // A programme's "last trained" is the most recent of any session inside it, and it names
+      // which one — "last · Lower A, today" answers what to do next better than a bare date does.
+      let bestId = null, bestDate = null;
+      SESSIONS.filter(s => s.programme === p.id).forEach(s => {
+        const d = lastMap[s.id];
+        if (d && (!bestDate || d > bestDate)) { bestDate = d; bestId = s.id; }
+      });
+      const bestName = bestId ? (getSessionById(bestId) || {}).name : null;
+      const meta = bestDate && bestName
+        ? `<div class="session-last">last · ${esc(bestName)}, ${esc(lastTrainedLabel(bestDate))}</div>`
+        : '';
+      btn.innerHTML = `<div class="session-name">${esc(p.name)}</div><div class="session-focus">${esc(p.focus)}</div>${meta}`;
       btn.onclick = () => showProgrammeSessions(p.id);
       grid.appendChild(btn);
     });
 
     const openBtn = document.createElement('div');
-    openBtn.className = 'session-btn programme-btn';
+    openBtn.className = 'session-btn programme-btn tinted sc-open';
     openBtn.id = 'programme-btn-open';
-    openBtn.innerHTML = `<div class="session-name">Open Workout</div><div class="session-focus">Pick exercises as you go</div>`;
+    // 'open' is the session_type Open Workouts are written under — see sessionDisplayName().
+    const openLast = lastTrainedLabel(lastMap['open']);
+    openBtn.innerHTML = `<div class="session-name">Open Workout</div><div class="session-focus">Pick exercises as you go</div>` +
+      (openLast ? `<div class="session-last">last · ${esc(openLast)}</div>` : '');
     openBtn.onclick = () => startOpenWorkout();
     grid.appendChild(openBtn);
 
-    customSessions.forEach(s => grid.appendChild(sessionTile(s, doneTodaySessions)));
+    customSessions.forEach(s => grid.appendChild(sessionTile(s, doneTodaySessions, lastMap)));
     return;
   }
 
@@ -1356,29 +1418,47 @@ async function buildSessionGrid(programmeId = null) {
   if (sub) sub.textContent = 'Choose your session';
 
   // Fetch data BEFORE clearing grid — prevents concurrent calls racing and both appending to same empty grid
-  const doneTodaySessions = await sessionsDoneToday();
+  const [doneTodaySessions, lastMap] = await Promise.all([sessionsDoneToday(), lastTrainedBySession()]);
   grid.innerHTML = '';
   const sessions = SESSIONS.filter(s => s.programme === programmeId);
 
+  // Full width, and deliberately left untinted: a half-width coloured "← Programmes" reads as a
+  // fifth thing you could train.
   const back = document.createElement('div');
-  back.className = 'session-btn';
+  back.className = 'session-btn grid-full';
   back.innerHTML = `<div class="session-name">← Programmes</div><div class="session-focus">Back to programme selection</div>`;
   back.onclick = () => resetSessionSelection(true);
   grid.appendChild(back);
 
-  sessions.forEach(s => grid.appendChild(sessionTile(s, doneTodaySessions)));
+  // Carries the colour of the tile you just tapped, so this screen visibly belongs to it.
+  const prog = TRAINING_PROGRAMMES.find(p => p.id === programmeId);
+  if (prog) {
+    const band = document.createElement('div');
+    band.className = `prog-band sc-prog-${prog.id}`;
+    band.innerHTML = `<span class="prog-band-bar"></span><span class="prog-band-name">${esc(prog.name)}</span>` +
+      `<span class="prog-band-count">${sessions.length} session${sessions.length === 1 ? '' : 's'}</span>`;
+    grid.appendChild(band);
+  }
+
+  sessions.forEach(s => grid.appendChild(sessionTile(s, doneTodaySessions, lastMap)));
 }
 
 // One session tile. Shared by the programme's session list and the saved-session tiles on the top
 // screen, so a saved session behaves exactly like a built-in one — same ✎ editor, same done state.
-function sessionTile(s, doneTodaySessions) {
+function sessionTile(s, doneTodaySessions, lastMap = {}) {
   const btn = document.createElement('div');
-  btn.className = 'session-btn';
+  btn.className = `session-btn tinted ${sessionColourClass(s)}`;
   btn.id = `session-btn-${s.id}`;
   const done = doneTodaySessions.has(s.id);
   if (done) btn.classList.add('done');
   const editBtn = s.cardio ? '' : `<button class="session-edit-btn" aria-label="Edit ${esc(s.name)} template" title="Edit template" onclick="event.stopPropagation(); openSessionEditor('${jsAttr(s.id)}')">✎</button>`;
-  btn.innerHTML = `${editBtn}<div class="session-name">${esc(s.name)}</div><div class="session-focus">${esc(s.focus)}</div>${done ? '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ logged today</div>' : ''}`;
+  // "logged today" replaces the last-trained line rather than sitting under it — they'd both be
+  // answering the same question, and today is the more useful answer.
+  const last = lastTrainedLabel(lastMap[s.id]);
+  const foot = done
+    ? '<div class="session-last done">✓ logged today</div>'
+    : (last ? `<div class="session-last">last · ${esc(last)}</div>` : '');
+  btn.innerHTML = `${editBtn}<div class="session-name">${esc(s.name)}</div><div class="session-focus">${esc(s.focus)}</div>${foot}`;
   btn.onclick = () => selectSession(s, btn);
   return btn;
 }
