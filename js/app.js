@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-17-1608';
+const APP_BUILD = '2026-08-17-1614';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -3660,8 +3660,12 @@ async function loadStats() {
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const weekAgoStr = dateStr(weekAgo);
 
-  const [weightLogs, weekLogs, weekSessions] = await Promise.all([
-    sb(`daily_logs?date=gte.${sinceStr}&order=date.asc&select=date,weight_kg`),
+  const [allWeights, weekLogs, weekSessions] = await Promise.all([
+    // Every weigh-in, not the last 21 days — the weekly card below needs the whole run. The chart
+    // is filtered back down to its 21-day window client-side, so it renders exactly what it always
+    // did, and this is still one request rather than two. `not.is.null` because a check-in row with
+    // no weight on it is not a weigh-in.
+    sb(`daily_logs?weight_kg=not.is.null&order=date.asc&select=date,weight_kg`),
     sb(`daily_logs?date=gte.${weekAgoStr}&order=date.asc&select=date,steps,calories,protein_g,carbs_g,fat_g`),
     // Was counting raw `workouts` rows, so an opened-and-abandoned session (or a test run) inflated
     // the tile — the exact bug fixed on Home on 11 Aug, which this tile was missed out of. Same
@@ -3671,13 +3675,15 @@ async function loadStats() {
 
   // Only days with an actual weigh-in — skipped days are dropped entirely so the
   // line never shows a hole (user weighs in ~5 days a week, not 7).
-  const points = (weightLogs || [])
+  const weightLogs = (allWeights || []).filter(l => l.date >= sinceStr);
+  const points = weightLogs
     .filter(l => l.weight_kg !== null && l.weight_kg !== undefined)
     .map(l => ({ date: l.date, v: parseFloat(l.weight_kg) }))
     .slice(-12);
 
   renderWeightHero(points);
   renderWeightChart(points);
+  renderWeeklyAverage(allWeights || []);
 
   document.getElementById('stat-sessions').textContent = weekSessions.length;
 
@@ -3756,6 +3762,109 @@ function renderWeightChart(points) {
       ? `<text x="${c[0].toFixed(1)}" y="106" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="7" fill="#666">${dayOf(points[i].date)}</text>`
       : '').join('')}
   </svg>`;
+}
+
+// ─── WEEKLY AVERAGE WEIGHT (17 Aug 2026) ──────────────────
+// The daily chart above this card is noise by design — weight bounces a kilo between two mornings
+// on the same diet. The weekly average is the number that actually moves, and the app had no way
+// to see it. One card: pick a week, get that week's average, get it against the week you're in.
+//
+// ISO-8601 week numbers, so "week 33" means the same thing here as on a wall calendar or a phone.
+// Weeks run Mon–Sun (matching getWeekStart() and everything else week-shaped in the app) and week 1
+// is the one holding the first Thursday. The year rides along so next January's week 1 can't
+// collide with this January's in the bucket key.
+function isoWeek(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  const dow = t.getUTCDay() || 7;            // Sunday is 7 here, not 0
+  t.setUTCDate(t.getUTCDate() + 4 - dow);    // step to this week's Thursday, which owns the number
+  const jan1 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return { year: t.getUTCFullYear(), week: Math.ceil(((t - jan1) / 86400000 + 1) / 7) };
+}
+
+function isoWeekKey(iso) {
+  const { year, week } = isoWeek(iso);
+  return `${year}-${String(week).padStart(2, '0')}`;   // padded so string sort is chronological
+}
+
+// The Monday of whatever week this date falls in. Local-time Date, via the same weekIndex() the
+// rest of the app uses, so it can't disagree with the week strip about where a week starts.
+function mondayOf(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = new Date(y, m - 1, d);
+  t.setDate(t.getDate() - weekIndex(t));
+  return dateStr(t);
+}
+
+// "13 – 19 Jul", or "27 Jul – 2 Aug" when the week straddles two months. The month is only printed
+// twice when it actually changes.
+function weekRangeLabel(mondayIso) {
+  const [y, m, d] = mondayIso.split('-').map(Number);
+  const mon = new Date(y, m - 1, d);
+  const sun = new Date(y, m - 1, d + 6);
+  const day = dt => String(dt.getDate());
+  const mth = dt => dt.toLocaleDateString('en-GB', { month: 'short' });
+  return mon.getMonth() === sun.getMonth()
+    ? `${day(mon)} – ${day(sun)} ${mth(sun)}`
+    : `${day(mon)} ${mth(mon)} – ${day(sun)} ${mth(sun)}`;
+}
+
+let _weekAvgs = [];
+
+function renderWeeklyAverage(allWeights) {
+  const card = document.getElementById('weekavg-card');
+  const sel = document.getElementById('weekavg-select');
+  if (!card || !sel) return;
+
+  const buckets = {};
+  (allWeights || []).forEach(l => {
+    const v = parseFloat(l.weight_kg);
+    if (!isFinite(v)) return;
+    const key = isoWeekKey(l.date);
+    (buckets[key] ||= { week: isoWeek(l.date).week, monday: mondayOf(l.date), vals: [] }).vals.push(v);
+  });
+
+  _weekAvgs = Object.keys(buckets).sort().map(key => {
+    const b = buckets[key];
+    return { key, week: b.week, monday: b.monday, avg: b.vals.reduce((a, c) => a + c, 0) / b.vals.length };
+  });
+
+  if (!_weekAvgs.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  // Opens on the last completed week. Opening on the current one would compare it against itself
+  // and print nothing useful on a card you tapped to be told something.
+  const thisKey = isoWeekKey(todayStr());
+  const dflt = _weekAvgs.filter(w => w.key !== thisKey).slice(-1)[0] || _weekAvgs[_weekAvgs.length - 1];
+
+  sel.innerHTML = _weekAvgs.slice().reverse().map(w =>
+    `<option value="${esc(w.key)}"${w.key === dflt.key ? ' selected' : ''}>Week ${w.week} · ${esc(weekRangeLabel(w.monday))}</option>`
+  ).join('');
+  sel.onchange = () => showWeeklyAverage(sel.value);
+  showWeeklyAverage(dflt.key);
+}
+
+// The only comparison this card makes: the week you picked against the week you're in.
+function showWeeklyAverage(key) {
+  const valEl = document.getElementById('weekavg-val');
+  const cmpEl = document.getElementById('weekavg-cmp');
+  const picked = _weekAvgs.find(w => w.key === key);
+  if (!picked || !valEl || !cmpEl) return;
+
+  valEl.innerHTML = `${picked.avg.toFixed(1)}<span class="weekavg-unit">kg</span>`;
+
+  const now = _weekAvgs.find(w => w.key === isoWeekKey(todayStr()));
+  if (!now) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'No weigh-in yet this week'; return; }
+  if (now.key === picked.key) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'This week so far'; return; }
+
+  const d = now.avg - picked.avg;
+  if (Math.abs(d) < 0.05) {
+    cmpEl.className = 'weekavg-cmp flat';
+    cmpEl.textContent = `Level with this week (${now.avg.toFixed(1)}kg)`;
+  } else {
+    cmpEl.className = `weekavg-cmp ${d < 0 ? 'down' : 'up'}`;
+    cmpEl.textContent = `${d < 0 ? '▼' : '▲'} ${Math.abs(d).toFixed(1)}kg vs this week (${now.avg.toFixed(1)}kg)`;
+  }
 }
 
 // Signed delta, rendered the way the whole card reads it: "on" when it's bang on, else +30 / −17.
