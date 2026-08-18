@@ -263,6 +263,15 @@ console.log('Home and Stats average over the same window');
   // that way. "Sessions this week" meaning "the last 7 days" would be a different, worse bug.
   ok(home.includes('realWorkoutsBetween(getWeekStart())'), 'Home still counts sessions from Monday');
   ok(stats.includes('realWorkoutsBetween(getWeekStart())'), 'and so does Stats — those two always matched');
+
+  // 18 Aug 2026: the stat tiles gained a "vs the week before" line, which needs a fortnight of
+  // logs. That must stay ONE ranged read sliced locally — a second window here is the same shape
+  // of bug this whole block exists to prevent, and it would put the tile's current figure on a
+  // different seven days from the macro averages sitting directly underneath it.
+  eq(stats.split('daily_logs?date=gte.').length - 1, 1,
+    'ONE ranged daily_logs read on Stats too, whatever the tiles compare against');
+  ok(stats.includes("filter(l => l.date >= weekAgoStr)") && stats.includes("filter(l => l.date < weekAgoStr)"),
+    'the two windows are sliced off that single fetch on the same boundary the page always used');
 }
 
 process.on('exit', () => {

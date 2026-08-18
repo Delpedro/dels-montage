@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-18-1945">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-18-1954">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -254,28 +254,33 @@
       </div>
     </div>
 
-    <!-- Sessions and steps share a row again. A lone full-width tile spent ~70px of screen on a
-         single digit, and its section header cost another line. Each label now carries its own time
-         window instead, so the two can sit side by side without misreading as a matching pair. -->
+    <!-- Sessions and steps, built in the same language as the weekly-average card above: one
+         number per box, centred, with a line underneath saying which way it moved and against
+         what. The flat grey tiles that used to sit here carried a bare figure and no context, so
+         they read as filler next to that card. Structure mirrors it deliberately —
+         caption, figure, comparison — which is what makes the page look like one page. -->
     <div class="stat-grid">
-      <div class="stat-card" id="tile-sessions">
+      <div class="card stat-tile" id="tile-sessions">
         <div class="stat-label">Sessions &middot; this week</div>
-        <div class="stat-value stat-green" id="stat-sessions">--</div>
+        <div class="stat-tile-val" id="stat-sessions">--</div>
+        <div class="stat-tile-cmp" id="stat-sessions-cmp"></div>
       </div>
-      <div class="stat-card" id="tile-steps">
+      <div class="card stat-tile" id="tile-steps">
         <div class="stat-label">Steps &middot; 7-day avg</div>
-        <div class="stat-value stat-amber" id="stat-steps">--</div>
+        <div class="stat-tile-val" id="stat-steps">--</div>
+        <div class="stat-tile-cmp" id="stat-steps-cmp"></div>
       </div>
     </div>
 
     <div class="stats-section">Daily averages &middot; 7 days</div>
     <div class="card macro-card">
-      <!-- Calories lead, macros explain them: the total is what moves weight on a cut. It lives
-           inside the macro card rather than in a tile of its own so the whole group costs one box. -->
+      <!-- Calories lead, macros explain them: the total is what moves weight on a cut. Same
+           caption/figure/comparison shape as the two tiles above, so the third number on the page
+           is not a third design. The meters under the rule are its breakdown. -->
       <div class="macro-cal">
         <div class="stat-label">Calories</div>
-        <div class="stat-value" id="macro-cal-val">--</div>
-        <div class="stat-sub" id="macro-cal-target"></div>
+        <div class="stat-tile-val" id="macro-cal-val">--</div>
+        <div class="stat-tile-cmp" id="macro-cal-target"></div>
       </div>
       <div class="macro-rule"></div>
       <div class="macro-meters" id="macro-meters"></div>
@@ -556,6 +561,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-18-1945"></script>
+<script src="js/app.js?v=2026-08-18-1954"></script>
 </body>
 </html>
