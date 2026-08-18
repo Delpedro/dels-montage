@@ -39,7 +39,8 @@ function fakeDom() {
   const els = {};
   const get = id => (els[id] ||= mk());
   ['weekavg-card', 'weekavg-wk-name', 'weekavg-range', 'weekavg-val', 'weekavg-cmp',
-   'weekavg-prev', 'weekavg-next'].forEach(get);
+   'weekavg-prev', 'weekavg-next',
+   'weekavg-waist', 'weekavg-waist-val', 'weekavg-waist-cmp'].forEach(get);
   return { els, get, document: { getElementById: id => get(id) } };
 }
 
@@ -47,9 +48,9 @@ function harness(today) {
   const dom = fakeDom();
   const app = load({
     functions: ['mondayOf', 'weeksBetween', 'weekRangeLabel',
-                'renderWeeklyAverage', 'showWeeklyAverage', 'stepWeeklyAverage',
+                'renderWeeklyAverage', 'showWeeklyAverage', 'showWeeklyWaist', 'stepWeeklyAverage',
                 'dateStr', 'weekIndex'],
-    decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey'],
+    decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey', '_weekWaists'],
     deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today }
   });
   return { app, els: dom.els, get: dom.get };
@@ -226,6 +227,77 @@ console.log('Weekly average weight');
   const d = harness('2026-08-17');
   d.app.renderWeeklyAverage([]);
   eq(d.els['weekavg-card'].style.display, 'none', 'no weigh-ins at all hides the whole card');
+}
+
+// ── The waist half of the card (18 Aug 2026) ──────────────────────────────────────────────────
+//
+// Waist is measured about once a week, which is what makes it awkward on a card built from
+// weigh-ins: most weeks have five weights and one waist, and some weeks have a weight and no waist
+// at all. What is asserted here is that the two halves stay independent — the week you land on is
+// still chosen by the weights, and the waist line says what it has rather than inventing a number.
+{
+  const weights = [
+    { date: '2026-07-13', weight_kg: 82 },
+    { date: '2026-07-20', weight_kg: 81 },
+    { date: '2026-08-10', weight_kg: 80 },
+    { date: '2026-08-17', weight_kg: 79 }
+  ];
+
+  // Nothing measured yet: the card is exactly what it was before this feature shipped.
+  const none = harness('2026-08-17');
+  none.app.renderWeeklyAverage(weights, []);
+  eq(none.els['weekavg-waist'].style.display, 'none',
+     'with no waist ever logged the whole waist block stays hidden');
+
+  // Called the old way, with one argument, as anything not yet updated would.
+  const legacy = harness('2026-08-17');
+  legacy.app.renderWeeklyAverage(weights);
+  eq(legacy.els['weekavg-waist'].style.display, 'none',
+     'and renderWeeklyAverage still works called with weights alone');
+
+  const waists = [
+    { date: '2026-07-13', waist_cm: 99 },
+    { date: '2026-07-20', waist_cm: 98.4 },
+    // Nothing in the week of 10 Aug — a week he skipped the tape.
+    { date: '2026-08-17', waist_cm: 96 }
+  ];
+  const { app, els } = harness('2026-08-17');
+  app.renderWeeklyAverage(weights, waists);
+
+  // Opens on the last completed week, chosen by the WEIGHTS — the waist line follows it there and
+  // has nothing for that week. It must say so, not fall back to the nearest measurement.
+  eq(els['weekavg-wk-name'].textContent, 'Week 5', 'the week shown is still picked by the weigh-ins');
+  eq(els['weekavg-waist'].style.display, 'block', 'the block shows once any waist exists');
+  eq(els['weekavg-waist-val'].innerHTML.startsWith('--'), true, 'a week with no waist prints --');
+  eq(els['weekavg-waist-cmp'].textContent, 'Not measured that week', 'and says why');
+
+  // A week that has one, against the week he is in.
+  app.showWeeklyAverage('2026-07-13');
+  eq(els['weekavg-waist-val'].innerHTML.startsWith('99.0'), true, 'week 1 shows its waist');
+  eq(els['weekavg-waist-cmp'].textContent, '▼ 3.0cm vs this week (96.0cm)', 'compared to this week');
+  eq(els['weekavg-waist-cmp'].className, 'weekavg-waist-cmp down', 'a smaller waist now reads as green');
+
+  // Same rule as the weight half: the current week has nothing to compare against.
+  app.showWeeklyAverage('2026-08-17');
+  eq(els['weekavg-waist-cmp'].textContent, 'This week so far', 'the current week compares to nothing');
+
+  // Two measurements in one week average, and PostgREST hands numerics back as strings.
+  const two = harness('2026-08-17');
+  two.app.renderWeeklyAverage(weights, [
+    { date: '2026-07-13', waist_cm: '99.0' },
+    { date: '2026-07-15', waist_cm: '98.0' },
+    { date: '2026-08-17', waist_cm: 96 }
+  ]);
+  two.app.showWeeklyAverage('2026-07-13');
+  eq(two.els['weekavg-waist-val'].innerHTML.startsWith('98.5'), true,
+     'two measurements in a week average as numbers, not concatenate');
+
+  // Measured in the past but not yet this week — there is no right-hand side to the comparison.
+  const stale = harness('2026-08-17');
+  stale.app.renderWeeklyAverage(weights, [{ date: '2026-07-13', waist_cm: 99 }]);
+  stale.app.showWeeklyAverage('2026-07-13');
+  eq(stale.els['weekavg-waist-cmp'].textContent, 'Not measured this week yet',
+     'with nothing measured this week the line says so instead of comparing to undefined');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

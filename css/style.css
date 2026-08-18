@@ -154,6 +154,7 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .pill-sets { background: rgba(74,158,255,0.15); color: var(--blue); }
 .pill-reps { background: rgba(76,175,125,0.15); color: var(--green); }
 .pill-rest { background: rgba(255,255,255,0.05); color: var(--muted2); }
+.pill-accent { background: rgba(232,93,47,0.15); color: var(--accent); font-weight: 600; }
 
 .btn { border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; border: none; }
 .btn-full { width: 100%; }
@@ -490,6 +491,19 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .weekavg-cmp.down { color: var(--green); }
 .weekavg-cmp.up   { color: var(--amber); }
 .weekavg-cmp.flat { color: var(--muted); }
+/* Waist rides under the weight on the same card rather than taking a card of its own — it is the
+   same question asked a second way, and a fortnightly measurement does not fill a card. Smaller
+   type than the weight above it, and the whole block is hidden until a waist has been logged. */
+.weekavg-waist { margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px solid var(--border2); }
+.weekavg-waist::before {
+  content: 'WAIST'; display: block; font-size: 9.5px; letter-spacing: 1.1px;
+  color: var(--muted); margin-bottom: 3px;
+}
+.weekavg-waist-val { font-family: 'Bebas Neue', sans-serif; font-size: 34px; line-height: 1; letter-spacing: 1px; color: var(--text); }
+.weekavg-waist-cmp { font-size: 11.5px; font-weight: 600; margin-top: 3px; min-height: 16px; }
+.weekavg-waist-cmp.down { color: var(--green); }
+.weekavg-waist-cmp.up   { color: var(--amber); }
+.weekavg-waist-cmp.flat { color: var(--muted); }
 
 .stats-chart { margin-top: 0.75rem; margin-bottom: 0.875rem; }
 .stats-chart svg { width: 100%; height: auto; display: block; }

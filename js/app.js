@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-1505';
+const APP_BUILD = '2026-08-18-1524';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -3598,6 +3598,7 @@ async function saveConditioning() {
 async function loadDailyLog(date = todayStr()) {
   document.getElementById('log-date').value = date;
   document.getElementById('log-weight').value = '';
+  document.getElementById('log-waist').value = '';
   document.getElementById('log-steps').value = '';
   document.getElementById('log-cals').value = '';
   document.getElementById('log-fasting').value = '';
@@ -3614,6 +3615,7 @@ async function loadDailyLog(date = todayStr()) {
     // read back as an empty box, so re-saving the check-in quietly wiped it.
     const fill = (id, v) => { if (v != null) document.getElementById(id).value = v; };
     fill('log-weight', l.weight_kg);
+    fill('log-waist', l.waist_cm);
     fill('log-steps', l.steps);
     fill('log-cals', l.calories);
     fill('log-fasting', l.fasting_hours);
@@ -3665,6 +3667,9 @@ async function renderCheckinSummary() {
   // The four macro pills that used to sit here were removed 11 Aug 2026 — the targets block above
   // now shows the same numbers with a target beside each, so the pills were the same data twice.
   const pills = [];
+  // Waist leads the pills when there is one, because on the days it's measured it's the number that
+  // answers the actual goal — the belly — and the three tiles above only carry weight/cals/steps.
+  if (l.waist_cm != null) pills.push(`<span class="pill pill-accent">Waist · ${l.waist_cm}cm</span>`);
   if (l.energy) pills.push(`<span class="pill pill-rest">Energy · ${ENERGY_WORDS[l.energy] || l.energy}</span>`);
   pillsEl.innerHTML = pills.join('');
   if (l.notes) { notesEl.style.display = 'block'; notesEl.textContent = l.notes; } else { notesEl.style.display = 'none'; }
@@ -3676,6 +3681,7 @@ async function saveDailyLog() {
   const data = {
     date,
     weight_kg: numOrNull(document.getElementById('log-weight').value),
+    waist_cm: numOrNull(document.getElementById('log-waist').value),
     steps: intOrNull(document.getElementById('log-steps').value),
     calories: intOrNull(document.getElementById('log-cals').value),
     fasting_hours: numOrNull(document.getElementById('log-fasting').value),
@@ -3721,6 +3727,9 @@ async function fillFromYesterday() {
   if (!prev || !prev.length) { showToast('No earlier check-in to copy', 'error'); return; }
   const l = prev[0];
   const set = (id, v) => { document.getElementById(id).value = (v === null || v === undefined) ? '' : v; };
+  // Waist is deliberately NOT copied. The macros are near enough the same every day, which is what
+  // makes this button worth having; a waist is a measurement taken with a tape, and copying last
+  // week's forward would write a fabricated one into the run that the Stats card then averages.
   set('log-weight', l.weight_kg);
   set('log-steps', l.steps);
   set('log-cals', l.calories);
@@ -3733,7 +3742,7 @@ async function fillFromYesterday() {
 }
 
 function clearCheckinFields() {
-  ['log-weight','log-steps','log-cals','log-protein','log-carbs','log-fat','log-fibre','log-notes']
+  ['log-weight','log-waist','log-steps','log-cals','log-protein','log-carbs','log-fat','log-fibre','log-notes']
     .forEach(id => { document.getElementById(id).value = ''; });
   setEnergy(0);
 }
@@ -3747,12 +3756,16 @@ async function loadStats() {
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const weekAgoStr = dateStr(weekAgo);
 
-  const [allWeights, weekLogs, weekSessions] = await Promise.all([
+  const [allWeights, allWaists, weekLogs, weekSessions] = await Promise.all([
     // Every weigh-in, not the last 21 days — the weekly card below needs the whole run. The chart
     // is filtered back down to its 21-day window client-side, so it renders exactly what it always
     // did, and this is still one request rather than two. `not.is.null` because a check-in row with
     // no weight on it is not a weigh-in.
     sb(`daily_logs?weight_kg=not.is.null&order=date.asc&select=date,weight_kg`),
+    // Its own request rather than a column on the one above, because the filter is different: a
+    // check-in with a weight on it usually has no waist, and `weight_kg=not.is.null` would drop
+    // a waist logged on a day that wasn't weighed in.
+    sb(`daily_logs?waist_cm=not.is.null&order=date.asc&select=date,waist_cm`),
     sb(`daily_logs?date=gte.${weekAgoStr}&order=date.asc&select=date,steps,calories,protein_g,carbs_g,fat_g`),
     // Was counting raw `workouts` rows, so an opened-and-abandoned session (or a test run) inflated
     // the tile — the exact bug fixed on Home on 11 Aug, which this tile was missed out of. Same
@@ -3770,7 +3783,7 @@ async function loadStats() {
 
   renderWeightHero(points);
   renderWeightChart(points);
-  renderWeeklyAverage(allWeights || []);
+  renderWeeklyAverage(allWeights || [], allWaists || []);
 
   document.getElementById('stat-sessions').textContent = weekSessions.length;
 
@@ -3905,8 +3918,11 @@ function weekRangeLabel(mondayIso) {
 
 let _weekAvgs = [];
 let _weekAvgKey = null;
+// Monday → that week's mean waist. Kept beside _weekAvgs rather than folded into it because the
+// two runs are independent: a week can hold five weigh-ins and no waist, or the reverse.
+let _weekWaists = {};
 
-function renderWeeklyAverage(allWeights) {
+function renderWeeklyAverage(allWeights, allWaists = []) {
   const card = document.getElementById('weekavg-card');
   if (!card) return;
 
@@ -3915,6 +3931,19 @@ function renderWeeklyAverage(allWeights) {
     const v = parseFloat(l.weight_kg);
     if (!isFinite(v)) return;
     (buckets[mondayOf(l.date)] ||= []).push(v);
+  });
+
+  // Waist is measured about once a week, so most of these buckets hold a single number and the
+  // mean is that number. Averaging anyway is what makes two measurements in one week behave.
+  const waistBuckets = {};
+  (allWaists || []).forEach(l => {
+    const v = parseFloat(l.waist_cm);
+    if (!isFinite(v)) return;
+    (waistBuckets[mondayOf(l.date)] ||= []).push(v);
+  });
+  _weekWaists = {};
+  Object.keys(waistBuckets).forEach(k => {
+    _weekWaists[k] = waistBuckets[k].reduce((a, c) => a + c, 0) / waistBuckets[k].length;
   });
 
   // One pass, oldest first: carry an anchor Monday forward, and drop a new anchor whenever the
@@ -3971,6 +4000,8 @@ function showWeeklyAverage(key) {
   if (rangeEl) rangeEl.textContent = weekRangeLabel(picked.monday);
   valEl.innerHTML = `${picked.avg.toFixed(1)}<span class="weekavg-unit">kg</span>`;
 
+  showWeeklyWaist(key);
+
   const now = _weekAvgs.find(w => w.key === mondayOf(todayStr()));
   if (!now) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'No weigh-in yet this week'; return; }
   if (now.key === picked.key) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'This week so far'; return; }
@@ -3982,6 +4013,58 @@ function showWeeklyAverage(key) {
   } else {
     cmpEl.className = `weekavg-cmp ${d < 0 ? 'down' : 'up'}`;
     cmpEl.textContent = `${d < 0 ? '▼' : '▲'} ${Math.abs(d).toFixed(1)}kg vs this week (${now.avg.toFixed(1)}kg)`;
+  }
+}
+
+// The waist half of the same card (18 Aug 2026), reading the week the arrows have landed on.
+//
+// Waist is the measurement the goal is actually about — 8–12% body fat means the lower belly goes,
+// and scale weight can sit still for a fortnight while the tape moves. It rides under the weight
+// rather than on a card of its own because it answers the same question, and because a weekly
+// measurement does not fill a card.
+//
+// The whole block stays hidden until a waist has been logged at least once, so the card is
+// unchanged until there is something to put in it. After that it renders on every week, printing
+// "Not measured" on the weeks it was skipped — a block that appeared and vanished as you arrowed
+// through would jump the card's height on every tap.
+function showWeeklyWaist(key) {
+  const box = document.getElementById('weekavg-waist');
+  const valEl = document.getElementById('weekavg-waist-val');
+  const cmpEl = document.getElementById('weekavg-waist-cmp');
+  if (!box || !valEl || !cmpEl) return;
+
+  const keys = Object.keys(_weekWaists);
+  if (!keys.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+
+  const picked = _weekWaists[key];
+  if (picked === undefined) {
+    valEl.innerHTML = `--<span class="weekavg-unit">cm</span>`;
+    cmpEl.className = 'weekavg-waist-cmp flat';
+    cmpEl.textContent = 'Not measured that week';
+    return;
+  }
+  valEl.innerHTML = `${picked.toFixed(1)}<span class="weekavg-unit">cm</span>`;
+
+  const nowKey = mondayOf(todayStr());
+  const now = _weekWaists[nowKey];
+  if (now === undefined) {
+    cmpEl.className = 'weekavg-waist-cmp flat';
+    cmpEl.textContent = 'Not measured this week yet';
+    return;
+  }
+  if (nowKey === key) {
+    cmpEl.className = 'weekavg-waist-cmp flat';
+    cmpEl.textContent = 'This week so far';
+    return;
+  }
+  const d = now - picked;
+  if (Math.abs(d) < 0.05) {
+    cmpEl.className = 'weekavg-waist-cmp flat';
+    cmpEl.textContent = `Level with this week (${now.toFixed(1)}cm)`;
+  } else {
+    cmpEl.className = `weekavg-waist-cmp ${d < 0 ? 'down' : 'up'}`;
+    cmpEl.textContent = `${d < 0 ? '▼' : '▲'} ${Math.abs(d).toFixed(1)}cm vs this week (${now.toFixed(1)}cm)`;
   }
 }
 
@@ -4355,6 +4438,16 @@ function renderHistoryPage() {
   const prevLogByDate = {};
   const logsAsc = [...allHistoryLogs].sort((a, b) => a.date.localeCompare(b.date));
   logsAsc.forEach((l, i) => { if (i > 0) prevLogByDate[l.date] = logsAsc[i - 1]; });
+  // Waist is a weekly measurement on a daily table, so the *previous check-in* nearly always has no
+  // waist on it and a plain day-on-day delta would print an empty column every single time. Each
+  // measurement is paired with the last day a waist was actually recorded instead.
+  const prevWaistByDate = {};
+  let lastWaisted = null;
+  logsAsc.forEach(l => {
+    if (l.waist_cm === null || l.waist_cm === undefined) return;
+    if (lastWaisted) prevWaistByDate[l.date] = lastWaisted;
+    lastWaisted = l;
+  });
 
   Object.keys(byDate).sort((a, b) => b.localeCompare(a)).forEach(date => {
     const dateStr = new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -4390,9 +4483,15 @@ function renderHistoryPage() {
         // Weight has no target, so it stays a day-on-day change — two different comparison bases in
         // one column, which is only safe because both are named here and the macro rows carry their
         // target inline. The previous check-in is often not yesterday, so name the actual date.
+        const prevWaist = prevWaistByDate[l.date] || null;
+        const dWaist = prevWaist ? parseFloat(l.waist_cm) - parseFloat(prevWaist.waist_cm) : null;
+        const shortDate = d => new Date(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
         const bases = [];
         if (hasAnyGoal()) bases.push('macros vs target');
-        if (prev) bases.push(`weight vs ${new Date(prev.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}`);
+        if (prev) bases.push(`weight vs ${shortDate(prev.date)}`);
+        // Named separately from the weight base because it is a different date — the last waist is
+        // usually a week back, the last check-in usually yesterday.
+        if (prevWaist) bases.push(`waist vs ${shortDate(prevWaist.date)}`);
         const cmpLine = bases.length ? `<div class="pf-cmp">${bases.join(' · ')}</div>` : '';
         const footBits = [];
         if (l.steps != null) footBits.push(`<span>Steps <b>${esc(Number(l.steps).toLocaleString())}</b></span>`);
@@ -4407,6 +4506,7 @@ function renderHistoryPage() {
           </div>
           ${cmpLine}
           ${row('Weight', l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, deltaCell(dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true}))}
+          ${row('Waist', l.waist_cm !== null && l.waist_cm !== undefined ? `${l.waist_cm}cm` : null, deltaCell(dWaist, {suffix:'cm', lowerIsBetter:true}))}
           ${macroRow('Calories', 'calories', goalCalories(), {unit:''})}
           ${macroRow('Protein', 'protein_g', MACRO_GOALS.protein_g, {underIsMiss:true})}
           ${macroRow('Carbs', 'carbs_g', MACRO_GOALS.carbs_g)}
@@ -4567,6 +4667,7 @@ function openEditLog(l) {
   // so opening a day with 0 steps and saving turned that 0 into "never recorded".
   const set = (id, v) => { document.getElementById(id).value = v ?? ''; };
   set('edit-weight', l.weight_kg);
+  set('edit-waist', l.waist_cm);
   set('edit-fasting', l.fasting_hours);
   set('edit-cals', l.calories);
   set('edit-steps', l.steps);
@@ -4596,6 +4697,7 @@ async function saveEditLog() {
   if (!editingLogDate) return;
   const res = await sb(`daily_logs?date=eq.${editingLogDate}`, 'PATCH', {
     weight_kg: numOrNull(document.getElementById('edit-weight').value),
+    waist_cm: numOrNull(document.getElementById('edit-waist').value),
     fasting_hours: numOrNull(document.getElementById('edit-fasting').value),
     calories: intOrNull(document.getElementById('edit-cals').value),
     steps: intOrNull(document.getElementById('edit-steps').value),
