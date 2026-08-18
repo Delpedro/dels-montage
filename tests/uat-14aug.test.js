@@ -259,19 +259,20 @@ console.log('Home and Stats average over the same window');
   eq(home.split('daily_logs?date=gte.').length - 1, 1,
     'ONE ranged daily_logs read on Home, not two — a second window is how the two numbers drifted apart in the first place');
 
-  // The sessions tiles are genuinely week-anchored on both screens and always agreed — they must stay
-  // that way. "Sessions this week" meaning "the last 7 days" would be a different, worse bug.
+  // Both screens count sessions from Monday and always agreed on the number. Home still asks the
+  // database for its own week; Stats now reads every workout and buckets them by mondayOf(),
+  // because its card can be arrowed back to any week in the run — but Monday is still the seam.
   ok(home.includes('realWorkoutsBetween(getWeekStart())'), 'Home still counts sessions from Monday');
-  ok(stats.includes('realWorkoutsBetween(getWeekStart())'), 'and so does Stats — those two always matched');
+  ok(SRC.includes('_weekSessions[mondayOf(w.date)]'),
+    'and Stats buckets its sessions on the same Monday boundary rather than a rolling seven days');
 
-  // 18 Aug 2026: the stat tiles gained a "vs the week before" line, which needs a fortnight of
-  // logs. That must stay ONE ranged read sliced locally — a second window here is the same shape
-  // of bug this whole block exists to prevent, and it would put the tile's current figure on a
-  // different seven days from the macro averages sitting directly underneath it.
-  eq(stats.split('daily_logs?date=gte.').length - 1, 1,
-    'ONE ranged daily_logs read on Stats too, whatever the tiles compare against');
-  ok(stats.includes("filter(l => l.date >= weekAgoStr)") && stats.includes("filter(l => l.date < weekAgoStr)"),
-    'the two windows are sliced off that single fetch on the same boundary the page always used');
+  // 18 Aug 2026: the weekly card now shows sessions and steps for whichever week it is on, so it
+  // needs every day's steps — and the macro card's 7 days is sliced off those same rows. Asking
+  // separately for the second window is the exact shape of the bug this whole block exists to stop.
+  eq(stats.split('daily_logs?date=gte.').length - 1, 0,
+    'NO ranged daily_logs read on Stats — one unfiltered read, every window sliced off it locally');
+  ok(stats.includes("filter(l => l.date >= weekAgoStr)"),
+    'and the macro card still gets exactly the seven days it always did')
 }
 
 process.on('exit', () => {

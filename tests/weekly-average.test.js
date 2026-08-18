@@ -40,7 +40,8 @@ function fakeDom() {
   const get = id => (els[id] ||= mk());
   ['weekavg-card', 'weekavg-wk-name', 'weekavg-range', 'weekavg-val', 'weekavg-cmp',
    'weekavg-prev', 'weekavg-next',
-   'weekavg-waist', 'weekavg-waist-val', 'weekavg-waist-cmp'].forEach(get);
+   'weekavg-waist', 'weekavg-waist-val', 'weekavg-waist-cmp',
+   'weekavg-sessions', 'weekavg-steps'].forEach(get);
   return { els, get, document: { getElementById: id => get(id) } };
 }
 
@@ -48,9 +49,10 @@ function harness(today) {
   const dom = fakeDom();
   const app = load({
     functions: ['mondayOf', 'weeksBetween', 'weekRangeLabel',
-                'renderWeeklyAverage', 'showWeeklyAverage', 'showWeeklyWaist', 'stepWeeklyAverage',
+                'renderWeeklyAverage', 'showWeeklyAverage', 'showWeeklyWaist', 'showWeeklySplit',
+                'stepWeeklyAverage', 'numOrNull',
                 'dateStr', 'weekIndex'],
-    decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey', '_weekWaists'],
+    decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey', '_weekWaists', '_weekSessions', '_weekSteps'],
     deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today }
   });
   return { app, els: dom.els, get: dom.get };
@@ -298,6 +300,56 @@ console.log('Weekly average weight');
   stale.app.showWeeklyAverage('2026-07-13');
   eq(stale.els['weekavg-waist-cmp'].textContent, 'Not measured this week yet',
      'with nothing measured this week the line says so instead of comparing to undefined');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sessions and average steps ride the same arrows (18 Aug 2026)
+// ═══════════════════════════════════════════════════════════════════════════
+// They were tiles under this card and Del rejected three versions of that. Folded in, they have to
+// obey the card: press ‹ and every figure in the box must be about the week you landed on. A pair
+// that kept showing this week's numbers under last week's weight would be worse than the tiles.
+{
+  const weights = [
+    { date: '2026-07-13', weight_kg: 82 },
+    { date: '2026-07-20', weight_kg: 81 },
+    { date: '2026-08-10', weight_kg: 80 },
+    { date: '2026-08-17', weight_kg: 79 }
+  ];
+  const workouts = [
+    { date: '2026-07-13' }, { date: '2026-07-15' }, { date: '2026-07-17' },  // week of 13 Jul: 3
+    { date: '2026-08-17' }                                                   // this week: 1
+  ];
+  const logs = [
+    { date: '2026-07-13', steps: 9000 },
+    { date: '2026-07-15', steps: '11000' },   // PostgREST hands whole numbers back as strings too
+    { date: '2026-08-17', steps: 6000 },
+    { date: '2026-08-10', steps: null }        // logged a check-in, watch never synced
+  ];
+
+  const h = harness('2026-08-17');
+  h.app.renderWeeklyAverage(weights, [], logs, workouts);
+
+  h.app.showWeeklyAverage('2026-07-13');
+  eq(h.els['weekavg-sessions'].textContent, 3, 'the week of 13 Jul shows its own three sessions');
+  eq(h.els['weekavg-steps'].textContent, '10,000',
+     'and its own step average — the mean of the days that HAVE a figure, not a divide by seven');
+
+  h.app.showWeeklyAverage('2026-08-17');
+  eq(h.els['weekavg-sessions'].textContent, 1, 'arrowing to this week repaints the session count');
+  eq(h.els['weekavg-steps'].textContent, '6,000', 'and the step average with it');
+
+  // A week inside the run with no workouts is a week he did not train. That is a fact worth
+  // printing, not a gap — whereas no steps means the watch did not sync and must not read as zero.
+  h.app.showWeeklyAverage('2026-08-10');
+  eq(h.els['weekavg-sessions'].textContent, 0, 'a trained-nothing week prints 0, not a dash');
+  eq(h.els['weekavg-steps'].textContent, '--', 'a week with no steps recorded prints a dash, not 0');
+
+  // The card renders for people who have never logged either — it predates both.
+  const bare = harness('2026-08-17');
+  bare.app.renderWeeklyAverage(weights, []);
+  bare.app.showWeeklyAverage('2026-07-13');
+  eq(bare.els['weekavg-sessions'].textContent, 0, 'no workouts at all still renders a number');
+  eq(bare.els['weekavg-steps'].textContent, '--', 'and no steps at all still renders a dash');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

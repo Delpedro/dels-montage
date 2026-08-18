@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-1954';
+const APP_BUILD = '2026-08-18-2012';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -3894,18 +3894,8 @@ async function loadStats() {
   const sinceStr = dateStr(since);
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const weekAgoStr = dateStr(weekAgo);
-  // Two weeks of logs, not one: the tiles compare this window against the one before it, and a
-  // second ranged read is exactly the drift that made Home and Stats disagree back in August.
-  // The current window is sliced out of this locally on the same `>= weekAgoStr` boundary it
-  // always used, so every average on the page still covers the identical seven days.
-  const fortnightAgo = new Date(); fortnightAgo.setDate(fortnightAgo.getDate() - 14);
-  const fortnightAgoStr = dateStr(fortnightAgo);
-  // Last week, Monday to Sunday — the same boundary getWeekStart() draws, one week back.
-  const thisMon = new Date(); thisMon.setDate(thisMon.getDate() - weekIndex(thisMon));
-  const prevMon = new Date(thisMon); prevMon.setDate(prevMon.getDate() - 7);
-  const prevSun = new Date(thisMon); prevSun.setDate(prevSun.getDate() - 1);
 
-  const [allWeights, allWaists, fortnightLogs, weekSessions, prevSessions] = await Promise.all([
+  const [allWeights, allWaists, allLogs, allWorkouts] = await Promise.all([
     // Every weigh-in, not the last 21 days — the weekly card below needs the whole run. The chart
     // is filtered back down to its 21-day window client-side, so it renders exactly what it always
     // did, and this is still one request rather than two. `not.is.null` because a check-in row with
@@ -3915,12 +3905,15 @@ async function loadStats() {
     // check-in with a weight on it usually has no waist, and `weight_kg=not.is.null` would drop
     // a waist logged on a day that wasn't weighed in.
     sb(`daily_logs?waist_cm=not.is.null&order=date.asc&select=date,waist_cm`),
-    sb(`daily_logs?date=gte.${fortnightAgoStr}&order=date.asc&select=date,steps,calories,protein_g,carbs_g,fat_g`),
-    // Was counting raw `workouts` rows, so an opened-and-abandoned session (or a test run) inflated
-    // the tile — the exact bug fixed on Home on 11 Aug, which this tile was missed out of. Same
-    // has-sets-or-cardio-or-notes test everything else uses now. See realWorkoutsBetween().
-    realWorkoutsBetween(getWeekStart()),
-    realWorkoutsBetween(dateStr(prevMon), dateStr(prevSun))
+    // No date filter, same as the two reads above it: the weekly card can navigate to any week in
+    // the run, so it needs every day's steps, and the 7-day macro window is sliced out of the same
+    // rows locally. A ranged read here as well would put the card's figures and the macro averages
+    // on two windows fetched separately, which is the exact shape of the Home/Stats drift bug.
+    sb(`daily_logs?order=date.asc&select=date,steps,calories,protein_g,carbs_g,fat_g`),
+    // Every real workout, for the same reason: the card counts sessions for whichever week the
+    // arrows are on. Raw `workouts` rows would inflate it — an opened-and-abandoned session counts
+    // as one — hence the has-sets-or-cardio-or-notes filter inside realWorkoutsBetween().
+    realWorkoutsBetween(STATS_EPOCH)
   ]);
 
   // Only days with an actual weigh-in — skipped days are dropped entirely so the
@@ -3933,23 +3926,11 @@ async function loadStats() {
 
   renderWeightHero(points);
   renderWeightChart(points);
-  renderWeeklyAverage(allWeights || [], allWaists || []);
+  renderWeeklyAverage(allWeights || [], allWaists || [], allLogs || [], allWorkouts || []);
 
-  const weekLogs = (fortnightLogs || []).filter(l => l.date >= weekAgoStr);
-  const prevLogs = (fortnightLogs || []).filter(l => l.date < weekAgoStr);
-
-  document.getElementById('stat-sessions').textContent = weekSessions.length;
-  setStatTrend('stat-sessions-cmp', weekSessions.length, (prevSessions || []).length, 'last week');
-
-  const avgSteps = logs => {
-    const v = logs.filter(l => l.steps != null).map(l => Number(l.steps));
-    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null;
-  };
-  const stepsNow = avgSteps(weekLogs);
-  document.getElementById('stat-steps').textContent = stepsNow === null ? '--' : stepsNow.toLocaleString();
-  setStatTrend('stat-steps-cmp', stepsNow, avgSteps(prevLogs), 'prev 7 days');
-
-  renderMacroAverages(weekLogs);
+  // The macro card is the one group on the page that is not week-shaped: a rolling 7 days, the same
+  // window Home uses, sliced off the rows already fetched above rather than asked for separately.
+  renderMacroAverages((allLogs || []).filter(l => l.date >= weekAgoStr));
 }
 
 function renderWeightHero(points) {
@@ -4043,6 +4024,11 @@ function renderWeightChart(points) {
 // 6" means six weeks since you started, not the sixth week you happened to log.
 const WEEKAVG_RUN_GAP = 3;
 
+// "Everything, from the beginning." realWorkoutsBetween() takes a from-date, and the honest value
+// here is a date before the app existed rather than a guess at how far back to look — the weekly
+// card can navigate to any week in the run, so a rolling window would leave older weeks blank.
+const STATS_EPOCH = '2025-01-01';
+
 // The Monday of whatever week this date falls in — also the bucket key, since an ISO date sorts
 // chronologically as a string and can't collide across years the way a bare week number can.
 // Local-time Date, via the same weekIndex() the rest of the app uses, so it can't disagree with
@@ -4079,8 +4065,10 @@ let _weekAvgKey = null;
 // Monday → that week's mean waist. Kept beside _weekAvgs rather than folded into it because the
 // two runs are independent: a week can hold five weigh-ins and no waist, or the reverse.
 let _weekWaists = {};
+let _weekSessions = {};
+let _weekSteps = {};
 
-function renderWeeklyAverage(allWeights, allWaists = []) {
+function renderWeeklyAverage(allWeights, allWaists = [], allLogs = [], allWorkouts = []) {
   const card = document.getElementById('weekavg-card');
   if (!card) return;
 
@@ -4102,6 +4090,26 @@ function renderWeeklyAverage(allWeights, allWaists = []) {
   _weekWaists = {};
   Object.keys(waistBuckets).forEach(k => {
     _weekWaists[k] = waistBuckets[k].reduce((a, c) => a + c, 0) / waistBuckets[k].length;
+  });
+
+  // Sessions: a straight count per week. A week with no workouts in it is a real zero, not a gap,
+  // which is why this is only filled in for weeks that have one — `|| 0` at read time does the rest.
+  _weekSessions = {};
+  (allWorkouts || []).forEach(w => {
+    _weekSessions[mondayOf(w.date)] = (_weekSessions[mondayOf(w.date)] || 0) + 1;
+  });
+
+  // Steps: the mean of the days that have a figure, not of seven days. Dividing by 7 when the watch
+  // only synced on four of them prints a number lower than any day Del actually walked.
+  const stepBuckets = {};
+  (allLogs || []).forEach(l => {
+    const v = numOrNull(l.steps);
+    if (v === null) return;
+    (stepBuckets[mondayOf(l.date)] ||= []).push(v);
+  });
+  _weekSteps = {};
+  Object.keys(stepBuckets).forEach(k => {
+    _weekSteps[k] = Math.round(stepBuckets[k].reduce((a, c) => a + c, 0) / stepBuckets[k].length);
   });
 
   // One pass, oldest first: carry an anchor Monday forward, and drop a new anchor whenever the
@@ -4159,6 +4167,7 @@ function showWeeklyAverage(key) {
   valEl.innerHTML = `${picked.avg.toFixed(1)}<span class="weekavg-unit">kg</span>`;
 
   showWeeklyWaist(key);
+  showWeeklySplit(key);
 
   const now = _weekAvgs.find(w => w.key === mondayOf(todayStr()));
   if (!now) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'No weigh-in yet this week'; return; }
@@ -4171,6 +4180,23 @@ function showWeeklyAverage(key) {
   } else {
     cmpEl.className = `weekavg-cmp ${d < 0 ? 'down' : 'up'}`;
     cmpEl.textContent = `${d < 0 ? '▼' : '▲'} ${Math.abs(d).toFixed(1)}kg vs this week (${now.avg.toFixed(1)}kg)`;
+  }
+}
+
+// Sessions and average steps for the week the arrows are on (18 Aug 2026). They used to be two
+// tiles under this card; they read better as part of it, because the card already is "how did that
+// week go" and they are two more answers to it.
+//
+// Sessions falls back to 0 rather than "--": a week in the middle of a run with no workouts in it
+// is a week he did not train, which is worth seeing. Steps cannot do the same — no steps recorded
+// means the watch did not sync, not that he did not walk, so that one stays a dash.
+function showWeeklySplit(key) {
+  const sessEl = document.getElementById('weekavg-sessions');
+  const stepEl = document.getElementById('weekavg-steps');
+  if (sessEl) sessEl.textContent = _weekSessions[key] || 0;
+  if (stepEl) {
+    const st = _weekSteps[key];
+    stepEl.textContent = st === undefined ? '--' : st.toLocaleString();
   }
 }
 
@@ -4290,23 +4316,6 @@ function renderMacroAverages(logs) {
   }
 }
 
-// The line under a stat tile, in the language the weekly-average card set: an arrow, the size of
-// the move, and what it was measured against. Up is the good direction for both tiles that use it
-// (more sessions, more steps) — which is why the weight card keeps its own copy, where down wins.
-// Verdict colours come from the shared .gv-* classes rather than new ones, so green means the same
-// thing here as it does on every macro row.
-//
-// A missing previous window prints nothing at all. "▲ 8,400 vs prev 7 days" against a fortnight
-// with no data in its older half is not a gain, it is an artefact, and a tile that invents
-// progress is worse than a tile with a blank line on it.
-function setStatTrend(id, now, prev, vs) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  if (now === null || prev === null || prev === undefined) { el.textContent = ''; el.className = 'stat-tile-cmp'; return; }
-  const d = now - prev;
-  el.className = `stat-tile-cmp gv-${d === 0 ? 'empty' : (d > 0 ? 'good' : 'soft')}`;
-  el.textContent = d === 0 ? `same as ${vs}` : `${d > 0 ? '▲' : '▼'} ${Math.abs(d).toLocaleString()} vs ${vs}`;
-}
 
 // ─── HISTORY ─────────────────────────────────────────────
 let historyPage = 1;

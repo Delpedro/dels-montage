@@ -43,7 +43,6 @@ html.login-active { overflow: hidden; touch-action: none; }
 .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 0.875rem; }
 .card-title { font-size: 12px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.875rem; }
 
-.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
 /* The Stats page label system: exactly two levels, distinguished by weight and brightness rather
    than by size, so the step between them is deliberate instead of accidental.
    L1 .stats-section — header OUTSIDE a box, governs everything to the next one. Brighter, bolder.
@@ -53,17 +52,6 @@ html.login-active { overflow: hidden; touch-action: none; }
 .section-title + .stats-section { margin-top: 0; }
 .stat-label { font-size: 11px; font-weight: 400; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
 
-/* A stat tile is the weekly-average card at half width: same .card surface, same centred
-   caption → figure → comparison stack. It was a flat bg3 box with a bare number in it, which
-   looked like filler sitting under a card that does all three. `margin-bottom: 0` because the
-   grid owns the gap; .card ships its own margin for when it stands alone.
-   `align-content: start` keeps both tiles' figures on the same line when one comparison wraps. */
-.stat-tile { padding: 0.875rem 0.7rem; margin-bottom: 0; text-align: center; display: grid; align-content: start; }
-.stat-tile-val { font-family: 'Bebas Neue', sans-serif; font-size: 40px; line-height: 1; letter-spacing: 1px; color: var(--text); margin-top: 0.35rem; }
-/* min-height reserves the line before the data lands, so the two tiles never render at different
-   heights on the way in and settle afterwards. */
-.stat-tile-cmp { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-top: 5px; min-height: 16px; }
-.stat-tile-cmp b { font-weight: 600; margin-left: 4px; }
 .stat-unit { font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
 .stat-green { color: var(--green); } .stat-amber { color: var(--amber); } .stat-accent { color: var(--accent); }
 
@@ -531,6 +519,14 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .weekavg-waist-cmp.up   { color: var(--amber); }
 .weekavg-waist-cmp.flat { color: var(--muted); }
 
+/* Sessions | avg steps, under the same kind of divider the waist row uses. Two counts of the same
+   week sitting side by side, so they get one shared rule above and a hairline between them rather
+   than a box each — a box would make them a separate thing from the week this card is showing. */
+.weekavg-split { display: grid; grid-template-columns: 1fr 1fr; margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px solid var(--border2); }
+.weekavg-half + .weekavg-half { border-left: 1px solid var(--border2); }
+.weekavg-half-val { font-family: 'Bebas Neue', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
+.weekavg-half-name { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 3px; }
+
 .stats-chart { margin-top: 0.75rem; margin-bottom: 0.875rem; }
 .stats-chart svg { width: 100%; height: auto; display: block; }
 
@@ -542,8 +538,10 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 /* Calories head the macro card. Centred against the left-aligned meter rows below on purpose:
    it is the group total, not another row of the same list. The rule draws the line between them. */
 .macro-cal { text-align: center; }
-.macro-cal .stat-tile-val { font-size: 46px; }
-.macro-cal .stat-unit { font-size: 14px; }
+.macro-cal-val { font-family: 'Bebas Neue', sans-serif; font-size: 46px; line-height: 1; letter-spacing: 1px; }
+.macro-cal-val .stat-unit { font-size: 14px; }
+.macro-cal-target { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.macro-cal-target b { font-weight: 600; margin-left: 4px; }
 .macro-rule { height: 1px; background: var(--border); margin: 0.9rem 0; }
 
 /* ONE grid holding all twelve cells — not one grid per row.
@@ -603,7 +601,7 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
    one class setting both `color` and `background` paints a coloured block behind every number it
    lands on.
    There used to be `.macro-cal-line b.gv-*` overrides here, because that rule set `color` on its
-   own `b` and so outranked a bare `.gv-*`. Its replacement `.stat-tile-cmp b` sets only weight
+   own `b` and so outranked a bare `.gv-*`. Its replacement `.macro-cal-target b` sets only weight
    and spacing, never colour, so the verdict class applies directly and the overrides are gone.
    Keep it that way: a `b` inside a verdict-coloured element must not declare its own colour. */
 .gv-good  { color: var(--green); }
