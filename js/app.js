@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-1610';
+const APP_BUILD = '2026-08-18-1702';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1996,7 +1996,15 @@ const TIMED_EXERCISES = {
   'deadhang': '30–45s',
   'deadhangs': '30–45s',
   'dead hang': '30–45s',
-  'dead hangs': '30–45s'
+  'dead hangs': '30–45s',
+  // Added 18 Aug 2026 with the programme review. Side Plank is a pure hold; Farmers Walk is a hold
+  // that is also loaded, so it appears in OPTIONAL_WEIGHT_EXERCISES too — timed alone would force
+  // the weight to null and the kg you carried would never be saved.
+  'side plank': '30–45s',
+  'side planks': '30–45s',
+  'farmers walk': '40s',
+  'farmers walks': '40s',
+  'farmer walk': '40s'
 };
 
 // The default time target for a timed exercise, or null if it isn't timed.
@@ -2024,7 +2032,10 @@ const OPTIONAL_WEIGHT_EXERCISES = [
   'dip', 'dips',
   // Timed *and* optionally loaded — a deadhang can be hung with a DB/belt. The two lists stack:
   // reps still mean seconds (TIMED_EXERCISES), the weight column just stops being a fixed "BW".
-  'deadhang', 'deadhangs', 'dead hang', 'dead hangs'
+  'deadhang', 'deadhangs', 'dead hang', 'dead hangs',
+  // A carry is the same shape as a deadhang: timed, and the whole point is the load. Without this
+  // the weight column is forced to null and a Farmers Walk can never show progression.
+  'farmers walk', 'farmers walks', 'farmer walk'
 ];
 function isOptionalWeight(ex) {
   const name = typeof ex === 'string' ? ex : ex?.name;
