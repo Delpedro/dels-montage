@@ -7,3 +7,11 @@ TDLR.md
 .backup/
 .backup-credentials.json
 SECRET_FIRST_LOGIN.txt
+
+# Session-continuity docs — edited every session, never shipped.
+# Local notes, not repo content (Del's call, 22 Jul 2026; untracked 18 Aug 2026).
+# The July copies stay in git history if they're ever needed.
+CODEBASE.md
+CURRENT_STATUS.md
+CHANGELOG.md
+RTFM.md
