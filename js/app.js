@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-1702';
+const APP_BUILD = '2026-08-18-1712';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -48,17 +48,21 @@ async function checkForUpdate(force = false) {
   }
 }
 
-// Drops every cached copy of the app and reloads. The ?v= build stamp on the asset URLs means the
-// fresh index.html points at URLs nothing has ever cached, so this can't come back with old JS.
+// Pulls the new service worker and reloads. The ?v= build stamp on the asset URLs means the fresh
+// index.html points at URLs nothing has ever cached, so this can't come back with old JS.
+//
+// This used to delete every cache first, and that is what broke the app on 18 Aug. Deleting the
+// caches removes the offline fallback at the exact moment it is most likely to be needed — the
+// reload immediately after a deploy, when GitHub Pages may still be serving a half-published tree.
+// One failed asset fetch then had nothing to fall back to and the page rendered with no CSS and no
+// JS: white, unstyled text. It was also redundant. The service worker's own 'activate' already
+// deletes every cache whose name isn't the current build's, so the cleanup happens anyway — just in
+// the right order, after a working replacement exists rather than before.
 async function applyUpdate() {
   try {
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map(r => r.update()));
-    }
-    if (window.caches) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
     }
   } catch (e) {}
   location.reload();
