@@ -44,7 +44,6 @@ html.login-active { overflow: hidden; touch-action: none; }
 .card-title { font-size: 12px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.875rem; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
-.stat-grid-1 { grid-template-columns: 1fr; }
 /* Not clickable: the pointer cursor and the `.active` border here were the last trace of the
    Chart.js tile-switcher removed on 10 Aug 2026, and a hand cursor on a tile that does nothing
    is a promise the page cannot keep. If a tile becomes a control again, bring both back. */
@@ -534,6 +533,12 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
    three tiles + a split bar + a 10px grey calorie line. Every number in the card is tabular so the
    figures sit on a common grid instead of drifting row to row. */
 .macro-card { font-variant-numeric: tabular-nums; }
+
+/* Calories head the macro card. Centred against the left-aligned meter rows below on purpose:
+   it is the group total, not another row of the same list. The rule draws the line between them. */
+.macro-cal { text-align: center; }
+.macro-cal .stat-value { font-size: 38px; }
+.macro-rule { height: 1px; background: var(--border); margin: 0.9rem 0; }
 
 /* ONE grid holding all twelve cells — not one grid per row.
    Two things here are load-bearing, both learned by getting them wrong:

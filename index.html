@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-18-1823">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-18-1945">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -254,34 +254,30 @@
       </div>
     </div>
 
-    <!-- Sessions is a week-to-date count, not a rolling average, so it gets its own section rather
-         than sharing a row with the 7-day figures below. That shared row was the thing that read
-         wrong: two different time windows presented as a matching pair. -->
-    <div class="stats-section">This week</div>
-    <div class="stat-grid stat-grid-1">
+    <!-- Sessions and steps share a row again. A lone full-width tile spent ~70px of screen on a
+         single digit, and its section header cost another line. Each label now carries its own time
+         window instead, so the two can sit side by side without misreading as a matching pair. -->
+    <div class="stat-grid">
       <div class="stat-card" id="tile-sessions">
-        <div class="stat-label">Sessions</div>
+        <div class="stat-label">Sessions &middot; this week</div>
         <div class="stat-value stat-green" id="stat-sessions">--</div>
+      </div>
+      <div class="stat-card" id="tile-steps">
+        <div class="stat-label">Steps &middot; 7-day avg</div>
+        <div class="stat-value stat-amber" id="stat-steps">--</div>
       </div>
     </div>
 
     <div class="stats-section">Daily averages &middot; 7 days</div>
-    <!-- Steps and calories are both 7-day rolling averages over the same window (see loadStats),
-         so they belong side by side under this header. -->
-    <div class="stat-grid">
-      <div class="stat-card" id="tile-steps">
-        <div class="stat-label">Steps</div>
-        <div class="stat-value stat-amber" id="stat-steps">--</div>
-      </div>
-      <div class="stat-card" id="tile-calories">
+    <div class="card macro-card">
+      <!-- Calories lead, macros explain them: the total is what moves weight on a cut. It lives
+           inside the macro card rather than in a tile of its own so the whole group costs one box. -->
+      <div class="macro-cal">
         <div class="stat-label">Calories</div>
         <div class="stat-value" id="macro-cal-val">--</div>
         <div class="stat-sub" id="macro-cal-target"></div>
       </div>
-    </div>
-    <div class="card macro-card">
-      <!-- The three macros break down the calorie tile above. No label of its own — the section
-           header owns the group, and the row names (Protein/Carbs/Fat) already say what each is. -->
+      <div class="macro-rule"></div>
       <div class="macro-meters" id="macro-meters"></div>
     </div>
   </div>
@@ -560,6 +556,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-18-1823"></script>
+<script src="js/app.js?v=2026-08-18-1945"></script>
 </body>
 </html>
