@@ -44,9 +44,22 @@ html.login-active { overflow: hidden; touch-action: none; }
 .card-title { font-size: 12px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.875rem; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
-.stat-card { background: var(--bg3); border-radius: 10px; padding: 0.875rem; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s; }
-.stat-card.active { border-color: var(--accent); }
-.stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.stat-grid-1 { grid-template-columns: 1fr; }
+/* Not clickable: the pointer cursor and the `.active` border here were the last trace of the
+   Chart.js tile-switcher removed on 10 Aug 2026, and a hand cursor on a tile that does nothing
+   is a promise the page cannot keep. If a tile becomes a control again, bring both back. */
+.stat-card { background: var(--bg3); border-radius: 10px; padding: 0.875rem; }
+/* The Stats page label system: exactly two levels, distinguished by weight and brightness rather
+   than by size, so the step between them is deliberate instead of accidental.
+   L1 .stats-section — header OUTSIDE a box, governs everything to the next one. Brighter, bolder.
+   L2 .stat-label    — label INSIDE a box, names that one number. Dimmer, regular.
+   Both 11px on purpose: four slightly-different sizes were what made this page look untidy. */
+.stats-section { font-size: 11px; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 1px; margin: 1.125rem 0 0.5rem; }
+.section-title + .stats-section { margin-top: 0; }
+.stat-label { font-size: 11px; font-weight: 400; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.stat-sub { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 5px; white-space: nowrap; }
+.stat-sub b { font-weight: 500; margin-left: 4px; }
+.stat-unit { font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
 .stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px; line-height: 1; }
 .stat-green { color: var(--green); } .stat-amber { color: var(--amber); } .stat-accent { color: var(--accent); }
 
@@ -395,8 +408,8 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
   font-family: 'DM Sans', sans-serif;
   outline: none;
   cursor: pointer;
-  appearance: none;
   -webkit-appearance: none;
+  appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round'%3E%3Cpolyline points='2,2 6,6 10,2'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
@@ -521,14 +534,6 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
    three tiles + a split bar + a 10px grey calorie line. Every number in the card is tabular so the
    figures sit on a common grid instead of drifting row to row. */
 .macro-card { font-variant-numeric: tabular-nums; }
-.macro-cal { text-align: center; }
-.macro-cal-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 6px; }
-.macro-cal-val { font-family: 'Bebas Neue', sans-serif; font-size: 46px; line-height: 0.92; letter-spacing: 0.5px; }
-/* Unit rides the number but stays out of its way — DM Sans at a third the size, muted. */
-.macro-cal-unit { font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--muted); margin-left: 5px; letter-spacing: 0; }
-.macro-cal-target { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin-top: 7px; white-space: nowrap; }
-.macro-cal-target b { font-weight: 500; margin-left: 5px; }
-.macro-rule { height: 1px; background: var(--border); margin: 0.9rem 0; }
 
 /* ONE grid holding all twelve cells — not one grid per row.
    Two things here are load-bearing, both learned by getting them wrong:
@@ -587,7 +592,7 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
    one class setting both `color` and `background` paints a coloured block behind every number it
    lands on.
    There used to be `.macro-cal-line b.gv-*` overrides here, because that rule set `color` on its
-   own `b` and so outranked a bare `.gv-*`. Its replacement `.macro-cal-target b` sets only weight
+   own `b` and so outranked a bare `.gv-*`. Its replacement `.stat-sub b` sets only weight
    and spacing, never colour, so the verdict class applies directly and the overrides are gone.
    Keep it that way: a `b` inside a verdict-coloured element must not declare its own colour. */
 .gv-good  { color: var(--green); }

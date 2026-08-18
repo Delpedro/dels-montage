@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-18-1712">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-18-1823">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -214,8 +214,16 @@
   </div>
 
   <!-- STATS -->
+  <!-- Two label levels on this page and no more, each one always in the same place:
+       .stats-section is a header OUTSIDE the boxes that governs everything down to the next one,
+       and .stat-label is a label INSIDE a box naming that one number. Before 18 Aug 2026 the page
+       had four near-identical uppercase-grey label classes (card-title / stat-label /
+       landing-section-label / macro-cal-label) differing only by 1-3px of size and two shades of
+       grey, which reads as sloppy rather than as a hierarchy. Don't add a fifth. -->
   <div class="page" id="page-stats">
     <div class="section-title">Stats</div>
+
+    <div class="stats-section">Weight</div>
     <div class="stats-hero">
       <div class="stats-hero-val" id="stats-hero-weight">--<span class="stats-hero-unit">kg</span></div>
       <div class="stats-hero-sub" id="stats-hero-delta"></div>
@@ -225,9 +233,9 @@
          in now. Deliberately nothing else in this card — the daily chart above is noise by
          design (weight bounces day to day); this is the number that actually moves.
          Week numbers count from the start of the current run of weigh-ins, not the calendar — see
-         renderWeeklyAverage() for where a run starts and stops. -->
+         renderWeeklyAverage() for where a run starts and stops.
+         No card-title of its own: the "Weight" section header above owns this whole group. -->
     <div class="card weekavg-card" id="weekavg-card" style="display:none;">
-      <div class="card-title">Weekly average weight</div>
       <div class="weekavg-body">
         <div class="weekavg-nav">
           <button type="button" class="weekavg-arrow" id="weekavg-prev" onclick="stepWeeklyAverage(-1)" aria-label="Earlier week">&lsaquo;</button>
@@ -245,28 +253,35 @@
         </div>
       </div>
     </div>
-    <div class="stat-grid">
+
+    <!-- Sessions is a week-to-date count, not a rolling average, so it gets its own section rather
+         than sharing a row with the 7-day figures below. That shared row was the thing that read
+         wrong: two different time windows presented as a matching pair. -->
+    <div class="stats-section">This week</div>
+    <div class="stat-grid stat-grid-1">
       <div class="stat-card" id="tile-sessions">
-        <div class="stat-label">Sessions This Week</div>
+        <div class="stat-label">Sessions</div>
         <div class="stat-value stat-green" id="stat-sessions">--</div>
       </div>
+    </div>
+
+    <div class="stats-section">Daily averages &middot; 7 days</div>
+    <!-- Steps and calories are both 7-day rolling averages over the same window (see loadStats),
+         so they belong side by side under this header. -->
+    <div class="stat-grid">
       <div class="stat-card" id="tile-steps">
-        <div class="stat-label">Avg Steps</div>
+        <div class="stat-label">Steps</div>
         <div class="stat-value stat-amber" id="stat-steps">--</div>
       </div>
-    </div>
-    <div class="landing-section-label">Daily averages &middot; 7 days</div>
-    <div class="card macro-card">
-      <!-- Calories lead, macros explain them: the total is what moves weight on a cut, so it's the
-           headline and the three macros are the breakdown underneath. Rows (not the old 3-up tiles)
-           because a third of a phone width couldn't hold "Target 175 −6" without wrapping it into
-           an unreadable mess. Same meter shape the Check-in page uses. -->
-      <div class="macro-cal">
-        <div class="macro-cal-label">Avg calories</div>
-        <div class="macro-cal-val" id="macro-cal-val">--</div>
-        <div class="macro-cal-target" id="macro-cal-target"></div>
+      <div class="stat-card" id="tile-calories">
+        <div class="stat-label">Calories</div>
+        <div class="stat-value" id="macro-cal-val">--</div>
+        <div class="stat-sub" id="macro-cal-target"></div>
       </div>
-      <div class="macro-rule"></div>
+    </div>
+    <div class="card macro-card">
+      <!-- The three macros break down the calorie tile above. No label of its own — the section
+           header owns the group, and the row names (Protein/Carbs/Fat) already say what each is. -->
       <div class="macro-meters" id="macro-meters"></div>
     </div>
   </div>
@@ -545,6 +560,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-18-1712"></script>
+<script src="js/app.js?v=2026-08-18-1823"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-1712';
+const APP_BUILD = '2026-08-18-1823';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -4254,12 +4254,12 @@ function renderMacroAverages(logs) {
   const calVal = document.getElementById('macro-cal-val');
   const calTarget = document.getElementById('macro-cal-target');
   if (calVal) {
-    calVal.innerHTML = ca === null ? '--' : `${Math.round(ca)}<span class="macro-cal-unit">kcal</span>`;
+    calVal.innerHTML = ca === null ? '--' : `${Math.round(ca).toLocaleString()}<span class="stat-unit">kcal</span>`;
   }
   if (calTarget) {
     const state = (ca === null || ct === null) ? null : goalState(ca, ct);
     calTarget.innerHTML = (ca === null || ct === null) ? ''
-      : `(Target ${Math.round(ct)}<b class="gv-${state || 'empty'}">${macroDelta(ca, ct)}</b>)`;
+      : `Target ${Math.round(ct)}<b class="gv-${state || 'empty'}">${macroDelta(ca, ct)}</b>`;
   }
 
   const meters = document.getElementById('macro-meters');
