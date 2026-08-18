@@ -199,6 +199,23 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 /* LANDING PAGE */
 .landing-greeting { font-family: 'DM Sans', sans-serif; font-size: 28px; font-weight: 600; letter-spacing: 0; margin-bottom: 2px; }
 .landing-date { font-size: 13px; color: var(--muted); margin-bottom: 1.25rem; }
+
+/* NEXT UP — where you are in the rolling cycle, on the screen you open on the way to the gym.
+   It wears the session's own identity colour through the same --sc contract the workout tiles use
+   (see CODEBASE.md "Session and programme tile colour"), so Upper B is the same amber here as it
+   is on the picker. The sc-* classes only declare custom properties, which is what makes them
+   reusable outside .session-btn. Colour stays identity: nothing here paints state. */
+.next-up { display: none; position: relative; overflow: hidden; background: var(--sc-bg); border: 1px solid var(--sc-bd); border-radius: 12px; padding: 0.75rem 1rem 0.75rem 1.125rem; margin-bottom: 1.25rem; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.next-up::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--sc); }
+.next-up:active { filter: brightness(1.35); }
+.next-up-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.next-up-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted2); }
+.next-up-step { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.next-up-name { font-family: 'Bebas Neue', sans-serif; font-size: 34px; line-height: 1.05; letter-spacing: 0.5px; color: var(--sc); }
+.next-up-focus { font-size: 12px; color: var(--muted2); margin-top: 2px; }
+.next-up-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.next-up-after { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.next-up-go { font-size: 12px; font-weight: 600; color: var(--sc); white-space: nowrap; }
 .quote-card { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
 .quote-text { font-size: 14px; color: var(--text); line-height: 1.5; font-style: italic; }
 .quote-author { font-size: 11px; color: var(--muted); margin-top: 6px; }

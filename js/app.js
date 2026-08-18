@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-1452';
+const APP_BUILD = '2026-08-18-1505';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1167,6 +1167,10 @@ async function loadHomePage() {
   renderBackupPrompt();
   syncBackupState();
 
+  // Un-awaited for the same reason as syncBackupState() above — it is a network read and Home must
+  // not sit blank behind it.
+  renderNextUp();
+
   const [latest, todayLog, weekWorkouts] = await Promise.all([
     sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),
     sb(`daily_logs?date=eq.${todayStr()}&select=steps`),
@@ -1353,6 +1357,92 @@ function lastTrainedLabel(date) {
   const y = new Date(); y.setDate(y.getDate() - 1);
   if (date === dateStr(y)) return 'yesterday';
   return new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+// ─── NEXT UP (18 Aug 2026) ────────────────────────────────
+// Del trains a rolling Upper A → Lower A → Upper B → Lower B rotation at ~5 sessions a week, so the
+// cycle drifts across weekdays and never lines up with a calendar. Home's week strip is
+// weekday-shaped and therefore cannot answer the only question he asks Home on the way to the gym:
+// which one is next. Every fact needed to answer it was already in the app; nothing ever said it.
+//
+// The rotation IS the programme's session list in sort_order, so "the last one trained, plus one" is
+// the whole algorithm. Kept pure and fed its inputs so it can be tested without a DB — see
+// tests/next-up.test.js.
+//
+// `recent` must be newest-first and already filtered to real workouts. Anything outside a fixed
+// programme (an Open Workout, a session saved out of one) is SKIPPED rather than ending the search:
+// doing an Open Workout on a Wednesday does not move you round the cycle.
+function nextInRotation(recent, sessions = SESSIONS, programmes = TRAINING_PROGRAMMES) {
+  const fixed = new Set((programmes || []).map(p => p.id));
+
+  let last = null, lastDate = null;
+  for (const w of (recent || [])) {
+    const s = (sessions || []).find(x => x.id === w.session_type);
+    if (s && fixed.has(s.programme)) { last = s; lastDate = w.date; break; }
+  }
+  // No history inside a fixed programme — say nothing rather than guess. sb() hands back [] on a
+  // failed GET, so guessing here would print "Upper A next" at a man standing in a gym with no
+  // signal, which is worse than an absent card.
+  if (!last) return null;
+
+  const rotation = (sessions || []).filter(s => s.programme === last.programme);
+  const i = rotation.findIndex(s => s.id === last.id);
+  if (i < 0) return null;
+  const at = (i + 1) % rotation.length;
+  return { session: rotation[at], after: last, afterDate: lastDate, position: at + 1, total: rotation.length };
+}
+
+// The session the card is currently offering, so the tap handler doesn't recompute it.
+let nextUpSession = null;
+
+// Paints the card, or hides it. One request, deliberately not awaited by loadHomePage — a slow gym
+// connection must not hold the rest of Home behind it.
+//
+// The in-progress branch matters more than it looks. Without it, doing half of Upper B and glancing
+// at Home would offer Lower B, and tapping that lands on beginWorkoutSession's "you have an
+// in-progress Upper B, start Lower B instead?" confirm — a dead end built by the card itself.
+async function renderNextUp() {
+  const card = document.getElementById('next-up');
+  if (!card) return;
+  const hide = () => { nextUpSession = null; card.style.display = 'none'; };
+
+  // Same "real workout" test realWorkoutsBetween() uses, and for the same reason: a workouts row
+  // exists from the moment a tile is tapped. completed_at sorts nullsfirst on a desc order in
+  // PostgREST, which is what puts today's in-progress session ahead of today's finished one.
+  const rows = await sb('workouts?select=session_type,date,notes,completed_at,workout_sets(id),cardio_logs(id)&order=date.desc,completed_at.desc&limit=20') || [];
+  const recent = rows.filter(w => (w.workout_sets || []).length > 0 || (w.cardio_logs || []).length > 0 || (w.notes || '').trim() !== '');
+  if (!recent.length) return hide();
+
+  const live = recent[0];
+  const liveSession = !live.completed_at && live.date === todayStr() ? getSessionById(live.session_type) : null;
+  const next = liveSession ? null : nextInRotation(recent);
+  if (!liveSession && !next) return hide();
+
+  const session = liveSession || next.session;
+  nextUpSession = session;
+  card.className = 'next-up ' + sessionColourClass(session);
+  card.style.display = 'block';
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  set('next-up-label', liveSession ? 'In progress' : 'Next up');
+  set('next-up-name', session.name);
+  set('next-up-focus', session.focus || '');
+  set('next-up-go', liveSession ? 'Resume \u2192' : 'Start \u2192');
+  set('next-up-step', liveSession ? '' : next.position + ' of ' + next.total);
+  set('next-up-after', liveSession
+    ? 'started today, not saved yet'
+    : 'after ' + next.after.name + ' \u00b7 ' + lastTrainedLabel(next.afterDate));
+}
+
+// Straight into the session the card is offering. Deliberately routed through the real tile's own
+// click handler rather than calling selectSession() directly: the tile owns the already-logged-today
+// confirm, the selected highlight and the cardio branch, and a second copy of all that would drift
+// out of step with it exactly like the seven copies showWorkoutView() replaced.
+async function startNextSession() {
+  const s = nextUpSession;
+  if (!s) return;
+  showPage('workout');
+  await buildSessionGrid(s.programme);
+  document.getElementById('session-btn-' + s.id)?.click();
 }
 
 async function buildSessionGrid(programmeId = null) {
