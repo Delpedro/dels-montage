@@ -159,14 +159,22 @@ Every table has `user_id` and RLS enabled; `anon` can read none of them.
 Lower B → Upper A → …, roughly 5 sessions a week, so a given session lands on a different weekday
 each time.
 
-| Session | Focus | Exercises |
-|---|---|---|
-| **Upper A** | Push | Incline Chest Press, Shoulder Press, Machine Chest Press, Lateral Raise, Cable Flys, Rear Delts, Overhead Cable Tricep Ext, Tricep Pushdown |
-| **Lower A** | Quad + core | Seated Calf Raise ⇄ Single Leg Curl, Lying Leg Curl, Pendulum Squat, Hack Squat / Leg Press, Leg Extension, Pully Ab Crunch, Lower AB leg raises |
-| **Upper B** | Pull | Pull Ups, DeadHang, Lat Pulldown, Chest Supported Row, T Bar Row, Face Pull, Straight Arm Pulldown, Incline Single Cable Curl, Hammer Curl |
-| **Lower B** | Posterior chain + core | Seated Calf Raise ⇄ Single Leg Curl, RDL, Seated Leg Curl, Leg Press, Hip Thrusts, Abductor / Adductor, Lower AB leg raises, Pully Ab Crunch |
+| Session | Focus | Sets | Exercises |
+|---|---|---|---|
+| **Upper A** | Upper chest + side delts | 25 | Incline Chest Press, Incline DB Press, Incline DB Fly, Machine Chest Press, Shoulder Press, Lateral Raise, Single-Arm Cable Lateral Raise, Rear Delts, Overhead Cable Tricep Ext, Tricep Pushdown |
+| **Lower A** | Quad, forearm + core | 25 | Seated Calf Raise ⇄ Single Leg Curl, Lying Leg Curl, Pendulum Squat, Hack Squat / Leg Press, Leg Extension, Farmers Walk, Reverse Wrist Curl, Side Plank, Lower AB leg raises |
+| **Upper B** | Pull + side delts | 23 | Pull Ups, DeadHang, Lat Pulldown, Chest Supported Row, T Bar Row, Face Pull, Lateral Raise, Straight Arm Pulldown, Incline Single Cable Curl, Hammer Curl |
+| **Lower B** | Posterior chain + core | 22 | Seated Calf Raise ⇄ Single Leg Curl, RDL, Seated Leg Curl, Leg Press, Hip Thrusts, Abductor / Adductor, Lower AB leg raises, Side Plank |
 
 `⇄` marks a superset. Both lower days open with calves then hamstrings, deliberately.
+**95 sets per full four-session cycle.** Rebalanced 18 Aug 2026 towards the two things the programme
+was written for and trained least — upper chest went from 3 sets a cycle to 8, side delts from 3 to
+10 across both upper days — funded by trims to triceps, front delt, T-bar and hammer curls. Forearm
+work was added at the same time. Legs were deliberately left alone.
+
+`Side Plank` and `Farmers Walk` are **timed** (see `TIMED_EXERCISES` in `js/app.js`), so their second
+input is seconds rather than reps. `Farmers Walk` is also in `OPTIONAL_WEIGHT_EXERCISES` — it is a
+loaded hold, and without that a timed exercise stores no weight at all.
 
 **Full Body + CV** — Full Body A / B / C plus CV + Pump days.
 
