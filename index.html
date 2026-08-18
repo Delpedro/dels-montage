@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-18-1524">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-18-1610">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -313,6 +313,14 @@
         <label class="field-label">Date</label>
         <input type="date" class="field-input" id="log-date" title="Check-in date" onchange="loadDailyLog(this.value)" />
       </div>
+      <div class="field-group macroline">
+        <label class="field-label" for="log-macroline">Whole day in one line</label>
+        <input type="text" class="field-input" id="log-macroline" autocomplete="off"
+               inputmode="text" placeholder="2010 175 200 56 30"
+               aria-describedby="log-macroline-echo" oninput="applyMacroLine()" />
+        <div class="macroline-hint">Calories, protein, carbs, fat, fibre — or paste it with the words in.</div>
+        <div class="macroline-echo" id="log-macroline-echo" aria-live="polite"></div>
+      </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
         <div class="field-group">
           <label class="field-label">Weight (kg)</label>
@@ -537,6 +545,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-18-1524"></script>
+<script src="js/app.js?v=2026-08-18-1610"></script>
 </body>
 </html>

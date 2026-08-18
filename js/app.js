@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-1524';
+const APP_BUILD = '2026-08-18-1610';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -3599,6 +3599,7 @@ async function loadDailyLog(date = todayStr()) {
   document.getElementById('log-date').value = date;
   document.getElementById('log-weight').value = '';
   document.getElementById('log-waist').value = '';
+  clearMacroLine();
   document.getElementById('log-steps').value = '';
   document.getElementById('log-cals').value = '';
   document.getElementById('log-fasting').value = '';
@@ -3741,10 +3742,133 @@ async function fillFromYesterday() {
   showToast(`Copied from ${l.date}`, 'success');
 }
 
+// The one-line box and its echo are cleared alongside the fields, and on every open of the modal.
+// Left behind, yesterday's line sits under today's date looking like it has already been applied.
+function clearMacroLine() {
+  const box = document.getElementById('log-macroline');
+  const echo = document.getElementById('log-macroline-echo');
+  if (box) box.value = '';
+  if (echo) { echo.textContent = ''; echo.className = 'macroline-echo'; }
+}
+
 function clearCheckinFields() {
   ['log-weight','log-waist','log-steps','log-cals','log-protein','log-carbs','log-fat','log-fibre','log-notes']
     .forEach(id => { document.getElementById(id).value = ''; });
+  clearMacroLine();
   setEnergy(0);
+}
+
+// ─── ONE-LINE MACRO ENTRY (18 Aug 2026) ───────────────────
+// Del's pet hate: the macros come out of MyFitnessPal and go into this form by hand, five separate
+// boxes, five taps at the number pad, every morning. This is the fix — one box that takes the whole
+// day in a single go. It fills the ordinary fields rather than replacing them, so anything it gets
+// wrong is corrected the way it always was.
+//
+// The iOS Shortcut route was explicitly rejected (18 Aug), so this deliberately needs no setup on
+// his phone, no automation, and no password to keep in step. It is just a box in the app.
+//
+// Two shapes are understood, tried in that order:
+//
+//   Labelled — "Calories 2,010  Protein 175g  Carbs 200g  Fat 56g  Fibre 30g", which is the shape
+//   of anything pasted or half-remembered out of MyFitnessPal. Order does not matter and unknown
+//   words (sodium, sugar) are ignored.
+//
+//   Positional — "2010 175 200 56 30": bare numbers in the order the form itself lists them,
+//   calories first. Four is allowed and means no fibre.
+//
+// Anything else returns null and fills nothing, because a half-understood paste writing three
+// plausible numbers into a check-in is worse than doing nothing.
+function parseMacroLine(text) {
+  let s = String(text || '').toLowerCase().trim();
+  if (!s) return null;
+  // "2,010" is one number. Looped rather than one pass with a lookbehind, which older iOS Safari
+  // did not have — this file is served to a phone, not to node.
+  while (/\d,\d/.test(s)) s = s.replace(/(\d),(\d)/g, '$1$2');
+
+  // Saturated/trans/unsaturated fat sit directly beside the total in a MyFitnessPal breakdown, and
+  // whichever appears first in the string would otherwise win. Blanked out before anything is read.
+  const body = s.replace(/(?:saturated|sat|trans|polyunsaturated|monounsaturated|unsaturated|poly|mono)[\s.-]*fat\D{0,4}\d+(?:\.\d+)?/g, ' ');
+
+  // Every fragment below comes from a regex LITERAL via .source, never from a quoted string. Written
+  // as strings, `\d` and `\s` are just `d` and `s` — the pattern still compiles, still runs, and
+  // silently matches nothing, which here meant the labelled branch was dead and the positional
+  // fallback quietly answered for it. Caught by tests/macro-line.test.js; kept this way so it cannot
+  // come back.
+  const NUM = /(\d+(?:\.\d+)?)/.source;          // the number, captured
+  const GAP = /\s*[:=]?\s*/.source;              // "Protein 175", "Protein: 175", "Protein=175"
+  const UNIT = /\s*(?:g|kcal|cal)?\s*(?:of\s+)?/.source;
+  const val = v => (v !== undefined && isFinite(parseFloat(v)) ? parseFloat(v) : null);
+  // Which way round the day is written, decided ONCE for the whole string rather than per label.
+  // Both "175g protein 200g carbs" and "Protein 175g Carbs 200g" are things people write, but tried
+  // in the wrong order each label steals its neighbour's number: on "175g protein 200g carbs" the
+  // pattern `protein\s*(\d+)` reads the 200 sitting after the word and reports 200g of protein.
+  // Whether the text opens with a number is the tell, and the other order is still tried as a
+  // fallback so a mixed line ("Calories 2010, 175g protein") gets both halves.
+  const numberFirst = /^\s*\d/.test(body);
+  const labelled = (words, src = body) => {
+    const after = () => { const m = src.match(new RegExp(`(?:${words})` + GAP + NUM)); return m ? val(m[1]) : null; };
+    const before = () => { const m = src.match(new RegExp(NUM + UNIT + `(?:${words})`)); return m ? val(m[1]) : null; };
+    return numberFirst ? (before() ?? after()) : (after() ?? before());
+  };
+
+  const out = {
+    calories: labelled(/calories|calorie|kcals|kcal|cals|cal|energy/.source),
+    protein_g: labelled(/protein/.source),
+    carbs_g: labelled(/carbohydrates|carbohydrate|carbs|carb/.source),
+    // "Total fat" wins outright where it is written; a bare "fat" is the fallback, and by this point
+    // the qualified ones have already been stripped out above.
+    fat_g: labelled(/total\s*fat/.source) ?? labelled(/fat/.source),
+    fibre_g: labelled(/dietary\s*fibre|dietary\s*fiber|fibre|fiber/.source)
+  };
+  if (Object.values(out).some(v => v !== null)) return out;
+
+  // Nothing was labelled, so it is either the positional shorthand or something we should not guess
+  // at. Five numbers is the whole row, four is the row without fibre; any other count is a paste
+  // that was not understood, and filling half the form from it would be worse than filling none.
+  const nums = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+  if (nums.length !== 4 && nums.length !== 5) return null;
+  return {
+    calories: nums[0], protein_g: nums[1], carbs_g: nums[2], fat_g: nums[3],
+    fibre_g: nums.length === 5 ? nums[4] : null
+  };
+}
+
+// What the box echoes back underneath itself. The point is that a mis-parse is visible before the
+// check-in is saved rather than after — the numbers are in the boxes above too, but this reads in
+// one glance and names which is which.
+function macroLineEcho(parsed) {
+  if (!parsed) return '';
+  const bits = [];
+  if (parsed.calories != null) bits.push(`${Math.round(parsed.calories).toLocaleString()} kcal`);
+  if (parsed.protein_g != null) bits.push(`${parsed.protein_g}p`);
+  if (parsed.carbs_g != null) bits.push(`${parsed.carbs_g}c`);
+  if (parsed.fat_g != null) bits.push(`${parsed.fat_g}f`);
+  if (parsed.fibre_g != null) bits.push(`${parsed.fibre_g} fibre`);
+  return bits.join(' · ');
+}
+
+// Parses as you type and fills only what it found — a field it could not read is left exactly as it
+// was, so typing over one number by hand afterwards is never undone by the next keystroke.
+function applyMacroLine() {
+  const box = document.getElementById('log-macroline');
+  const echo = document.getElementById('log-macroline-echo');
+  if (!box || !echo) return;
+  const raw = box.value.trim();
+  if (!raw) { echo.textContent = ''; echo.className = 'macroline-echo'; return; }
+  const parsed = parseMacroLine(raw);
+  if (!parsed) {
+    echo.className = 'macroline-echo miss';
+    echo.textContent = 'Not recognised — try 2010 175 200 56 30';
+    return;
+  }
+  const put = (id, v) => { if (v != null) document.getElementById(id).value = v; };
+  put('log-cals', parsed.calories);
+  put('log-protein', parsed.protein_g);
+  put('log-carbs', parsed.carbs_g);
+  put('log-fat', parsed.fat_g);
+  put('log-fibre', parsed.fibre_g);
+  echo.className = 'macroline-echo hit';
+  echo.textContent = macroLineEcho(parsed);
 }
 
 // ─── STATS ────────────────────────────────────────────────
