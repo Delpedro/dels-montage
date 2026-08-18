@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-0857';
+const APP_BUILD = '2026-08-18-0923';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1818,6 +1818,22 @@ async function beginWorkoutSession(session) {
   return true;
 }
 
+// ─── WHICH OF THE THREE WORKOUT VIEWS IS ON SCREEN (18 Aug 2026) ──────────────────────────────
+// The Workout page is three mutually exclusive panels — the session grid, the logger, and the CV +
+// Pump form — plus the pill that names the session you're in. Every entry and exit point used to
+// set those four `style.display`s by hand, six copies of the same four lines, and they had already
+// drifted: saveWorkout() set the grid back but never hid the pill, so finishing a workout left you
+// on the picker with the finished session's name still stuck to the top of it. One function now
+// owns all four, which is what makes that class of bug impossible rather than merely fixed.
+function showWorkoutView(mode, sessionName = '') {
+  const grid = mode === 'grid';
+  document.getElementById('session-grid').style.display = grid ? 'grid' : 'none';
+  document.getElementById('session-pill').style.display = grid ? 'none' : 'flex';
+  document.getElementById('workout-logger').style.display = mode === 'logger' ? 'block' : 'none';
+  document.getElementById('conditioning-form').style.display = mode === 'conditioning' ? 'block' : 'none';
+  if (!grid) document.getElementById('session-pill-name').textContent = sessionName;
+}
+
 async function selectSession(session, btn) {
   if (btn.classList.contains('done')) {
     if (!confirm(`You already logged ${session.name} today. Log again?`)) return;
@@ -1831,11 +1847,7 @@ async function selectSession(session, btn) {
     currentWorkoutId = null;
     currentWorkoutHasSets = false;
 
-    document.getElementById('session-grid').style.display = 'none';
-    document.getElementById('session-pill').style.display = 'flex';
-    document.getElementById('session-pill-name').textContent = session.name;
-    document.getElementById('conditioning-form').style.display = 'block';
-    document.getElementById('workout-logger').style.display = 'none';
+    showWorkoutView('conditioning', session.name);
     return;
   }
 
@@ -1851,11 +1863,7 @@ async function selectSession(session, btn) {
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
 
-  document.getElementById('session-grid').style.display = 'none';
-  document.getElementById('session-pill').style.display = 'flex';
-  document.getElementById('session-pill-name').textContent = sessionCopy.name;
-  document.getElementById('conditioning-form').style.display = 'none';
-  document.getElementById('workout-logger').style.display = 'block';
+  showWorkoutView('logger', sessionCopy.name);
   buildWorkoutLogger(sessionCopy);
 }
 
@@ -2630,11 +2638,7 @@ async function startOpenWorkout() {
     }
   }
 
-  document.getElementById('session-grid').style.display = 'none';
-  document.getElementById('session-pill').style.display = 'flex';
-  document.getElementById('session-pill-name').textContent = openSession.name;
-  document.getElementById('conditioning-form').style.display = 'none';
-  document.getElementById('workout-logger').style.display = 'block';
+  showWorkoutView('logger', openSession.name);
   buildWorkoutLogger(openSession);
 }
 
@@ -3322,10 +3326,7 @@ function resetSessionSelection(toProgrammePicker = false) {
   conditioningWorkoutId = null;
   localStorage.removeItem('workout_draft');
 
-  document.getElementById('session-grid').style.display = 'grid';
-  document.getElementById('session-pill').style.display = 'none';
-  document.getElementById('workout-logger').style.display = 'none';
-  document.getElementById('conditioning-form').style.display = 'none';
+  showWorkoutView('grid');
 
   if (toProgrammePicker) {
     selectedProgramme = null;
@@ -3434,10 +3435,8 @@ async function saveWorkout() {
   if (selectedSession.id === 'open') {
     await offerSaveOpenAsTemplate((selectedSession.exercises || []).map(e => ({ ...e })), savedGroups);
   }
-  document.getElementById('session-grid').style.display = 'grid';
+  showWorkoutView('grid');
   buildSessionGrid(selectedProgramme);
-  document.getElementById('workout-logger').style.display = 'none';
-  document.getElementById('conditioning-form').style.display = 'none';
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   selectedSession = null;
 }
@@ -3500,9 +3499,7 @@ async function saveConditioning() {
   conditioningWorkoutId = null;
   showToast('CV + Pump logged!', 'success');
   ['cond-pump-method','cond-duration','cond-notes'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('session-grid').style.display = 'grid';
-  document.getElementById('session-pill').style.display = 'none';
-  document.getElementById('conditioning-form').style.display = 'none';
+  showWorkoutView('grid');
   selectedSession = null;
   buildSessionGrid(selectedProgramme);
 }
@@ -4449,10 +4446,7 @@ function showPage(name) {
     currentWorkoutId = null;
     currentWorkoutHasSets = false;
     selectedSession = null;
-    document.getElementById('session-grid').style.display = 'grid';
-    document.getElementById('session-pill').style.display = 'none';
-    document.getElementById('workout-logger').style.display = 'none';
-    document.getElementById('conditioning-form').style.display = 'none';
+    showWorkoutView('grid');
   }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -4929,12 +4923,6 @@ function swRenderWatch(exName) {
   }
 }
 
-// Paint all watches in the current session (cheap — only a handful of exercises)
-function swRenderAll() {
-  if (!selectedSession) return;
-  selectedSession.exercises.forEach(ex => swRenderWatch(ex.name));
-}
-
 // ─── START / STOP / RESET ────────────────────────────────
 function swStart(exName, { save = true } = {}) {
   // UNLOCK AUDIO — must happen inside this tap handler or iOS blocks sound
@@ -5119,7 +5107,3 @@ function swRestoreFromStorage() {
     swInterval = setInterval(() => swRenderWatch(s.exercise), 1000);
   } catch (e) { sessionStorage.removeItem('sw_state'); }
 }
-
-// Stub kept for compatibility with old calls — the new system doesn't need
-// a global visibility toggle because the watch lives inside each tile.
-function showSwPill() { /* no-op */ }

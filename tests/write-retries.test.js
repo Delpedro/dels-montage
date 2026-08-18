@@ -172,6 +172,7 @@ function fakeDoc(overrides = {}) {
         supersetGroupMap: () => ({}),
         offerSaveOpenAsTemplate: async () => {},
         buildSessionGrid: () => {},
+        showWorkoutView: () => {},
         localStorage: { removeItem: () => {} },
       },
       accessors: {
@@ -265,6 +266,7 @@ function fakeDoc(overrides = {}) {
         showToast: (msg, type) => toasts.push({ msg, type }),
         todayStr: () => '2026-08-13',
         buildSessionGrid: () => {},
+        showWorkoutView: () => {},
       },
       accessors: { pendingId: '() => conditioningWorkoutId' },
     });
