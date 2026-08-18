@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-17-1649';
+const APP_BUILD = '2026-08-18-0857';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -3769,31 +3769,38 @@ function renderWeightChart(points) {
 // on the same diet. The weekly average is the number that actually moves, and the app had no way
 // to see it. One card: pick a week, get that week's average, get it against the week you're in.
 //
-// ISO-8601 week numbers, so "week 33" means the same thing here as on a wall calendar or a phone.
-// Weeks run Mon–Sun (matching getWeekStart() and everything else week-shaped in the app) and week 1
-// is the one holding the first Thursday. The year rides along so next January's week 1 can't
-// collide with this January's in the bucket key.
-function isoWeek(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d));
-  const dow = t.getUTCDay() || 7;            // Sunday is 7 here, not 0
-  t.setUTCDate(t.getUTCDate() + 4 - dow);    // step to this week's Thursday, which owns the number
-  const jan1 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-  return { year: t.getUTCFullYear(), week: Math.ceil(((t - jan1) / 86400000 + 1) / 7) };
-}
+// Renumbered 18 Aug 2026 after UAT. This used to print ISO-8601 calendar weeks, so it said "Week
+// 33" — a number that means something on a wall calendar and nothing to the one person using the
+// app, who thinks in "week 6 of tracking my weight". Weeks are now numbered from the start of the
+// current run of weigh-ins, so week 1 is the week he started, not the 1st week of January.
+//
+// A run ends when the weigh-ins stop. WEEKAVG_RUN_GAP empty weeks is the cut-off: long enough that
+// a holiday or an ill fortnight stays inside the same run, short enough that the abandoned Apr–May
+// block (last weigh-in 25 May, nothing again until 13 Jul) doesn't drag its count into this one.
+// Each run restarts at week 1. Two runs can therefore both have a week 3 — the date range printed
+// under the number is what tells them apart, and the seven-week jump in the dates is visible the
+// moment you step across the boundary.
+//
+// Gaps *inside* a run are counted, not skipped: miss a week and the next one is +2, because "week
+// 6" means six weeks since you started, not the sixth week you happened to log.
+const WEEKAVG_RUN_GAP = 3;
 
-function isoWeekKey(iso) {
-  const { year, week } = isoWeek(iso);
-  return `${year}-${String(week).padStart(2, '0')}`;   // padded so string sort is chronological
-}
-
-// The Monday of whatever week this date falls in. Local-time Date, via the same weekIndex() the
-// rest of the app uses, so it can't disagree with the week strip about where a week starts.
+// The Monday of whatever week this date falls in — also the bucket key, since an ISO date sorts
+// chronologically as a string and can't collide across years the way a bare week number can.
+// Local-time Date, via the same weekIndex() the rest of the app uses, so it can't disagree with
+// the week strip about where a week starts.
 function mondayOf(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   const t = new Date(y, m - 1, d);
   t.setDate(t.getDate() - weekIndex(t));
   return dateStr(t);
+}
+
+// Whole weeks from one Monday to another. Both arguments are already Mondays, so this is exact —
+// parsed as UTC so an hour of DST falling between them can't round 7 days down to 6.
+function weeksBetween(mondayA, mondayB) {
+  const utc = iso => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  return Math.round((utc(mondayB) - utc(mondayA)) / (7 * 86400000));
 }
 
 // "13 – 19 Jul", or "27 Jul – 2 Aug" when the week straddles two months. The month is only printed
@@ -3820,13 +3827,22 @@ function renderWeeklyAverage(allWeights) {
   (allWeights || []).forEach(l => {
     const v = parseFloat(l.weight_kg);
     if (!isFinite(v)) return;
-    const key = isoWeekKey(l.date);
-    (buckets[key] ||= { week: isoWeek(l.date).week, monday: mondayOf(l.date), vals: [] }).vals.push(v);
+    (buckets[mondayOf(l.date)] ||= []).push(v);
   });
 
-  _weekAvgs = Object.keys(buckets).sort().map(key => {
-    const b = buckets[key];
-    return { key, week: b.week, monday: b.monday, avg: b.vals.reduce((a, c) => a + c, 0) / b.vals.length };
+  // One pass, oldest first: carry an anchor Monday forward, and drop a new anchor whenever the
+  // silence since the last logged week is long enough to count as having stopped.
+  let anchor = null, prev = null;
+  _weekAvgs = Object.keys(buckets).sort().map(monday => {
+    if (anchor === null || weeksBetween(prev, monday) > WEEKAVG_RUN_GAP) anchor = monday;
+    prev = monday;
+    const vals = buckets[monday];
+    return {
+      key: monday,
+      week: weeksBetween(anchor, monday) + 1,
+      monday,
+      avg: vals.reduce((a, c) => a + c, 0) / vals.length
+    };
   });
 
   if (!_weekAvgs.length) { card.style.display = 'none'; return; }
@@ -3834,7 +3850,7 @@ function renderWeeklyAverage(allWeights) {
 
   // Opens on the last completed week. Opening on the current one would compare it against itself
   // and print nothing useful on a card you tapped to be told something.
-  const thisKey = isoWeekKey(todayStr());
+  const thisKey = mondayOf(todayStr());
   const dflt = _weekAvgs.filter(w => w.key !== thisKey).slice(-1)[0] || _weekAvgs[_weekAvgs.length - 1];
   showWeeklyAverage(dflt.key);
 }
@@ -3868,7 +3884,7 @@ function showWeeklyAverage(key) {
   if (rangeEl) rangeEl.textContent = weekRangeLabel(picked.monday);
   valEl.innerHTML = `${picked.avg.toFixed(1)}<span class="weekavg-unit">kg</span>`;
 
-  const now = _weekAvgs.find(w => w.key === isoWeekKey(todayStr()));
+  const now = _weekAvgs.find(w => w.key === mondayOf(todayStr()));
   if (!now) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'No weigh-in yet this week'; return; }
   if (now.key === picked.key) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'This week so far'; return; }
 

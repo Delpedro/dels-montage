@@ -2,9 +2,15 @@
 // of my weight… select week 2, it only compares it to the current week, nothing more or less."
 //
 // The weight of this file is on the week NUMBERING, not the arithmetic. Averaging six numbers is
-// not where this breaks; deciding which six belong to "week 33" is. ISO-8601 was picked so the
-// number matches a wall calendar, and its two nasty edges — the year boundary, and a Sunday
-// belonging to the week that started the previous Monday — are both asserted here.
+// not where this breaks; deciding which six belong to "week 6", and what makes a week week 6 in
+// the first place, is.
+//
+// Renumbered 18 Aug 2026 after UAT. Numbers were ISO-8601 calendar weeks, so the card said "Week
+// 33" to the one person using the app, who thinks in "week 6 of tracking my weight". Weeks now
+// count from the start of the current RUN of weigh-ins, and a long enough silence starts a new
+// run — which is the whole reason his abandoned Apr–May block doesn't push this week up to 19.
+// Both edges of that rule are asserted below, because getting the threshold wrong is silent: the
+// card still renders, it just prints a confidently wrong number.
 //
 // Run: node tests/weekly-average.test.js
 
@@ -20,9 +26,7 @@ function eq(actual, expected, label) {
   ok(actual === expected, `${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
 }
 
-// A DOM just big enough for the two render functions. Ids are created on demand so the per-week
-// pill elements (`weekavg-wk-2026-33`) exist as soon as the code asks for one, which is what lets
-// the active-pill assertions below work.
+// A DOM just big enough for the two render functions.
 function fakeDom() {
   const mk = () => ({
     style: {}, innerHTML: '', textContent: '', className: '', value: '',
@@ -42,10 +46,10 @@ function fakeDom() {
 function harness(today) {
   const dom = fakeDom();
   const app = load({
-    functions: ['isoWeek', 'isoWeekKey', 'mondayOf', 'weekRangeLabel',
+    functions: ['mondayOf', 'weeksBetween', 'weekRangeLabel',
                 'renderWeeklyAverage', 'showWeeklyAverage', 'stepWeeklyAverage',
                 'dateStr', 'weekIndex'],
-    decls: ['_weekAvgs', '_weekAvgKey'],
+    decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey'],
     deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today }
   });
   return { app, els: dom.els, get: dom.get };
@@ -53,30 +57,22 @@ function harness(today) {
 
 console.log('Weekly average weight');
 
-// ── ISO week numbers ──────────────────────────────────────────────────────────────────────────
+// ── Week arithmetic ───────────────────────────────────────────────────────────────────────────
 {
   const { app } = harness('2026-08-17');
 
-  eq(app.isoWeek('2026-07-06').week, 28, 'Mon 6 Jul 2026 is week 28 (the untracked intro week)');
-  eq(app.isoWeek('2026-07-13').week, 29, 'Mon 13 Jul 2026 is week 29');
-  eq(app.isoWeek('2026-08-17').week, 34, 'Mon 17 Aug 2026 is week 34');
+  eq(app.weeksBetween('2026-08-10', '2026-08-17'), 1, 'consecutive Mondays are one week apart');
+  eq(app.weeksBetween('2026-08-17', '2026-08-17'), 0, 'a Monday is zero weeks from itself');
+  eq(app.weeksBetween('2026-07-13', '2026-08-17'), 5, '13 Jul to 17 Aug is five weeks');
 
-  // Sunday closes the week that started the previous Monday. getUTCDay() calls Sunday 0, which
-  // would make it look like the start of the NEXT week and split every Sunday weigh-in off from
-  // the six days it belongs with.
-  eq(app.isoWeek('2026-07-19').week, 29, 'Sun 19 Jul belongs to week 29, not 30');
-  eq(app.isoWeek('2026-07-20').week, 30, 'Mon 20 Jul starts week 30');
+  // British Summer Time ends on Sunday 25 Oct 2026, so this pair is 7 days and 1 hour apart in
+  // local time. Parsed locally it can floor to 6, and every week after the clocks change is then
+  // numbered one short; parsed as UTC — which is what the function does — it stays 1.
+  eq(app.weeksBetween('2026-10-19', '2026-10-26'), 1, 'the week the clocks change is still one week');
 
-  // The year boundary. 29 Dec 2025 is a Monday whose Thursday falls in 2026, so ISO puts the whole
-  // week in 2026 week 1. Keying on the week number alone would file it under 2025.
-  const ny = app.isoWeek('2025-12-29');
-  eq(ny.week, 1, '29 Dec 2025 is week 1…');
-  eq(ny.year, 2026, '…of 2026, not 2025');
-
-  // Keys are zero-padded so a plain string sort stays chronological — the card sorts on them.
-  eq(app.isoWeekKey('2026-08-17'), '2026-34', 'key is year-week');
-  ok(app.isoWeekKey('2026-02-02') < app.isoWeekKey('2026-08-17'), 'week 6 sorts before week 34');
-  ok(app.isoWeekKey('2025-12-01') < app.isoWeekKey('2025-12-29'), 'last year sorts before this one');
+  // No ISO year left to get wrong: the anchor is a real date, so a run crossing new year just
+  // keeps counting instead of resetting to week 1 on 1 January.
+  eq(app.weeksBetween('2025-12-29', '2026-01-05'), 1, 'a run carries across the year boundary');
 }
 
 // ── Week boundaries and labels ────────────────────────────────────────────────────────────────
@@ -91,55 +87,106 @@ console.log('Weekly average weight');
   eq(app.weekRangeLabel('2026-07-27'), '27 Jul – 2 Aug', 'a week straddling two months names both');
 }
 
+// ── Where a run starts and stops ──────────────────────────────────────────────────────────────
+{
+  // The threshold, from both sides. WEEKAVG_RUN_GAP is counted in EMPTY weeks: two off is a
+  // holiday and keeps the count going, three off is a stop and resets it.
+  const near = harness('2026-08-17');
+  near.app.renderWeeklyAverage([
+    { date: '2026-07-13', weight_kg: 82 },
+    { date: '2026-08-03', weight_kg: 81 }   // two empty weeks in between
+  ]);
+  eq(near.els['weekavg-wk-name'].textContent, 'Week 4',
+     'two empty weeks is a break inside a run, not the end of one — and the missed weeks still count');
+
+  const far = harness('2026-08-17');
+  far.app.renderWeeklyAverage([
+    { date: '2026-07-13', weight_kg: 82 },
+    { date: '2026-08-10', weight_kg: 81 }   // three empty weeks in between
+  ]);
+  eq(far.els['weekavg-wk-name'].textContent, 'Week 1',
+     'three empty weeks ends the run, so the next weigh-in is week 1 again');
+}
+
 // ── The card itself ───────────────────────────────────────────────────────────────────────────
 {
-  // Two clean weeks plus a one-day current week, which is exactly the shape of today's real data.
+  // The real shape of Del's data on 18 Aug 2026: an abandoned block in April, a seven-week silence,
+  // then the run he is actually on — six logged weeks, the last of them today's.
   const logs = [
-    { date: '2026-07-13', weight_kg: 82 }, { date: '2026-07-15', weight_kg: 81 },  // wk29 → 81.5
-    { date: '2026-08-10', weight_kg: 80 }, { date: '2026-08-16', weight_kg: 81 },  // wk33 → 80.5
-    { date: '2026-08-17', weight_kg: 79 }                                          // wk34 → 79.0
+    { date: '2026-04-13', weight_kg: 90 },                                        // old run, week 1
+    { date: '2026-04-20', weight_kg: 89 },                                        // old run, week 2
+    { date: '2026-07-13', weight_kg: 82 }, { date: '2026-07-15', weight_kg: 81 }, // week 1 → 81.5
+    { date: '2026-07-20', weight_kg: 81 },                                        // week 2
+    { date: '2026-07-27', weight_kg: 81 },                                        // week 3
+    { date: '2026-08-03', weight_kg: 80.8 },                                      // week 4
+    { date: '2026-08-10', weight_kg: 80 }, { date: '2026-08-16', weight_kg: 81 }, // week 5 → 80.5
+    { date: '2026-08-17', weight_kg: 79 }                                         // week 6 → 79.0
   ];
-  const { app, els, get } = harness('2026-08-17');
+  const { app, els } = harness('2026-08-17');
   app.renderWeeklyAverage(logs);
 
   ok(els['weekavg-card'].style.display === 'block', 'card is shown once there is at least one weigh-in');
 
-  // Opens on the last COMPLETED week. Opening on the current one would compare it against itself.
-  eq(els['weekavg-wk-name'].textContent, 'Week 33', 'opens on week 33, not on week 34');
+  // The number Del gave in UAT: the week he is in is week 6 of tracking his weight, so the last
+  // completed week is 5. This is the assertion the whole renumbering exists for.
+  eq(els['weekavg-wk-name'].textContent, 'Week 5',
+     'opens on week 5, the last completed week — not on week 6, and not on week 33');
   eq(els['weekavg-range'].textContent, '10 – 16 Aug', 'with its dates under the name');
-  eq(els['weekavg-val'].innerHTML.startsWith('80.5'), true, 'week 33 averages 80.5 from 80 and 81');
+  eq(els['weekavg-val'].innerHTML.startsWith('80.5'), true, 'week 5 averages 80.5 from 80 and 81');
 
   // A stepper, so nothing is on screen but the week you're on — and no list of any kind. Both
   // earlier pickers were rejected; see the CSS note on .weekavg-body.
   app.stepWeeklyAverage(-1);
-  eq(els['weekavg-wk-name'].textContent, 'Week 29', '‹ steps back in time');
+  eq(els['weekavg-wk-name'].textContent, 'Week 4', '‹ steps back in time');
   app.stepWeeklyAverage(1);
-  eq(els['weekavg-wk-name'].textContent, 'Week 33', '› steps forward again');
+  eq(els['weekavg-wk-name'].textContent, 'Week 5', '› steps forward again');
+
+  // Stepping back past the start of this run lands in the abandoned one, which numbers from its
+  // own week 1. The dates under the number are what tell the two week 2s apart — and the jump from
+  // July to April in that line is the boundary made visible.
+  ['Week 4', 'Week 3', 'Week 2', 'Week 1'].forEach(w => {
+    app.stepWeeklyAverage(-1);
+    eq(els['weekavg-wk-name'].textContent, w, `stepping back reaches ${w} of this run`);
+  });
+  eq(els['weekavg-range'].textContent, '13 – 19 Jul', 'week 1 of this run is the week of 13 Jul');
+
+  app.stepWeeklyAverage(-1);
+  eq(els['weekavg-wk-name'].textContent, 'Week 2', 'one more step lands in the abandoned April block…');
+  eq(els['weekavg-range'].textContent, '20 – 26 Apr', '…numbered from its own start, not carried on from July');
 
   // Running off either end must stop dead, not wrap — wrapping would jump from this week to April.
   app.stepWeeklyAverage(-1);
   eq(els['weekavg-prev'].disabled, true, 'the oldest week disables ‹');
   eq(els['weekavg-next'].disabled, false, 'but not ›');
   app.stepWeeklyAverage(-1);
-  eq(els['weekavg-wk-name'].textContent, 'Week 29', 'stepping past the oldest week does nothing');
+  eq(els['weekavg-range'].textContent, '13 – 19 Apr', 'stepping past the oldest week does nothing');
 
-  app.showWeeklyAverage('2026-34');
+  app.showWeeklyAverage('2026-08-17');
   eq(els['weekavg-next'].disabled, true, 'the newest week disables ›');
   app.stepWeeklyAverage(1);
-  eq(els['weekavg-wk-name'].textContent, 'Week 34', 'stepping past the newest week does nothing');
-  app.showWeeklyAverage('2026-33');
+  eq(els['weekavg-wk-name'].textContent, 'Week 6', 'stepping past the newest week does nothing');
 
-  // The one comparison the card makes, and the only one Del asked for.
-  eq(els['weekavg-cmp'].textContent, '▼ 1.5kg vs this week (79.0kg)', 'week 33 vs this week');
+  // The one comparison the card makes, and the only one Del asked for — always against the week
+  // he is in now, whatever he has picked.
+  app.showWeeklyAverage('2026-08-10');
+  eq(els['weekavg-cmp'].textContent, '▼ 1.5kg vs this week (79.0kg)', 'week 5 vs this week');
   eq(els['weekavg-cmp'].className, 'weekavg-cmp down', 'losing weight reads as green, not amber');
 
-  app.showWeeklyAverage('2026-29');
-  eq(els['weekavg-val'].innerHTML.startsWith('81.5'), true, 'week 29 averages 81.5');
+  app.showWeeklyAverage('2026-07-13');
+  eq(els['weekavg-val'].innerHTML.startsWith('81.5'), true, 'week 1 averages 81.5');
   eq(els['weekavg-cmp'].textContent, '▼ 2.5kg vs this week (79.0kg)',
-     'week 29 is still compared to THIS week — never to week 33 in between');
+     'week 1 is still compared to THIS week — never to week 5 in between');
+
+  // Even a week out of the abandoned run compares to the current week and nothing else. The delta
+  // reads forwards — this week measured against the one you picked — so eleven kilos lighter now
+  // than in April is a ▼ and green, not an ▲ for "he used to be heavier".
+  app.showWeeklyAverage('2026-04-13');
+  eq(els['weekavg-cmp'].textContent, '▼ 11.0kg vs this week (79.0kg)',
+     'a week from the old block still compares to this week');
+  eq(els['weekavg-cmp'].className, 'weekavg-cmp down', 'and being lighter now than then reads as green');
 
   // Selecting the current week has nothing to compare against; say so rather than printing 0.0kg.
-  app.showWeeklyAverage('2026-34');
+  app.showWeeklyAverage('2026-08-17');
   eq(els['weekavg-cmp'].textContent, 'This week so far', 'the current week compares to nothing');
   eq(els['weekavg-cmp'].className, 'weekavg-cmp flat', 'and is not coloured as a win or a loss');
 }
@@ -154,13 +201,13 @@ console.log('Weekly average weight');
     { date: '2026-08-12', weight_kg: '' },
     { date: '2026-08-13', weight_kg: 81 }
   ]);
-  app.showWeeklyAverage('2026-33');
+  app.showWeeklyAverage('2026-08-10');
   eq(els['weekavg-val'].innerHTML.startsWith('80.5'), true, 'null and blank weights are skipped, not counted as 0');
 
   // Numeric strings are what PostgREST actually hands back for a numeric column.
   const b = harness('2026-08-17');
   b.app.renderWeeklyAverage([{ date: '2026-08-10', weight_kg: '80.4' }, { date: '2026-08-11', weight_kg: '80.6' }]);
-  b.app.showWeeklyAverage('2026-33');
+  b.app.showWeeklyAverage('2026-08-10');
   eq(b.els['weekavg-val'].innerHTML.startsWith('80.5'), true, 'string weights average as numbers, not concatenate');
 
   // No weigh-in this week at all — the comparison has no right-hand side.
@@ -168,6 +215,12 @@ console.log('Weekly average weight');
   c.app.renderWeeklyAverage([{ date: '2026-07-13', weight_kg: 82 }, { date: '2026-07-14', weight_kg: 82 }]);
   eq(c.els['weekavg-cmp'].textContent, 'No weigh-in yet this week',
      'with nothing logged this week the card says so instead of comparing to undefined');
+
+  // The very first week of all: week 1, and it is the week you are in.
+  const e = harness('2026-08-17');
+  e.app.renderWeeklyAverage([{ date: '2026-08-17', weight_kg: 79 }]);
+  eq(e.els['weekavg-wk-name'].textContent, 'Week 1', 'the first week you ever weigh in is week 1');
+  eq(e.els['weekavg-cmp'].textContent, 'This week so far', 'and it is the week you are in');
 
   // Nothing at all: the card hides rather than rendering an empty picker over "--kg".
   const d = harness('2026-08-17');

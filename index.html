@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-17-1649">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-18-0857">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -210,7 +210,9 @@
     <div class="stats-chart" id="stats-weight-chart"></div>
     <!-- Weekly average weight. Pick a week, get that week's average, compared to the week you're
          in now. Deliberately nothing else in this card — the daily chart above is noise by
-         design (weight bounces day to day); this is the number that actually moves. -->
+         design (weight bounces day to day); this is the number that actually moves.
+         Week numbers count from the start of the current run of weigh-ins, not the calendar — see
+         renderWeeklyAverage() for where a run starts and stops. -->
     <div class="card weekavg-card" id="weekavg-card" style="display:none;">
       <div class="card-title">Weekly average weight</div>
       <div class="weekavg-body">
@@ -510,6 +512,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-17-1649"></script>
+<script src="js/app.js?v=2026-08-18-0857"></script>
 </body>
 </html>
