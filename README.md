@@ -155,17 +155,21 @@ Every table has `user_id` and RLS enabled; `anon` can read none of them.
 
 ## Programmes
 
-**Upper / Lower**
+**Upper / Lower** — run as a **rolling rotation**, not fixed weekdays: Upper A → Lower A → Upper B →
+Lower B → Upper A → …, roughly 5 sessions a week, so a given session lands on a different weekday
+each time.
 
-| Day | Session | Focus |
+| Session | Focus | Exercises |
 |---|---|---|
-| Monday | Upper A | Push — Smith Incline, Machine Chest Press, Shoulder Press, Lateral Raise, Tricep Ext, Tricep Pushdown |
-| Tuesday | Lower A | Quad — Hack Squat/Leg Press, Leg Extension, Lying Leg Curl, Walking Lunge, Calf Raise, Pallof Press |
-| Thursday | Upper B | Pull — Lat Pulldown, Chest Supported Row, Seated Cable Row, Face Pull, Straight Arm Pulldown, Hammer Curl, Incline Cable Curl |
-| Friday | Lower B | Posterior — Smith RDL, Leg Press, Single Leg Curl, Seated Leg Curl, Hip Thrust Machine, Calf Raise, Dead Bug, Cable Woodchop |
-| Saturday | CV + Pump | Wild card |
+| **Upper A** | Push | Incline Chest Press, Shoulder Press, Machine Chest Press, Lateral Raise, Cable Flys, Rear Delts, Overhead Cable Tricep Ext, Tricep Pushdown |
+| **Lower A** | Quad + core | Seated Calf Raise ⇄ Single Leg Curl, Lying Leg Curl, Pendulum Squat, Hack Squat / Leg Press, Leg Extension, Pully Ab Crunch, Lower AB leg raises |
+| **Upper B** | Pull | Pull Ups, DeadHang, Lat Pulldown, Chest Supported Row, T Bar Row, Face Pull, Straight Arm Pulldown, Incline Single Cable Curl, Hammer Curl |
+| **Lower B** | Posterior chain + core | Seated Calf Raise ⇄ Single Leg Curl, RDL, Seated Leg Curl, Leg Press, Hip Thrusts, Abductor / Adductor, Lower AB leg raises, Pully Ab Crunch |
 
-**Full Body + CV** — 3 strength days, 2 CV + pump days.
+`⇄` marks a superset. Both lower days open with calves then hamstrings, deliberately.
 
-Sessions are editable in the app (✎ on any tile), so the tables above are the starting shape rather
-than a fixed definition.
+**Full Body + CV** — Full Body A / B / C plus CV + Pump days.
+
+Sessions are editable in the app (✎ on any tile) and the exercise list lives in `session_exercises`,
+not in source. **The table above is generated from the live data, not a design document** — if they
+disagree, the database is right.
