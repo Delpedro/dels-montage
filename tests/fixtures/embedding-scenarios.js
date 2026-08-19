@@ -24,6 +24,7 @@ function loadApp(file, sb) {
   return load({
     file,
     functions: [
+      'workoutRowHasContent',
       'realWorkoutsBetween',
       'fetchLastSessionSnapshot',
       'loadHistory',

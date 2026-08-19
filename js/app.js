@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1536';
+const APP_BUILD = '2026-08-19-1630';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1278,11 +1278,41 @@ async function loadHomePage() {
 // the same round trip. `workout_sets(id)` selects the cheapest possible column — nothing reads these
 // two arrays, they exist only to be counted — and both are stripped off before returning, so callers
 // get exactly the row shape they always got. See CODEBASE.md → "One request per screen, not fifteen".
+// Sets, cardio or notes make a row real. This is the ONE definition — realWorkoutsBetween() uses it
+// to count, beginWorkoutSession() uses it to decide whether a session is genuinely under way. They
+// were the same rule stated twice until 19 Aug, and only one of the two copies existed, which is how
+// an empty row came to warn about a session that never happened. Expects the embedded shape
+// (`workout_sets(id),cardio_logs(id)`); a row selected without them reads as content-free.
+function workoutRowHasContent(w) {
+  return (w.workout_sets || []).length > 0
+      || (w.cardio_logs || []).length > 0
+      || (w.notes || '').trim() !== '';
+}
+
+// Does the UNSAVED half of a session exist for this session type? Numbers typed but not yet Mark
+// Done'd live only in localStorage, so a workout you are standing in the middle of can genuinely
+// have zero rows in the database. One draft per device, expiring at 24h — the same cutoff
+// restoreDraft() applies, so a draft this says is live is one that would actually restore.
+function draftHasContentFor(sessionType) {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (d.sessionId !== sessionType) return false;
+    if (d.timestamp && Date.now() - d.timestamp > 24 * 60 * 60 * 1000) return false;
+    return Object.keys(d.sets || {}).length > 0
+        || (d.notes || '').trim() !== ''
+        || (d.cardio || []).some(c => Object.keys(c.values || {}).length > 0);
+  } catch (e) {
+    return false;
+  }
+}
+
 async function realWorkoutsBetween(fromDate, toDate = null) {
   const range = `date=gte.${fromDate}` + (toDate ? `&date=lte.${toDate}` : '');
   const rows = await sb(`workouts?${range}&select=id,date,session_type,notes,completed_at,workout_sets(id),cardio_logs(id)`) || [];
   return rows
-    .filter(w => (w.workout_sets || []).length > 0 || (w.cardio_logs || []).length > 0 || (w.notes || '').trim() !== '')
+    .filter(workoutRowHasContent)
     .map(({ workout_sets, cardio_logs, ...w }) => w);
 }
 
@@ -1461,7 +1491,7 @@ async function renderNextUp() {
   // exists from the moment a tile is tapped. completed_at sorts nullsfirst on a desc order in
   // PostgREST, which is what puts today's in-progress session ahead of today's finished one.
   const rows = await sb('workouts?select=session_type,date,notes,completed_at,workout_sets(id),cardio_logs(id)&order=date.desc,completed_at.desc&limit=20') || [];
-  const recent = rows.filter(w => (w.workout_sets || []).length > 0 || (w.cardio_logs || []).length > 0 || (w.notes || '').trim() !== '');
+  const recent = rows.filter(workoutRowHasContent);
   if (!recent.length) return hide();
 
   const live = recent[0];
@@ -1921,19 +1951,40 @@ async function saveSessionTemplate() {
 // Sets selectedSession/selectedVariations/currentWorkoutId/currentWorkoutHasSets on success.
 // Shared by selectSession() (fixed sessions) and startOpenWorkout() (Open Workout).
 async function beginWorkoutSession(session) {
-  // Check if ANY session is currently in progress today (completed_at IS NULL).
-  // This covers both the "resume same session" case (e.g. refreshed mid-Upper-A)
-  // AND the "switched session" case (started Upper A, now tapping Lower A).
-  const inProgress = await sb(`workouts?date=eq.${todayStr()}&completed_at=is.null&select=id,session_type`);
+  // Which of today's rows, if any, is a session ACTUALLY under way.
+  //
+  // `completed_at IS NULL` is not the answer on its own, and believing it was is the 19 Aug bug: a
+  // workouts row is created the instant a tile is tapped, and only the ← control deletes it again on
+  // the way out. Leave the logger by the bottom nav instead and the empty row survives until
+  // autoCloseStaleWorkouts() reaches it 24h later — so one stray tap on Open Workout at 15:10 made
+  // every session start for the rest of the day warn about an Open Workout with nothing in it.
+  //
+  // The rule is the counters' rule (workoutRowHasContent) plus the draft, because a session you are
+  // standing in the middle of can have no rows yet. Anything failing both is a ghost: deleted on
+  // sight rather than left to ask the question again tomorrow.
+  const openRows = await sb(`workouts?date=eq.${todayStr()}&completed_at=is.null&select=id,session_type,notes,workout_sets(id),cardio_logs(id)`) || [];
 
-  if (inProgress && inProgress.length > 0) {
-    const existing = inProgress[0];
+  // A row for the session being tapped is kept whether or not it has anything in it — it is about to
+  // be resumed, so adopting it is cheaper than deleting it and posting a replacement.
+  const sameSession = openRows.find(w => w.session_type === session.id);
+  const ghosts = openRows.filter(w =>
+    w !== sameSession && !workoutRowHasContent(w) && !draftHasContentFor(w.session_type));
+  // quiet + not awaited: housekeeping. If a delete fails the row is still invisible everywhere that
+  // matters (realWorkoutsBetween hides it) and autoCloseStaleWorkouts() closes it within the day.
+  ghosts.forEach(w => sb(`workouts?id=eq.${w.id}`, 'DELETE', null, { quiet: true }));
+
+  const inProgress = openRows.filter(w => !ghosts.includes(w));
+
+  if (inProgress.length > 0) {
+    const existing = sameSession || inProgress[0];
 
     if (existing.session_type === session.id) {
       // SAME session tapped — silently adopt the existing workout row.
       // buildWorkoutLogger + restoreDraft will rehydrate inputs & rest times.
       currentWorkoutId = existing.id;
-      currentWorkoutHasSets = true;
+      // Read from the row rather than assuming true: adopting an empty one and backing out again
+      // should still bin it, which is what this flag gates at backToSessions().
+      currentWorkoutHasSets = (existing.workout_sets || []).length > 0;
     } else {
       // DIFFERENT session tapped — warn before abandoning the in-progress one.
       const existingName = sessionDisplayName(existing.session_type);
@@ -3776,6 +3827,22 @@ async function loadDailyLog(date = todayStr()) {
 async function openCheckinModal(date = todayStr()) {
   await loadDailyLog(date);
   document.getElementById('checkin-modal').style.display = 'block';
+}
+
+// Home's Daily Check-in tile — 19 Aug 2026, Del's call on "why is daily log a double click to get
+// to enter values", open since 14 Aug.
+//
+// The page it lands on is a summary card plus a Log Today button, which is a reasonable page and a
+// bad destination: Check-in exists to enter numbers, and the summary of numbers you have not entered
+// yet is not worth a tap. So the tile now goes straight to the boxes.
+//
+// It still switches to the page underneath rather than opening the modal over Home, and that is the
+// point of doing it this way: closing or saving drops you on the summary — which is the one moment
+// the summary is worth reading, because by then it has today's numbers in it. The Log Today button
+// stays for a second edit in the same day.
+async function startCheckin() {
+  showPage('today');
+  await openCheckinModal();
 }
 
 function closeCheckinModal() {

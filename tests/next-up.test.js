@@ -104,8 +104,16 @@ const at = (type, date) => ({ session_type: type, date });
   const path = require('path');
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
   const fn = src.slice(src.indexOf('async function renderNextUp'), src.indexOf('async function startNextSession'));
-  ok(/workout_sets \|\| \[\]\)\.length > 0/.test(fn) && /cardio_logs \|\| \[\]\)\.length > 0/.test(fn) && /notes \|\| ''\)\.trim\(\) !== ''/.test(fn),
-     'renderNextUp still filters out workouts rows with no sets, no cardio and no notes');
+  // 19 Aug 2026: this used to grep for the inlined filter. The rule now lives in one place —
+  // workoutRowHasContent() — because the third copy of it, in beginWorkoutSession(), was MISSING,
+  // which is how an empty row came to warn about a session that never happened while this card
+  // correctly ignored it. Asserting on the call rather than the expression is the point: an inlined
+  // copy here would pass a text match and still be free to drift.
+  ok(/\.filter\(workoutRowHasContent\)/.test(fn),
+     'renderNextUp filters through the shared workoutRowHasContent(), not a private copy of it');
+  const helper = src.slice(src.indexOf('function workoutRowHasContent'), src.indexOf('function draftHasContentFor'));
+  ok(/workout_sets \|\| \[\]\)\.length > 0/.test(helper) && /cardio_logs \|\| \[\]\)\.length > 0/.test(helper) && /notes \|\| ''\)\.trim\(\) !== ''/.test(helper),
+     'and that helper is still sets-or-cardio-or-notes');
   ok(/order=date\.desc,completed_at\.desc/.test(fn),
      'and still asks for them newest-first, with an in-progress session ahead of a finished one');
   ok(/!live\.completed_at && live\.date === todayStr\(\)/.test(fn),
