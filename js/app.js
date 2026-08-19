@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-18-2012';
+const APP_BUILD = '2026-08-19-1502';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1136,6 +1136,27 @@ function dateStr(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+// The rolling seven-day window that Home and Stats both average over — defined once, because two
+// screens each working out "the last 7 days" for themselves is exactly how they came to print two
+// different step averages under labels that looked identical.
+//
+// `- 6`, not `- 7` (fixed 19 Aug 2026). The query is `date >= from` and today is in range, so
+// subtracting 7 produced an EIGHT-day window wearing a "7 days" label: on 19 Aug that read 13,611
+// avg steps where the true seven-day figure was 13,848. It returns the label as well, so the
+// heading can name the actual dates instead of leaving the reader to work out which seven are meant.
+function sevenDayWindow() {
+  const from = new Date(); from.setDate(from.getDate() - 6);
+  const to = new Date();
+  const day = d => String(d.getDate());
+  const mth = d => d.toLocaleDateString('en-GB', { month: 'short' });
+  return {
+    from: dateStr(from),
+    label: from.getMonth() === to.getMonth()
+      ? `${day(from)}–${day(to)} ${mth(to)}`
+      : `${day(from)} ${mth(from)} – ${day(to)} ${mth(to)}`
+  };
+}
+
 function todayStr() {
   return dateStr();
 }
@@ -1195,8 +1216,21 @@ async function loadHomePage() {
   // week" is one day, and one breakfast is not an average. The two `sessions this week` tiles are
   // untouched — those are genuinely Mon-anchored (getWeekStart) on both screens and always agreed.
   // Also one request instead of two, which matters on gym Wi-Fi more than it looks.
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekLogs = await sb(`daily_logs?date=gte.${dateStr(weekAgo)}&select=steps,weight_kg,calories`);
+  //
+  // 19 Aug 2026: the window itself moved into sevenDayWindow(), shared with Stats, because it was
+  // still an EIGHT-day window wearing a "7 days" label — and AVG STEPS moved down into this block
+  // in index.html. It had always been averaged over exactly these seven days, but it sat in the row
+  // above with CURRENT KG and SESSIONS THIS WEEK, under no heading, so it read as a weekly figure
+  // and looked like it disagreed with the Stats week card. Same number, correct neighbours.
+  const win = sevenDayWindow();
+  const weekLogs = await sb(`daily_logs?date=gte.${win.from}&select=steps,weight_kg,calories`);
+
+  // Name the dates on screen (19 Aug 2026). Two averages labelled "7 days" that were computed over
+  // different windows is how this drifted apart the first time; a heading that says which seven days
+  // it means costs nothing and makes the next drift visible instead of mysterious.
+  const winLabel = document.getElementById('home-avg-window');
+  if (winLabel) winLabel.textContent = `Last 7 days · ${win.label}`;
+
   // `!= null` — a recorded 0 belongs in the average (you walked nothing that day); only a day with
   // no reading at all should be left out of it.
   const stepsArr = (weekLogs || []).filter(l => l.steps != null).map(l => Number(l.steps));
@@ -2063,6 +2097,72 @@ function optionalWeightValue(ex, wVal) {
   return n;
 }
 
+// ─── THE BODYWEIGHT CELL (19 Aug 2026) ────────────────────────────────────────────────────────
+// Pull ups, dips, deadhangs and farmers walks can be done at bodyweight OR loaded, so their weight
+// box is optional. It used to be a text input placeheld "BW / kg" with inputmode="decimal", and
+// that was wrong in two compounding ways, both of which Del hit on 18 Aug:
+//
+//   1. inputmode="decimal" gives iOS a keypad with no letters on it, so the word the placeholder
+//      was asking for could not physically be typed.
+//   2. It never needed to be typed. Blank has always meant bodyweight — see optionalWeightValue()
+//      above, which maps blank, "BW" and a typed 0 to the same null — but nothing on screen said
+//      so, so an empty box read as "not filled in yet" rather than as "bodyweight".
+//
+// The owner of the app, four months and several hundred sets in, could not tell which. A stranger
+// on their first session has no chance at all. So the cell now STATES its state instead of relying
+// on a convention: it reads "BW" until you tap it, tapping turns it into the kg box, and emptying
+// the box turns it back into "BW". There is no longer any such thing as an ambiguous blank.
+//
+// The <input> is only ever HIDDEN, never removed. Six other functions locate this set's weight with
+// getElementById('w-…') and branch on `.tagName` — collectExerciseSets, saveDraft, restoreDraft,
+// the resume-saved-sets fill, the unsaved-work guard, and the edit modal's save — and every one of
+// them already treats an empty INPUT as bodyweight. Keeping the element in the DOM meant none of
+// them had to learn a new state, which is the difference between this fix and a rewrite.
+function bwCellHtml(id, value, extraAttrs = '') {
+  const loaded = String(value ?? '').trim() !== '';
+  return `<div class="bw-cell">
+      <button type="button" class="bw-pill" id="bwbtn-${id}" ${loaded ? 'hidden' : ''}
+        onclick="bwReveal('${jsAttr(id)}')"
+        title="Bodyweight — tap to add weight" aria-label="Bodyweight. Tap to add weight.">BW</button>
+      <input type="text" class="set-input bw-input" id="${id}" placeholder="kg" inputmode="decimal"
+        value="${esc(value ?? '')}" ${loaded ? '' : 'hidden'}
+        onblur="bwCollapse('${jsAttr(id)}')" ${extraAttrs} />
+    </div>`;
+}
+
+function bwReveal(id) {
+  const input = document.getElementById(id);
+  const btn = document.getElementById(`bwbtn-${id}`);
+  if (!input || !btn) return;
+  btn.hidden = true;
+  input.hidden = false;
+  input.focus();
+}
+
+// Emptying the box is how you go back to bodyweight — so the cell has to reclaim its BW face when
+// you leave an empty one, or you would be looking at a blank box again and back where we started.
+function bwCollapse(id) {
+  const input = document.getElementById(id);
+  const btn = document.getElementById(`bwbtn-${id}`);
+  if (!input || !btn || input.value.trim() !== '') return;
+  input.hidden = true;
+  btn.hidden = false;
+}
+
+// Draft restore and the resume-a-saved-session fill both write straight into the input with
+// `wEl.value = …`, which fires no event of any kind. Without this sweep afterwards, a loaded dip
+// resumed mid-session would have its weight sitting in a box that is still hidden behind "BW".
+function bwSyncAll() {
+  document.querySelectorAll('.bw-cell').forEach(cell => {
+    const input = cell.querySelector('.bw-input');
+    const btn = cell.querySelector('.bw-pill');
+    if (!input || !btn) return;
+    const loaded = input.value.trim() !== '';
+    input.hidden = !loaded;
+    btn.hidden = loaded;
+  });
+}
+
 // One logged set rendered for display: "45s" (or "10×45s" when the hold carried added weight)
 // when timed, else "80×10" / "BW×10" / band initials.
 function setValueLabel(ex, s, bandFallback = 'Band') {
@@ -2318,7 +2418,7 @@ function renderSetRow(ex, i, prevSet, sessionId, defaultVar) {
 
   let weightCol = '';
   if (isOptionalWeight(ex)) {
-    weightCol = `<input type="text" class="set-input" id="w-${esc(ex.name)}-${i}" placeholder="BW / kg" inputmode="decimal" oninput="saveDraft('${jsAttr(sessionId)}')" />`;
+    weightCol = bwCellHtml(`w-${esc(ex.name)}-${i}`, '', `oninput="saveDraft('${jsAttr(sessionId)}')"`);
   } else if (ex.bodyweight || isTimed(ex)) {
     weightCol = `<div class="set-label" id="w-${esc(ex.name)}-${i}">BW</div>`;
   } else if (ex.variations && ex.band) {
@@ -2403,91 +2503,105 @@ function renderExerciseBlock(ex, session) {
   return html;
 }
 
-// Populates `previousSets` for the given session. Fixed sessions: scans the last 10 workouts of that
-// session_type, per-exercise-per-variation most-recent-occurrence (a variation toggled less often than
-// others would otherwise lose its prior-set history to whichever variation was used most recently).
-// Open Workout: scoped to past Open workouts only, per-exercise most-recent-occurrence (a single "last
-// Open workout" won't reliably contain every exercise picked this time, since they vary session to session).
+// How far back a "last time" lookup reaches. It bounds the single query below — without a bound it
+// grows with the training history forever — and an exercise untouched for six months is not a
+// reference point any more, it's a fresh start.
+const PREV_SETS_LOOKBACK_DAYS = 180;
+
+// Populates `previousSets` — the grey "45×8" badge beside every set row — for one session.
+//
+// ── SCOPED BY EXERCISE, NOT BY SESSION (19 Aug 2026) ──────────────────────────────────────────
+// This used to filter `session_type=eq.<this session>`, so Lower B could not see a lift you had
+// done on Lower A four days earlier. Five exercises in the upper/lower programme sit in two
+// sessions — Seated Calf Raise, Single Leg Curl, Lower AB leg raises and Side Plank across the
+// lower pair, Lateral Raise across the upper pair — and Open Workouts were sealed off from every
+// fixed session in both directions on top of that.
+//
+// It was not cosmetic. Del's Seated Calf Raise ran 47.5 → 51 → 52.5kg across alternating Lower A
+// and Lower B sessions on the same machine. On 14 Aug the app showed him 51kg (the last Lower *B*
+// figure) when he had already pressed 52.5kg four days earlier on Lower A, and he did 51 — so that
+// session sits in his history as a step backwards that never happened. On 19 Aug it tried the same
+// thing on Single Leg Curl and he only caught it by stopping mid-exercise to open History.
+//
+// A calf raise is a calf raise; the session it was filed under is filing, not physiology. The
+// lookup is now purely by exercise name (plus aliases) across every session type, Open included.
+// Variation still filters at read time in prevSetsForVariation() — that is what stops a Hack Squat
+// row showing you Leg Press numbers, and it is the escape hatch if one name ever does mean two
+// different lifts in two different sessions.
 async function loadPreviousSetsForSession(session) {
-  previousSets = {};
-  if (session.id === 'open') {
-    Object.assign(previousSets, await fetchOpenPreviousSets(session.exercises.map(e => e.name)));
-    return;
-  }
-  // One request, not two (15 Aug 2026) — the sets ride back embedded in their own workout. The
-  // session in progress is dropped *after* the fetch rather than being excluded from an id filter
-  // before it, so its sets come down and are discarded: one workout's worth of rows to save a whole
-  // round trip on the screen you're standing in a gym waiting for. Flattened straight back into the
-  // shape the grouping below has always taken, hence `workout_id` staying in the select.
-  const prevWorkouts = await sb(`workouts?session_type=eq.${session.id}&order=date.desc&limit=10&select=id,date,workout_sets(workout_id,exercise,set_number,weight,reps,variation)`);
-  const candidates = (prevWorkouts || []).filter(w => w.id !== currentWorkoutId);
-  if (!candidates.length) return;
-  const dateById = Object.fromEntries(candidates.map(w => [w.id, w.date]));
-  const sets = candidates.flatMap(w => w.workout_sets || []);
+  // Aliases have to go into the filter explicitly now. The old query pulled *every* set of the last
+  // ten workouts and let renderExerciseBlock find aliases in the leftovers; an `exercise=in.(…)`
+  // filter only returns the names it was given, so "Smith Machine Incline Press" would silently
+  // stop resolving for "Incline Chest Press" if it weren't asked for by name.
+  const names = [];
+  (session.exercises || []).forEach(e => {
+    if (!names.includes(e.name)) names.push(e.name);
+    (e.aliases || []).forEach(a => { if (!names.includes(a)) names.push(a); });
+  });
+  previousSets = await fetchPreviousSetsFor(names);
+}
+
+// The one engine behind every "last time" badge, for fixed sessions and Open Workouts alike.
+// Returns { exerciseName: [{weight, reps, variation}, …] }, set order preserved.
+async function fetchPreviousSetsFor(exNames) {
+  const result = {};
+  const names = [...new Set((exNames || []).filter(Boolean))];
+  if (!names.length) return result;
+
+  const since = new Date();
+  since.setDate(since.getDate() - PREV_SETS_LOOKBACK_DAYS);
+  // One request. `workouts!inner(date)` does two jobs at once: it carries each set's own date back
+  // on the row (so no second lookup is needed to work out which occurrence is most recent), and
+  // `!inner` makes the date bound filter the *sets* rather than merely blanking the embedded object.
+  const exFilter = encodeURIComponent(`in.(${names.map(n => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
+  const rows = await sb(`workout_sets?exercise=${exFilter}`
+    + `&select=exercise,set_number,weight,reps,variation,workout_id,workouts!inner(date)`
+    + `&workouts.date=gte.${dateStr(since)}&order=set_number.asc`);
+  // The session in progress is dropped after the fetch rather than excluded in the filter — one
+  // workout's worth of rows to save a round trip on the screen you are standing in a gym waiting
+  // for. Without it, sets typed ten minutes ago come back as "last time".
+  const sets = (rows || []).filter(s => s.workout_id !== currentWorkoutId);
+  if (!sets.length) return result;
+
+  const dateOf = s => s.workouts?.date || '';
   const byExercise = {};
-  (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
+  sets.forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
 
-  // Per exercise: anchor on its own most recent workout (any variation, for the default toggle),
-  // then backfill any other variation from its own most recent occurrence further back — a variation
-  // not used last time out shouldn't lose its prior-set history just because it wasn't logged most recently.
   Object.entries(byExercise).forEach(([exName, exSets]) => {
-    let mostRecentWid = null;
-    exSets.forEach(s => {
-      if (!mostRecentWid || dateById[s.workout_id] > dateById[mostRecentWid]) mostRecentWid = s.workout_id;
-    });
-    const primary = exSets.filter(s => s.workout_id === mostRecentWid).sort((a, b) => a.set_number - b.set_number);
-    const seenVariations = new Set(primary.map(s => s.variation || ''));
-    const rows = primary.map(s => ({ weight: s.weight, reps: s.reps, variation: s.variation }));
+    // Anchor on this exercise's own most recent outing, whichever session that happened to be.
+    let anchor = null;
+    exSets.forEach(s => { if (!anchor || dateOf(s) > dateOf(anchor)) anchor = s; });
+    const anchorId = anchor.workout_id;
+    const primary = exSets.filter(s => s.workout_id === anchorId).sort((a, b) => a.set_number - b.set_number);
+    const seen = new Set(primary.map(s => s.variation || ''));
+    const out = primary.map(s => ({ weight: s.weight, reps: s.reps, variation: s.variation }));
 
+    // Backfill any variation that wasn't used in that most recent outing from its own latest one.
+    // A toggle you reach for every third week shouldn't come up blank just because it wasn't the
+    // one you used last time.
     const byVariation = {};
-    exSets.filter(s => s.workout_id !== mostRecentWid && !seenVariations.has(s.variation || ''))
+    exSets.filter(s => s.workout_id !== anchorId && !seen.has(s.variation || ''))
       .forEach(s => { (byVariation[s.variation || ''] ||= []).push(s); });
     Object.values(byVariation).forEach(group => {
-      let wid = null;
-      group.forEach(s => { if (!wid || dateById[s.workout_id] > dateById[wid]) wid = s.workout_id; });
-      rows.push(...group.filter(s => s.workout_id === wid)
+      let latest = null;
+      group.forEach(s => { if (!latest || dateOf(s) > dateOf(latest)) latest = s; });
+      out.push(...group.filter(s => s.workout_id === latest.workout_id)
         .sort((a, b) => a.set_number - b.set_number)
         .map(s => ({ weight: s.weight, reps: s.reps, variation: s.variation })));
     });
 
-    previousSets[exName] = rows;
-  });
-}
-
-async function fetchOpenPreviousSets(exNames) {
-  const result = {};
-  if (!exNames.length) return result;
-  // One request, not two (15 Aug 2026). The exercise filter moves onto the embedded resource
-  // (`workout_sets.exercise=in.(…)`), which filters the nested rows without dropping the parent —
-  // exactly what's wanted here, since a workout with none of tonight's exercises simply contributes
-  // an empty array rather than disappearing and taking its date with it.
-  const exFilter = encodeURIComponent(`in.(${exNames.map(n => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
-  const pastWorkouts = await sb(`workouts?session_type=eq.open&completed_at=not.is.null&order=date.desc&limit=20`
-    + `&select=id,date,workout_sets(workout_id,exercise,set_number,weight,reps,variation)&workout_sets.exercise=${exFilter}`);
-  const relevant = (pastWorkouts || []).filter(w => w.id !== currentWorkoutId);
-  if (!relevant.length) return result;
-  const sets = relevant.flatMap(w => w.workout_sets || []);
-  const dateById = Object.fromEntries(relevant.map(w => [w.id, w.date]));
-  const byExercise = {};
-  (sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
-  Object.keys(byExercise).forEach(exName => {
-    let mostRecentWid = null;
-    byExercise[exName].forEach(s => {
-      if (!mostRecentWid || dateById[s.workout_id] > dateById[mostRecentWid]) mostRecentWid = s.workout_id;
-    });
-    result[exName] = byExercise[exName]
-      .filter(s => s.workout_id === mostRecentWid)
-      .sort((a, b) => a.set_number - b.set_number)
-      .map(s => ({ weight: s.weight, reps: s.reps, variation: s.variation }));
+    result[exName] = out;
   });
   return result;
 }
 
-// "Last time you did this session" full snapshot — fixed sessions only (Open Workout already has its
-// own per-exercise previousSets scoping via fetchOpenPreviousSets, and CV+Pump never reaches
-// buildWorkoutLogger). Unlike previousSets (which independently resolves each exercise's own most
-// recent occurrence across the last 10 workouts), this is deliberately one single most-recent workout,
-// so the whole card reflects exactly one prior session rather than a blend.
+// "Last time you did this session" full snapshot — fixed sessions only (CV+Pump never reaches
+// buildWorkoutLogger, and an Open Workout has no fixed identity to look up).
+//
+// This one stays SESSION-scoped on purpose, and did not change on 19 Aug when previousSets went
+// exercise-scoped. The two answer different questions: the badges beside each set row answer "what
+// did I last do on THIS LIFT", which has nothing to do with filing; this card answers "how did Lower
+// B go last time", and a card blending four different mornings would not be an answer to that.
 async function fetchLastSessionSnapshot(session) {
   // One request, not three (15 Aug 2026). Cardio comes back alongside the sets — "what did I do
   // last time" has to include the bike/treadmill work, not just the lifts, or the card silently
@@ -2706,6 +2820,7 @@ async function buildWorkoutLogger(session) {
       if (wEl && wEl.tagName === 'INPUT' && !wEl.value && s.weight != null) wEl.value = s.weight;
       if (rEl && !rEl.value && s.reps != null) rEl.value = s.reps;
     });
+    bwSyncAll();   // a resumed set with added weight must show the box, not the BW pill
     // Variations of exercises already written to the DB. The draft wins where it has one — it also
     // carries a toggle changed *after* Mark Done, which the saved rows can't know about yet. This
     // branch is what covers a resume with no draft at all (24h expiry, or another device).
@@ -2881,7 +2996,7 @@ async function addOpenExercise(name) {
   const emptyMsg = document.querySelector('#workout-logger .empty');
   if (emptyMsg) emptyMsg.remove();
 
-  const fetched = await fetchOpenPreviousSets([name]);
+  const fetched = await fetchPreviousSetsFor([name, ...(def.aliases || [])]);
   Object.assign(previousSets, fetched);
 
   const wrapper = document.createElement('div');
@@ -3144,6 +3259,7 @@ function restoreDraft(session) {
         }
       }
     });
+    bwSyncAll();   // same, for a weight typed before the refresh
     if (draft.notes) document.getElementById('workout-notes').value = draft.notes;
 
     // Restore cardio entries (never DB-saved until Save Workout, so the draft is the only copy)
@@ -3892,8 +4008,8 @@ function applyMacroLine() {
 async function loadStats() {
   const since = new Date(); since.setDate(since.getDate() - 21);
   const sinceStr = dateStr(since);
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekAgoStr = dateStr(weekAgo);
+  const statsWin = sevenDayWindow();
+  const weekAgoStr = statsWin.from;
 
   const [allWeights, allWaists, allLogs, allWorkouts] = await Promise.all([
     // Every weigh-in, not the last 21 days — the weekly card below needs the whole run. The chart
@@ -3930,6 +4046,8 @@ async function loadStats() {
 
   // The macro card is the one group on the page that is not week-shaped: a rolling 7 days, the same
   // window Home uses, sliced off the rows already fetched above rather than asked for separately.
+  const macroWinLabel = document.getElementById('stats-avg-window');
+  if (macroWinLabel) macroWinLabel.textContent = `Last 7 days · ${statsWin.label}`;
   renderMacroAverages((allLogs || []).filter(l => l.date >= weekAgoStr));
 }
 
@@ -4101,15 +4219,23 @@ function renderWeeklyAverage(allWeights, allWaists = [], allLogs = [], allWorkou
 
   // Steps: the mean of the days that have a figure, not of seven days. Dividing by 7 when the watch
   // only synced on four of them prints a number lower than any day Del actually walked.
+  // allLogs is ordered date.asc, so each bucket comes out chronological and first/last below are
+  // the real ends of the span without a re-sort.
   const stepBuckets = {};
   (allLogs || []).forEach(l => {
     const v = numOrNull(l.steps);
     if (v === null) return;
-    (stepBuckets[mondayOf(l.date)] ||= []).push(v);
+    (stepBuckets[mondayOf(l.date)] ||= []).push({ steps: v, date: l.date });
   });
   _weekSteps = {};
   Object.keys(stepBuckets).forEach(k => {
-    _weekSteps[k] = Math.round(stepBuckets[k].reduce((a, c) => a + c, 0) / stepBuckets[k].length);
+    const b = stepBuckets[k];
+    _weekSteps[k] = {
+      avg: Math.round(b.reduce((a, c) => a + c.steps, 0) / b.length),
+      days: b.length,
+      first: b[0].date,
+      last: b[b.length - 1].date
+    };
   });
 
   // One pass, oldest first: carry an anchor Monday forward, and drop a new anchor whenever the
@@ -4130,10 +4256,15 @@ function renderWeeklyAverage(allWeights, allWaists = [], allLogs = [], allWorkou
   if (!_weekAvgs.length) { card.style.display = 'none'; return; }
   card.style.display = 'block';
 
-  // Opens on the last completed week. Opening on the current one would compare it against itself
-  // and print nothing useful on a card you tapped to be told something.
+  // Opens on the CURRENT week. It used to open on the last completed one, on the reasoning that the
+  // current week can only be compared against itself — true, but it meant Del arrowed forward one
+  // week every single time he opened Stats, which is a cost paid on every visit to buy a comparison
+  // he did not ask for. The card is where you look to see where you are now.
+  //
+  // The comparison line is what makes that work: on the current week it no longer says "This week so
+  // far" and stops, it compares against LAST week, so the default view still answers something.
   const thisKey = mondayOf(todayStr());
-  const dflt = _weekAvgs.filter(w => w.key !== thisKey).slice(-1)[0] || _weekAvgs[_weekAvgs.length - 1];
+  const dflt = _weekAvgs.find(w => w.key === thisKey) || _weekAvgs[_weekAvgs.length - 1];
   showWeeklyAverage(dflt.key);
 }
 
@@ -4171,7 +4302,24 @@ function showWeeklyAverage(key) {
 
   const now = _weekAvgs.find(w => w.key === mondayOf(todayStr()));
   if (!now) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'No weigh-in yet this week'; return; }
-  if (now.key === picked.key) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'This week so far'; return; }
+
+  // On the current week, compare against LAST week rather than printing "This week so far" and
+  // stopping. Since 19 Aug this is the view the card opens on, and a default view that says nothing
+  // is a card you have to interact with before it tells you anything.
+  if (now.key === picked.key) {
+    const i = _weekAvgs.indexOf(picked);
+    const last = i > 0 ? _weekAvgs[i - 1] : null;
+    if (!last) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'This week so far'; return; }
+    const wd = now.avg - last.avg;
+    if (Math.abs(wd) < 0.05) {
+      cmpEl.className = 'weekavg-cmp flat';
+      cmpEl.textContent = `So far · level with last week (${last.avg.toFixed(1)}kg)`;
+    } else {
+      cmpEl.className = `weekavg-cmp ${wd < 0 ? 'down' : 'up'}`;
+      cmpEl.textContent = `So far · ${wd < 0 ? '▼' : '▲'} ${Math.abs(wd).toFixed(1)}kg vs last week (${last.avg.toFixed(1)}kg)`;
+    }
+    return;
+  }
 
   const d = now.avg - picked.avg;
   if (Math.abs(d) < 0.05) {
@@ -4194,10 +4342,26 @@ function showWeeklySplit(key) {
   const sessEl = document.getElementById('weekavg-sessions');
   const stepEl = document.getElementById('weekavg-steps');
   if (sessEl) sessEl.textContent = _weekSessions[key] || 0;
+  const stepNote = document.getElementById('weekavg-steps-days');
   if (stepEl) {
     const st = _weekSteps[key];
-    stepEl.textContent = st === undefined ? '--' : st.toLocaleString();
+    stepEl.textContent = st === undefined ? '--' : st.avg.toLocaleString();
+    // Say what was averaged. "MON–WED · 3 DAYS" is the whole reason this number can differ from
+    // Home's seven-day figure, and until it was written down the two just looked wrong.
+    if (stepNote) stepNote.textContent = st === undefined ? '' : stepsSpanLabel(st);
   }
+}
+
+// "Mon–Wed · 3 days", or "Mon · 1 day" when there is only one, or "7 days" for a full week where
+// naming the ends adds nothing.
+function stepsSpanLabel(st) {
+  if (st.days >= 7) return '7 days';
+  const wd = iso => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-GB', { weekday: 'short' });
+  };
+  const span = st.days === 1 ? wd(st.first) : `${wd(st.first)}–${wd(st.last)}`;
+  return `${span} · ${st.days} ${st.days === 1 ? 'day' : 'days'}`;
 }
 
 // The waist half of the same card (18 Aug 2026), reading the week the arrows have landed on.
@@ -5016,7 +5180,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
 
         let weightCol = '';
         if (isOptionalWeight(ex)) {
-          weightCol = `<input type="text" class="set-input" id="ew-${esc(ex.name)}-${i}" placeholder="BW / kg" value="${esc(existing?.weight || '')}" />`;
+          weightCol = bwCellHtml(`ew-${esc(ex.name)}-${i}`, existing?.weight || '');
         } else if (ex.bodyweight || isTimed(ex)) {
           weightCol = `<div class="set-label" id="ew-${esc(ex.name)}-${i}">BW</div>`;
         } else if (ex.variations && ex.band) {

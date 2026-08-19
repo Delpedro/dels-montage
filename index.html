@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-18-2012">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-19-1502">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -68,22 +68,18 @@
       <div class="quote-text" id="quote-text">Loading...</div>
       <div class="quote-author" id="quote-author"></div>
     </div>
-    <div class="landing-stats">
+    <div class="landing-stats landing-stats-2">
       <div class="landing-stat">
         <div class="landing-stat-value stat-accent" id="home-weight">--</div>
         <div class="landing-stat-label">current kg</div>
       </div>
       <div class="landing-stat">
         <div class="landing-stat-value stat-green" id="home-sessions">--</div>
-        <div class="landing-stat-label">sessions / week</div>
-      </div>
-      <div class="landing-stat">
-        <div class="landing-stat-value stat-amber" id="home-steps">--</div>
-        <div class="landing-stat-label">avg steps</div>
+        <div class="landing-stat-label">sessions this week</div>
       </div>
     </div>
-    <div class="landing-section-label">Daily averages &middot; 7 days</div>
-    <div class="landing-stats landing-stats-2">
+    <div class="landing-section-label" id="home-avg-window">Last 7 days</div>
+    <div class="landing-stats">
       <div class="landing-stat">
         <div class="landing-stat-value stat-accent" id="home-avg-weight">--</div>
         <div class="landing-stat-label">avg kg</div>
@@ -91,6 +87,10 @@
       <div class="landing-stat">
         <div class="landing-stat-value stat-amber" id="home-avg-cals">--</div>
         <div class="landing-stat-label">avg cals</div>
+      </div>
+      <div class="landing-stat">
+        <div class="landing-stat-value stat-amber" id="home-steps">--</div>
+        <div class="landing-stat-label">avg steps</div>
       </div>
     </div>
     <div class="week-strip" id="home-week-strip"></div>
@@ -263,12 +263,13 @@
           <div class="weekavg-half">
             <div class="weekavg-half-val" id="weekavg-steps">--</div>
             <div class="weekavg-half-name">Avg steps</div>
+            <div class="weekavg-half-days" id="weekavg-steps-days"></div>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="stats-section">Daily averages &middot; 7 days</div>
+    <div class="stats-section" id="stats-avg-window">Last 7 days</div>
     <div class="card macro-card">
       <!-- Calories lead, macros explain them: the total is what moves weight on a cut. This is the
            only box on the page that is not the weigh-in card, and it holds the one group of
@@ -558,6 +559,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-18-2012"></script>
+<script src="js/app.js?v=2026-08-19-1502"></script>
 </body>
 </html>

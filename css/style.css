@@ -137,6 +137,15 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .set-input { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--text); font-size: 14px; font-family: 'DM Mono', monospace; outline: none; text-align: center; transition: border-color 0.2s; min-width: 0; }
 .set-input:focus { border-color: var(--accent); }
 .set-input::placeholder { color: var(--border2); font-size: 12px; }
+/* The optional-weight cell — pull ups / dips / deadhangs / farmers walks, which can be done at
+   bodyweight or loaded. See bwCellHtml() in js/app.js for why this exists at all. The pill and the
+   input share one grid slot and only one is ever visible, so the column never changes width when it
+   flips. DASHED border, where a fixed .set-label is solid: dashed means "you can change this",
+   solid means "this exercise has no weight to enter". */
+.bw-cell { min-width: 0; }
+.bw-cell > [hidden] { display: none; }
+.bw-pill { width: 100%; background: var(--bg2); border: 1px dashed var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--muted); font-size: 12px; font-family: 'DM Sans', sans-serif; letter-spacing: 0.5px; text-align: center; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.bw-pill:active { border-color: var(--accent); color: var(--text); }
 .set-label { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 6px; color: var(--muted); font-size: 12px; font-family: 'DM Sans', sans-serif; text-align: center; min-width: 0; display: flex; align-items: center; justify-content: center; }
 .prev-badge {
   font-size: 10px;
@@ -525,6 +534,7 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .weekavg-split { display: grid; grid-template-columns: 1fr 1fr; margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px solid var(--border2); }
 .weekavg-half + .weekavg-half { border-left: 1px solid var(--border2); }
 .weekavg-half-val { font-family: 'Bebas Neue', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
+.weekavg-half-days { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); margin-top: 2px; }
 .weekavg-half-name { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 3px; }
 
 .stats-chart { margin-top: 0.75rem; margin-bottom: 0.875rem; }

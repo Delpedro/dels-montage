@@ -5,6 +5,12 @@
 // fetchOpenPreviousSets and fetchLastSessionSnapshot. On 15 Aug 2026 they became single requests
 // with the children embedded (`workouts?select=*,workout_sets(…),cardio_logs(…)`).
 //
+// Two of those five — the previous-sets pair — were rewritten again on 19 Aug 2026 to look history
+// up BY EXERCISE rather than by session type, which deliberately changes what they return. They
+// moved out to tests/exercise-scoped-history.test.js rather than being re-captured here: this file
+// is specifically the "nothing visible changed" guard for the embedding work, and a baseline that
+// gets re-captured whenever behaviour moves is not a guard at all.
+//
 // Two things have to be true, and neither can be established by reading the new code:
 //
 //   1. **The data is identical.** `fixtures/embedding-baseline.json` holds what the OLD functions
@@ -75,12 +81,6 @@ const BUDGET = {
   'realWorkoutsBetween: open-ended range': 1,
   'realWorkoutsBetween: bounded range': 1,
   'realWorkoutsBetween: nothing in range': 1,
-  'loadPreviousSetsForSession: fixed session, two variations': 1,
-  'loadPreviousSetsForSession: excludes the workout in progress': 1,
-  'loadPreviousSetsForSession: no history for this session type': 1,
-  'loadPreviousSetsForSession: open workout': 1,
-  'fetchOpenPreviousSets: directly': 1,
-  'fetchOpenPreviousSets: no exercises picked yet': 0,   // nothing picked, nothing to ask
   'fetchLastSessionSnapshot: sets only': 1,
   'fetchLastSessionSnapshot: a session with nothing logged in it': 1,
   'fetchLastSessionSnapshot: never trained': 1,
@@ -122,10 +122,11 @@ runScenarios(APP).then(actual => {
   // rather than chunking around it — there is no id list in the URL at all now.
   ok(!/workout_id=in\.\(/.test(SRC),
     'no read path builds a workout_id=in.(…) filter any more — that list grew forever');
-  // The two `in.(…)` filters that remain are bounded by the exercises in one session, not by all of
-  // history: persistSupersetGroups' name list and fetchOpenPreviousSets' embedded exercise filter.
-  ok(SRC.includes('workout_sets.exercise=$'),
-    'fetchOpenPreviousSets filters the embedded resource rather than a separate sets query');
+  // The `in.(…)` filters that remain are bounded by the exercises in one session, not by all of
+  // history: persistSupersetGroups' name list, and fetchPreviousSetsFor's exercise filter — which
+  // since 19 Aug queries workout_sets directly and embeds the parent workout to get each set's date.
+  ok(SRC.includes("workout_sets?exercise="),
+    'fetchPreviousSetsFor filters sets by exercise name, not by the session they were logged under');
 
   // ── 4. the embeds still ask for the columns the screens render ────────────
   // A dropped column in an embed select is silent: the row still comes back, the field is just

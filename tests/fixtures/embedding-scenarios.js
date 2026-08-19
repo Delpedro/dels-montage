@@ -5,6 +5,12 @@
 // against the *same* fake database, which is the only reason the comparison means anything — if the
 // scenario list lived in the test and the capture script had its own copy, they would drift.
 //
+// The previous-sets paths (loadPreviousSetsForSession / the old fetchOpenPreviousSets) left this
+// file on 19 Aug 2026. They were rewritten that day to look up history BY EXERCISE rather than by
+// session type, so they no longer return what this baseline froze, and holding them to it would be
+// holding them to the bug. They are covered in full by tests/exercise-scoped-history.test.js,
+// including the single-request budget this file used to guard.
+//
 // Each scenario returns `{ result, requests }`: what the function produced, and every path it asked
 // the database for. Both halves matter — the change is only correct if the data is identical AND the
 // round trips went down.
@@ -19,12 +25,10 @@ function loadApp(file, sb) {
     file,
     functions: [
       'realWorkoutsBetween',
-      'fetchOpenPreviousSets',
-      'loadPreviousSetsForSession',
       'fetchLastSessionSnapshot',
       'loadHistory',
     ],
-    decls: ['previousSets', 'currentWorkoutId', 'allHistoryLogs', 'allHistoryWorkouts'],
+    decls: ['currentWorkoutId', 'allHistoryLogs', 'allHistoryWorkouts'],
     deps: {
       sb,
       // loadHistory paints a loading state and then hands off to the renderer. Neither is what's
@@ -37,7 +41,6 @@ function loadApp(file, sb) {
       SESSIONS: [{ id: 'lower-a' }, { id: 'upper-a' }, { id: 'open' }],
     },
     accessors: {
-      prevSets: '() => previousSets',
       setCurrentWorkoutId: '(v) => { currentWorkoutId = v; }',
       historyState: '() => ({ logs: allHistoryLogs, workouts: allHistoryWorkouts, setsByWorkout: window._setsByWorkout, cardioByWorkout: window._cardioByWorkout })',
     },
@@ -56,41 +59,6 @@ const SCENARIOS = {
 
   'realWorkoutsBetween: nothing in range': async app =>
     app.realWorkoutsBetween('2026-09-01'),
-
-  // Lat Pulldown was Narrow last time (w6) and Wide the time before (w2). Both have to come back,
-  // or a variation you didn't use most recently silently loses its prev badges.
-  'loadPreviousSetsForSession: fixed session, two variations': async app => {
-    await app.loadPreviousSetsForSession({ id: 'upper-a', exercises: [{ name: 'Lat Pulldown' }] });
-    return app.prevSets();
-  },
-
-  // The session in progress must never be its own "last time".
-  'loadPreviousSetsForSession: excludes the workout in progress': async app => {
-    app.setCurrentWorkoutId('w6');
-    await app.loadPreviousSetsForSession({ id: 'upper-a', exercises: [{ name: 'Lat Pulldown' }] });
-    return app.prevSets();
-  },
-
-  'loadPreviousSetsForSession: no history for this session type': async app => {
-    await app.loadPreviousSetsForSession({ id: 'full-body-a', exercises: [{ name: 'Dips' }] });
-    return app.prevSets();
-  },
-
-  // Routed through to fetchOpenPreviousSets. w8 is an uncompleted Open workout and must be ignored,
-  // so Hammer Curl's prev comes from w5 at 14kg, not w8 at 16kg.
-  'loadPreviousSetsForSession: open workout': async app => {
-    await app.loadPreviousSetsForSession({
-      id: 'open',
-      exercises: [{ name: 'Hammer Curl' }, { name: 'Lat Pulldown' }, { name: 'Never Done This' }],
-    });
-    return app.prevSets();
-  },
-
-  'fetchOpenPreviousSets: directly': async app =>
-    app.fetchOpenPreviousSets(['Hammer Curl', 'Lat Pulldown']),
-
-  'fetchOpenPreviousSets: no exercises picked yet': async app =>
-    app.fetchOpenPreviousSets([]),
 
   'fetchLastSessionSnapshot: sets only': async app =>
     app.fetchLastSessionSnapshot({ id: 'upper-a' }),

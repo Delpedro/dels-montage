@@ -50,7 +50,7 @@ function harness(today) {
   const app = load({
     functions: ['mondayOf', 'weeksBetween', 'weekRangeLabel',
                 'renderWeeklyAverage', 'showWeeklyAverage', 'showWeeklyWaist', 'showWeeklySplit',
-                'stepWeeklyAverage', 'numOrNull',
+                'stepWeeklyAverage', 'stepsSpanLabel', 'numOrNull',
                 'dateStr', 'weekIndex'],
     decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey', '_weekWaists', '_weekSessions', '_weekSteps'],
     deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today }
@@ -130,11 +130,18 @@ console.log('Weekly average weight');
 
   ok(els['weekavg-card'].style.display === 'block', 'card is shown once there is at least one weigh-in');
 
-  // The number Del gave in UAT: the week he is in is week 6 of tracking his weight, so the last
-  // completed week is 5. This is the assertion the whole renumbering exists for.
-  eq(els['weekavg-wk-name'].textContent, 'Week 5',
-     'opens on week 5, the last completed week — not on week 6, and not on week 33');
-  eq(els['weekavg-range'].textContent, '10 – 16 Aug', 'with its dates under the name');
+  // Opens on the CURRENT week (changed 19 Aug 2026 — it used to open on the last completed one,
+  // which meant arrowing forward one week on every single visit to Stats). Week 6 is the week he is
+  // in, and the renumbering this fixture exists for still has to hold: week 6 of THIS run, not the
+  // 33rd week since the abandoned April block.
+  eq(els['weekavg-wk-name'].textContent, 'Week 6',
+     'opens on week 6, the week you are in — not on week 5, and not on week 33');
+  eq(els['weekavg-range'].textContent, '17 – 23 Aug', 'with its dates under the name');
+  eq(els['weekavg-val'].innerHTML.startsWith('79.0'), true, 'week 6 averages 79.0');
+
+  app.stepWeeklyAverage(-1);
+  eq(els['weekavg-wk-name'].textContent, 'Week 5', 'and last week is one tap back');
+  eq(els['weekavg-range'].textContent, '10 – 16 Aug', 'with its own dates');
   eq(els['weekavg-val'].innerHTML.startsWith('80.5'), true, 'week 5 averages 80.5 from 80 and 81');
 
   // A stepper, so nothing is on screen but the week you're on — and no list of any kind. Both
@@ -188,10 +195,13 @@ console.log('Weekly average weight');
      'a week from the old block still compares to this week');
   eq(els['weekavg-cmp'].className, 'weekavg-cmp down', 'and being lighter now than then reads as green');
 
-  // Selecting the current week has nothing to compare against; say so rather than printing 0.0kg.
+  // The current week compares against LAST week (19 Aug 2026). It used to print "This week so far"
+  // and stop — acceptable when you had to arrow onto it deliberately, useless now that it is the
+  // view the card opens on: a default view that says nothing makes you tap to learn anything.
   app.showWeeklyAverage('2026-08-17');
-  eq(els['weekavg-cmp'].textContent, 'This week so far', 'the current week compares to nothing');
-  eq(els['weekavg-cmp'].className, 'weekavg-cmp flat', 'and is not coloured as a win or a loss');
+  eq(els['weekavg-cmp'].textContent, 'So far · ▼ 1.5kg vs last week (80.5kg)',
+     'the current week is measured against the one before it');
+  eq(els['weekavg-cmp'].className, 'weekavg-cmp down', 'and being lighter than last week reads as green');
 }
 
 // ── Gaps and empties ──────────────────────────────────────────────────────────────────────────
@@ -223,7 +233,8 @@ console.log('Weekly average weight');
   const e = harness('2026-08-17');
   e.app.renderWeeklyAverage([{ date: '2026-08-17', weight_kg: 79 }]);
   eq(e.els['weekavg-wk-name'].textContent, 'Week 1', 'the first week you ever weigh in is week 1');
-  eq(e.els['weekavg-cmp'].textContent, 'This week so far', 'and it is the week you are in');
+  eq(e.els['weekavg-cmp'].textContent, 'This week so far',
+     'and with no week before it there is nothing to compare against — the old wording still stands');
 
   // Nothing at all: the card hides rather than rendering an empty picker over "--kg".
   const d = harness('2026-08-17');
@@ -266,10 +277,14 @@ console.log('Weekly average weight');
   const { app, els } = harness('2026-08-17');
   app.renderWeeklyAverage(weights, waists);
 
-  // Opens on the last completed week, chosen by the WEIGHTS — the waist line follows it there and
-  // has nothing for that week. It must say so, not fall back to the nearest measurement.
-  eq(els['weekavg-wk-name'].textContent, 'Week 5', 'the week shown is still picked by the weigh-ins');
+  // Opens on the current week, chosen by the WEIGHTS — the waist line follows it there.
+  eq(els['weekavg-wk-name'].textContent, 'Week 6', 'the week shown is still picked by the weigh-ins');
   eq(els['weekavg-waist'].style.display, 'block', 'the block shows once any waist exists');
+  eq(els['weekavg-waist-val'].innerHTML.startsWith('96.0'), true, 'and shows this week measurement');
+
+  // Step back to the week he skipped the tape. It must say so, not fall back to the nearest
+  // measurement it can find.
+  app.showWeeklyAverage('2026-08-10');
   eq(els['weekavg-waist-val'].innerHTML.startsWith('--'), true, 'a week with no waist prints --');
   eq(els['weekavg-waist-cmp'].textContent, 'Not measured that week', 'and says why');
 

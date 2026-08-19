@@ -97,7 +97,14 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
   const painted = [];
 
   const deps = {
-    document: { getElementById: id => els[id] || null },
+    document: {
+      getElementById: id => els[id] || null,
+      // bwSyncAll() sweeps every .bw-cell after a restore (see bwCellHtml in js/app.js). None of
+      // this fixture is an optional-weight exercise, so the sweep finds nothing — but without the
+      // method existing at all, restoreDraft throws halfway and every assertion below it fails
+      // for a reason that has nothing to do with variations.
+      querySelectorAll: () => [],
+    },
     localStorage: {
       getItem: k => (k in store ? store[k] : null),
       setItem: (k, v) => { store[k] = String(v); },
@@ -110,7 +117,9 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
   };
 
   const api = load({
-    functions: ['prevSetsForVariation', 'applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft'],
+    // bwSyncAll is extracted rather than stubbed: restoreDraft calls it, and a stub would hide a
+    // real ReferenceError there — which is exactly what the first run of this change produced.
+    functions: ['prevSetsForVariation', 'applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft', 'bwSyncAll'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets', 'pendingRest',
             'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder'],
     deps,

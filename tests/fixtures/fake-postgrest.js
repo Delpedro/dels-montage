@@ -20,6 +20,14 @@
 // embedding unambiguous in prod: exactly one FK per child table.
 const FK = { workout_sets: 'workout_id', cardio_logs: 'workout_id' };
 
+// The same relationships read the other way — a child embedding its PARENT, which is what
+// `workout_sets?select=…,workouts!inner(date)` asks for. Added 19 Aug 2026, when fetchPreviousSetsFor
+// started querying sets directly (scoped by exercise, not by session) and needed each set's own date
+// carried back on the row. `!inner` matters here in a way it never did for a child embed: on a parent
+// embed it DROPS the child row when the parent is filtered out, and that is the entire mechanism the
+// lookback date bound relies on.
+const PARENT = { workout_sets: 'workouts', cardio_logs: 'workouts' };
+
 // ── the rows ────────────────────────────────────────────────────────────────
 // Shaped after the real data rather than invented: an abandoned workout with nothing in it (w4),
 // a CV + Pump session carried only by its notes (w3), a cardio-only session (w7), the same lift
@@ -165,15 +173,30 @@ function runQuery(data, path) {
   if (limit != null) rows = rows.slice(0, limit);
 
   const parts = splitTop(select).map(p => {
-    const m = p.match(/^([a-z_]+)\((.*)\)$/);
-    return m ? { embed: m[1], cols: splitTop(m[2]) } : { col: p };
+    const m = p.match(/^([a-z_]+)(!inner)?\((.*)\)$/);
+    return m ? { embed: m[1], inner: !!m[2], cols: splitTop(m[3]) } : { col: p };
   });
   const plainCols = parts.filter(p => p.col).map(p => p.col);
   const embeds = parts.filter(p => p.embed);
 
+  const DROP = Symbol('inner-join-miss');
   return rows.map(row => {
     const out = project(row, plainCols);
-    for (const { embed, cols } of embeds) {
+    for (const { embed, inner, cols } of embeds) {
+      // ── a child embedding its PARENT: workout_sets?select=…,workouts!inner(date) ──
+      if (PARENT[table] === embed) {
+        let parent = data[embed].find(p => String(p.id) === String(row[FK[table]]));
+        if (parent) {
+          for (const [col, expr] of (embedParams[embed]?.filters || [])) {
+            if (!applyFilter([parent], col, expr).length) { parent = null; break; }
+          }
+        }
+        // !inner drops the row; a plain embed would keep it with a null parent.
+        if (!parent && inner) return DROP;
+        out[embed] = parent ? project(parent, cols) : null;
+        continue;
+      }
+      // ── a parent embedding its CHILDREN: the 15 Aug shape ──
       if (!FK[embed]) throw new Error(`fake-postgrest: no foreign key from ${embed} to ${table}`);
       let kids = data[embed].filter(c => c[FK[embed]] === row.id);
       for (const [col, expr] of (embedParams[embed]?.filters || [])) kids = applyFilter(kids, col, expr);
@@ -183,7 +206,7 @@ function runQuery(data, path) {
       out[embed] = kids.map(k => project(k, cols));
     }
     return out;
-  });
+  }).filter(r => r !== DROP);
 }
 
 // The `sb()` the extracted app code is handed. Records every path so a test can assert on the
