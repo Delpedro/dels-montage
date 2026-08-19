@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1630';
+const APP_BUILD = '2026-08-19-1644';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1947,6 +1947,57 @@ async function saveSessionTemplate() {
   buildSessionGrid(selectedProgramme);
 }
 
+// ─── THE APP'S OWN CONFIRM ────────────────────────────────
+// Eight yes/no questions used to go through the browser's native confirm(). On 19 Aug 2026 Del hit
+// one of them on Home and what he saw was an OS dialog captioned "delpedro.github.io says" sitting
+// on top of a hand-built app — the same objection a native <select> got on 17 Aug, and the one part
+// of the app that had no design language on it at all.
+//
+// This is a drop-in: it returns a promise, so `if (!confirm(x)) return;` became
+// `if (!await askConfirm({...})) return;` and nothing else about the call sites moved. Seven of the
+// eight callers were already async; only resetSessionSelection() had to become one, and all three
+// of its callers are fire-and-forget click handlers.
+//
+// Labels say what the button DOES ("Finish without them", "Go back") rather than OK/Cancel, because
+// a two-button dialog is read fastest when the buttons make sense without the question above them.
+// Text goes in through textContent, never innerHTML — session and exercise names are user-typed.
+let confirmResolve = null;
+
+function askConfirm({ title, body = '', yes = 'OK', no = 'Cancel', danger = false }) {
+  // A second question asked while one is open would strand the first promise forever, and an
+  // await that never settles is a frozen screen. Answer the old one "no": every one of these
+  // guards an action, so no is always the safe direction.
+  if (confirmResolve) { const stale = confirmResolve; confirmResolve = null; stale(false); }
+
+  const modal = document.getElementById('confirm-modal');
+  const bodyEl = document.getElementById('confirm-body');
+  const yesBtn = document.getElementById('confirm-yes');
+  const noBtn = document.getElementById('confirm-no');
+  document.getElementById('confirm-title').textContent = title;
+  bodyEl.textContent = body;
+  bodyEl.style.display = body ? 'block' : 'none';
+  yesBtn.textContent = yes;
+  noBtn.textContent = no;
+  yesBtn.classList.toggle('confirm-yes-danger', !!danger);
+
+  const settle = (answer) => {
+    modal.style.display = 'none';
+    const done = confirmResolve;
+    confirmResolve = null;
+    if (done) done(answer);
+  };
+  // Assigned, not addEventListener: assignment replaces, so re-opening the dialog can never leave
+  // two handlers on one button resolving two different promises.
+  yesBtn.onclick = () => settle(true);
+  noBtn.onclick = () => settle(false);
+  // The backdrop is a cancel. `e.target === modal` and not a closest() check, so a tap that lands
+  // on the card itself — or on a button inside it — never reads as one.
+  modal.onclick = (e) => { if (e.target === modal) settle(false); };
+
+  modal.style.display = 'block';
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
+
 // Resolves in-progress/resume/warn-and-switch and eagerly creates the workout row.
 // Sets selectedSession/selectedVariations/currentWorkoutId/currentWorkoutHasSets on success.
 // Shared by selectSession() (fixed sessions) and startOpenWorkout() (Open Workout).
@@ -1988,7 +2039,13 @@ async function beginWorkoutSession(session) {
     } else {
       // DIFFERENT session tapped — warn before abandoning the in-progress one.
       const existingName = sessionDisplayName(existing.session_type);
-      if (!confirm(`You have an in-progress ${existingName} session. Start ${session.name} instead? (${existingName} will stay saved, you can resume it later.)`)) {
+      const go = await askConfirm({
+        title: `${existingName} is still open`,
+        body: `Starting ${session.name} leaves it exactly where it is — nothing is lost, and you can pick it up again later.`,
+        yes: `Start ${session.name}`,
+        no: 'Cancel',
+      });
+      if (!go) {
         return false;
       }
       currentWorkoutId = await createWorkoutRow(session.id);
@@ -2028,7 +2085,13 @@ function showWorkoutView(mode, sessionName = '') {
 
 async function selectSession(session, btn) {
   if (btn.classList.contains('done')) {
-    if (!confirm(`You already logged ${session.name} today. Log again?`)) return;
+    const again = await askConfirm({
+      title: `${session.name} is already logged today`,
+      body: 'Logging it again adds a second session to today rather than editing the first.',
+      yes: 'Log it again',
+      no: 'Cancel',
+    });
+    if (!again) return;
   }
 
   if (session.cardio) {
@@ -2932,7 +2995,13 @@ async function startOpenWorkout() {
 // editable afterwards with the same ✎ template editor as every other session.
 async function offerSaveOpenAsTemplate(exercises, supersetTags = {}) {
   if (!exercises.length) return;
-  if (!confirm(`Save this workout as a reusable session?\n\n${exercises.map(e => e.name).join('\n')}`)) return;
+  const save = await askConfirm({
+    title: 'Save this as a session?',
+    body: `It becomes a tile on the Log Workout screen, with these exercises:\n\n${exercises.map(e => e.name).join('\n')}`,
+    yes: 'Save it',
+    no: 'Not now',
+  });
+  if (!save) return;
 
   const raw = prompt('Name this session:', '');
   const name = raw ? raw.trim() : '';
@@ -2979,7 +3048,14 @@ async function offerSaveOpenAsTemplate(exercises, supersetTags = {}) {
 async function deleteSessionTemplate() {
   const session = getSessionById(editingTemplateSessionId);
   if (!session || session.programme !== CUSTOM_PROGRAMME_ID) return;
-  if (!confirm(`Delete the "${session.name}" session? Workouts you've already logged with it are kept.`)) return;
+  const del = await askConfirm({
+    title: `Delete ${session.name}?`,
+    body: 'This removes the tile only. Workouts you have already logged with it stay in History.',
+    yes: 'Delete it',
+    no: 'Keep it',
+    danger: true,
+  });
+  if (!del) return;
   const id = session.id;
   await sb(`session_exercises?session_id=eq.${id}`, 'DELETE', null, { quiet: true });
   const res = await sb(`session_templates?id=eq.${id}`, 'DELETE', null, { quiet: true });
@@ -3586,8 +3662,10 @@ function selectEditVariation(exName, variation, btn) {
     }
   }
 }
-// Called when "Log Workout" title is tapped — warns if data exists, then resets back to programme/session grid
-function resetSessionSelection(toProgrammePicker = false) {
+// Called when "Log Workout" title is tapped — warns if data exists, then resets back to
+// programme/session grid. Async since 19 Aug only because the warning is now askConfirm(); all
+// three callers are click handlers that ignore the return value, so nothing had to await it.
+async function resetSessionSelection(toProgrammePicker = false) {
   if (selectedSession) {
     const hasData = selectedSession.exercises?.some(ex => {
       for (let i = 1; i <= ex.sets; i++) {
@@ -3596,7 +3674,16 @@ function resetSessionSelection(toProgrammePicker = false) {
       }
       return false;
     });
-    if (hasData && !confirm(`You've started logging ${selectedSession.name} — go back and lose your data?`)) return;
+    if (hasData) {
+      const leave = await askConfirm({
+        title: 'Lose what you have typed?',
+        body: `${selectedSession.name} has numbers in it that were never marked done. Going back discards them.`,
+        yes: 'Go back anyway',
+        no: 'Stay here',
+        danger: true,
+      });
+      if (!leave) return;
+    }
   }
   if (currentWorkoutId && !currentWorkoutHasSets) {
     // quiet + not awaited: cleanup of an empty row. If it fails, History and every counter already
@@ -3668,7 +3755,14 @@ async function saveWorkout() {
     return false;
   }).map(ex => ex.name);
   if (unsaved.length) {
-    if (!confirm(`Nothing is saved for:\n\n${unsaved.join('\n')}\n\nThose have numbers filled in but were never marked done. Go back and tap Mark Done, or finish the workout without them?`)) return;
+    const finish = await askConfirm({
+      title: 'Some exercises were never marked done',
+      body: `${unsaved.join('\n')}\n\nThose have numbers filled in but nothing saved. Go back and tap Mark Done on them, or finish the workout without them.`,
+      yes: 'Finish without them',
+      no: 'Go back',
+      danger: true,
+    });
+    if (!finish) return;
   }
 
   const notes = document.getElementById('workout-notes')?.value || '';
@@ -3677,7 +3771,13 @@ async function saveWorkout() {
   // An entry exists (user picked an activity) but produced no data — every field read back empty.
   // Warn instead of silently dropping it, since this exact silent-drop cost two days of cardio data.
   if (cardioEntryCount > 0 && cardioRows.length === 0) {
-    if (!confirm('Cardio entries look empty — fill in at least one field per entry, or remove them with ✕. Save the rest of the workout without cardio?')) return;
+    const saveAnyway = await askConfirm({
+      title: 'Cardio entries look empty',
+      body: 'Fill in at least one field per entry, or remove them with ✕. The rest of the workout saves either way.',
+      yes: 'Save without cardio',
+      no: 'Go back',
+    });
+    if (!saveAnyway) return;
   }
   if (cardioRows.length) {
     // Delete-then-insert, the same idiom saveExerciseSets() uses. The POST used to stand alone, so
@@ -5412,7 +5512,14 @@ async function saveEditWorkout() {
 
 // ─── DELETE WORKOUT ───────────────────────────────────────
 async function deleteWorkout(workoutId) {
-  if (!confirm('Delete this workout?')) return;
+  const gone = await askConfirm({
+    title: 'Delete this workout?',
+    body: 'Its sets, cardio and notes go with it. This cannot be undone.',
+    yes: 'Delete it',
+    no: 'Cancel',
+    danger: true,
+  });
+  if (!gone) return;
   // Sets first, then the workout row. If the sets delete fails, stop — deleting the parent would
   // orphan them and the workout would still count nowhere while its sets lingered in the DB.
   const setsRes = await sb(`workout_sets?workout_id=eq.${workoutId}`, 'DELETE', null, { quiet: true });

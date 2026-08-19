@@ -735,3 +735,21 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 /* Only shown when a newer build is live but reloading now would interrupt a workout in progress. */
 .update-banner { position: fixed; left: 12px; right: 12px; bottom: 78px; z-index: 300; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--accent); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
 .update-banner button { padding: 7px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; background: var(--accent); border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+
+/* ─── THE APP'S OWN CONFIRM (19 Aug 2026) ──────────────────
+   Replaces eight native confirm() calls. A browser dialog paints OS chrome and the origin name
+   ("delpedro.github.io says") over a hand-built app, which is the same objection the native
+   <select> got on 17 Aug — it is the one part of the app with no design language on it.
+   Cancel sits left, the action sits right, and both say what they DO rather than OK/Cancel, so the
+   button text is readable without the question. The action turns red on the destructive ones;
+   that is the only place --red is used for anything but an error, and it is deliberate — green
+   still means done, the accent still means go. */
+.confirm-box { background: var(--bg2); border: 1px solid var(--border2); border-radius: 14px; padding: 1.25rem; max-width: 420px; margin: 12vh auto 0; }
+.confirm-title { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 0.5px; color: var(--text); }
+/* pre-line, so a list of exercise names keeps its line breaks without being built as markup. */
+.confirm-body { font-size: 14px; color: var(--muted2); line-height: 1.55; white-space: pre-line; margin-top: 0.5rem; }
+.confirm-actions { display: flex; gap: 0.625rem; margin-top: 1.25rem; }
+/* Content-sized would let a long label like "Finish without them" squeeze Cancel to nothing. */
+.confirm-actions .btn { flex: 1; min-width: 0; }
+.confirm-yes-danger { background: var(--red); }
+.confirm-yes-danger:active { background: #c94848; }

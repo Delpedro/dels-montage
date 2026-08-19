@@ -161,7 +161,8 @@ function fakeDoc(overrides = {}) {
               'supersetGroups', 'supersetBaseOrder', 'supersetsTouched'],
       deps: {
         document: fakeDoc(),
-        confirm: () => true,
+        // askConfirm() replaced the native confirm() on 19 Aug; saveWorkout awaits it now.
+        askConfirm: async () => true,
         collectCardioRows: () => cardioRows,
         sb: async (path, method = 'GET', body = null) => {
           calls.push({ path, method, body });

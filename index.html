@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-19-1630">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-19-1644">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -404,6 +404,23 @@
 
 <!-- MACRO TARGETS MODAL -->
 <!-- CHANGE PASSWORD MODAL -->
+<!-- ── CONFIRM DIALOG ─────────────────────────────────────────────────────────────────────────
+     The app asking its own yes/no questions instead of the browser asking them. Wired in
+     app.js → askConfirm(), which returns a promise, so every caller awaits an answer exactly as
+     it used to read confirm()'s return value.
+     z-index 300 rather than the other modals' 200 on purpose: "Delete this workout?" is asked
+     from inside the edit-workout modal, so it has to paint over one. -->
+<div id="confirm-modal" style="display:none; position:fixed; inset:0; z-index:300; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
+  <div class="confirm-box">
+    <div class="confirm-title" id="confirm-title"></div>
+    <div class="confirm-body" id="confirm-body"></div>
+    <div class="confirm-actions">
+      <button type="button" class="btn btn-outline" id="confirm-no"></button>
+      <button type="button" class="btn btn-save" id="confirm-yes"></button>
+    </div>
+  </div>
+</div>
+
 <div id="password-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.85); padding:1.5rem; overflow-y:auto;">
   <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:14px; padding:1.25rem; max-width:500px; margin:0 auto;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -573,6 +590,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-19-1630"></script>
+<script src="js/app.js?v=2026-08-19-1644"></script>
 </body>
 </html>

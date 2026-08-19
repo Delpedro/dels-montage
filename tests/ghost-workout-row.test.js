@@ -66,7 +66,9 @@ function harness({ rows, draft = null }) {
       sessionDisplayName: (id) => id,
       showToast: () => {},
       createWorkoutRow: async () => { created++; return 'new-' + created; },
-      confirm: () => { confirms++; return confirmAnswer; },
+      // askConfirm() replaced the native confirm() on 19 Aug and returns a promise. What this
+      // test cares about is unchanged: how many times the app stopped to ask.
+      askConfirm: async () => { confirms++; return confirmAnswer; },
       localStorage: { getItem: () => (draft ? JSON.stringify(draft) : null) },
     },
     accessors: {
