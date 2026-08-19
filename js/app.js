@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1655';
+const APP_BUILD = '2026-08-19-1658';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -59,6 +59,17 @@ async function checkForUpdate(force = false) {
 // deletes every cache whose name isn't the current build's, so the cleanup happens anyway — just in
 // the right order, after a working replacement exists rather than before.
 async function applyUpdate() {
+  // Wait for any token refresh to land before tearing the page down. Supabase rotates the refresh
+  // token on every use: the server marks the old one spent and hands back a new one, and only
+  // storeSession() writing that response to localStorage makes the new one ours. Reload in the
+  // gap and localStorage keeps a token the server has already retired — the next boot gets a 400
+  // and the login screen. That is why updating and "I had to sign in again" kept happening on the
+  // same morning, and why reopening quickly seemed to avoid it: GoTrue lets a spent token through
+  // for ~10 seconds, so only the slow reopen actually noticed.
+  //
+  // The wait is one HTTP round trip at most, and it can't hang the update: a dead connection
+  // rejects or resolves the same promise, and the reload happens either way.
+  if (refreshInFlight) { try { await refreshInFlight; } catch (e) {} }
   try {
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
