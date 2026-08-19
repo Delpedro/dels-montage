@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1707';
+const APP_BUILD = '2026-08-19-1712';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1020,12 +1020,6 @@ function hasAnyGoal() {
 // defensible once you can see that one band is 100 wide and the other is 10.
 function goalBand(t) { return Math.max(t * 0.05, 3); }
 
-// The target with its band, for the value column: `2000 ±100` / `200 ±10g`. The unit rides on the
-// band because that is the last number on the line, and repeating it on both reads as noise.
-function targetWithBand(t, unit = 'g') {
-  return `${Math.round(t)}<i class="pf-mband">±${Math.round(goalBand(t))}${esc(unit)}</i>`;
-}
-
 function goalState(actual, target, underIsMiss = false) {
   const a = numOrNull(actual), t = numOrNull(target);
   if (a === null || t === null || t === 0) return null;
@@ -1035,18 +1029,29 @@ function goalState(actual, target, underIsMiss = false) {
   return diff > 0 ? 'bad' : 'soft';
 }
 
-// The "vs target" cell on check-in cards. Replaces deltaCell() for macros now that there is a
-// target to judge against — and brings colour back with it, which deltaCell() deliberately
-// suppressed because green/red against a moving previous-day number was meaningless.
-function goalCell(actual, target, opts = {}) {
+// The right-hand cell on a check-in macro row — and most days, on most rows, it is empty.
+//
+// Three goes at this card failed the same way, and it took Del saying he did not like any of them
+// to see why. Every version judged all five macros and coloured all five, so a day arrived as five
+// verdicts: green, green, red, amber, green. Nobody reads a day as five verdicts. Worse, the
+// verdicts ran in opposite directions without saying so — under is the miss on protein and fibre,
+// over is the miss on calories, carbs and fat — so two rows could both show a minus, one green and
+// one red, and both be right. No choice of colour, band or delta unit fixes that. The grading was
+// the problem.
+//
+// So the card stopped grading and started flagging. A row is plain unless it is genuinely off, and
+// then it says by how much, in the unit you would act on. Hitting a target earns no colour — the
+// reward for hitting it is that the row goes quiet. Wed 19 Aug lights one row (carbs +35g). Tue 18
+// lights three. That is a day you can read without decoding anything.
+//
+// Under on calories, carbs or fat is not a miss on a cut, so it is not flagged. That was the amber
+// 'soft' state, which spent a colour to say "this is fine".
+function missCell(actual, target, opts = {}) {
   const { suffix = '', decimals = 0, underIsMiss = false } = opts;
-  const state = goalState(actual, target, underIsMiss);
-  if (state === null) return `<span class="pf-d same">—</span>`;
+  if (goalState(actual, target, underIsMiss) !== 'bad') return '<span class="pf-d"></span>';
   const diff = numOrNull(actual) - numOrNull(target);
-  const txt = Math.abs(diff) < 0.5
-    ? 'on target'
-    : `${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(decimals).replace(/\.0$/, '')}${suffix}`;
-  return `<span class="pf-d ${state}">${txt}</span>`;
+  const txt = `${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(decimals).replace(/\.0$/, '')}${suffix}`;
+  return `<span class="pf-d off">${txt}</span>`;
 }
 
 // One meter row on the Check-in card. `actual` may be null (nothing logged yet) — the bar renders
@@ -5055,8 +5060,8 @@ function renderHistoryPage() {
           }
           const cells = `<span class="pf-mval">${Math.round(v)}</span>`
                       + `<span class="pf-msep">/</span>`
-                      + `<span class="pf-mtgt">${targetWithBand(t, unit)}</span>`;
-          return metric(label, '', cells, goalCell(v, t, { suffix: unit, decimals: 0, underIsMiss: !!opts.underIsMiss }));
+                      + `<span class="pf-mtgt">${Math.round(t)}${esc(unit)}</span>`;
+          return metric(label, '', cells, missCell(v, t, { suffix: unit, decimals: 0, underIsMiss: !!opts.underIsMiss }));
         };
         // Weight has no target, so it stays a day-on-day change — the one column therefore holds
         // two different kinds of number, which is only safe because each row says which it is: the
