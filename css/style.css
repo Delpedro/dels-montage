@@ -10,7 +10,14 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; }
-html.login-active { overflow: hidden; touch-action: none; }
+/* `overflow: hidden` only. `touch-action: none` used to sit here too, and on an iOS PWA that is a
+   root-level suppression of default touch behaviour for every descendant — including the two inputs
+   you have to use to get in. Paired with the scroll handler below (which snapped the page back to 0
+   whenever iOS scrolled the focused field up above the keyboard) it made the login screen genuinely
+   hard to operate on a phone, which is what "I can't log in without swiping the app off" was.
+   Nothing is lost by dropping it: #login-screen is `position: fixed; inset: 0` over an opaque
+   background, so there is no page behind it to scroll or rubber-band into view. */
+html.login-active { overflow: hidden; }
 
 #login-screen { position: fixed; inset: 0; z-index: 999; display: flex; align-items: center; justify-content: center; padding: 2rem; background: var(--bg); }
 .login-card { width: 100%; max-width: 380px; }

@@ -41,7 +41,8 @@ No framework. No build step. Vanilla JS + Supabase. Installs to an iPhone home s
 - Inline edit modal to correct any set (weight, reps, variation)
 
 **Daily check-in**
-- Weight, steps, calories, protein, energy, notes — with macro targets and a colour verdict
+- Weight, steps, calories, protein, energy, notes — with macro targets. In History a macro row is
+  plain unless it actually misses its target, and then it says by how much
 - **Weekly average weight**, numbered in *tracking* weeks (week 1 = your first weigh-in of the
   current run), compared against the week you're in
 - Edit past entries via modal

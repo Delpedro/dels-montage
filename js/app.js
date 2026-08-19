@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1712';
+const APP_BUILD = '2026-08-19-1723';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -97,9 +97,11 @@ window.addEventListener('pageshow', (e) => { if (e.persisted) checkForUpdate(tru
 window.addEventListener('load', () => checkForUpdate(true));
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-window.addEventListener('scroll', () => {
-  if (document.documentElement.classList.contains('login-active')) window.scrollTo(0, 0);
-});
+// The scroll-lock that used to live here forced window.scrollTo(0, 0) on every scroll event while
+// the login screen was up. On a phone that is a fight you lose: tap the password field, iOS scrolls
+// it clear of the keyboard, this yanked it straight back under the keyboard. Removed 19 Aug 2026
+// along with `touch-action: none` — see the CSS note on html.login-active. The login screen is a
+// fixed, opaque, full-viewport overlay, so it needs no scroll lock to stay in front of anything.
 
 const SUPABASE_URL = 'https://mltikqmwwlgyzogrgemr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_2BQBFSox7bL1X2TlSlbOYA_hn8FcPmy';
