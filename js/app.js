@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1644';
+const APP_BUILD = '2026-08-19-1655';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1003,11 +1003,23 @@ function hasAnyGoal() {
 //
 // The ±5% (min 3 units) tolerance is the point of the whole thing. Nobody hits 175g protein to the
 // gram, and a row that is permanently red teaches you to stop reading the colour.
+// The width of the "close enough" band in the macro's own unit: 5% of target, never under 3. It is
+// now printed beside the target (`200 ±10g`) rather than living only in here, because a hidden band
+// makes the colours look arbitrary — +84 calories green sitting above +35g carbs red is only
+// defensible once you can see that one band is 100 wide and the other is 10.
+function goalBand(t) { return Math.max(t * 0.05, 3); }
+
+// The target with its band, for the value column: `2000 ±100` / `200 ±10g`. The unit rides on the
+// band because that is the last number on the line, and repeating it on both reads as noise.
+function targetWithBand(t, unit = 'g') {
+  return `${Math.round(t)}<i class="pf-mband">±${Math.round(goalBand(t))}${esc(unit)}</i>`;
+}
+
 function goalState(actual, target, underIsMiss = false) {
   const a = numOrNull(actual), t = numOrNull(target);
   if (a === null || t === null || t === 0) return null;
   const diff = a - t;
-  if (Math.abs(diff) <= Math.max(t * 0.05, 3)) return 'good';
+  if (Math.abs(diff) <= goalBand(t)) return 'good';
   if (underIsMiss) return diff < 0 ? 'bad' : 'good';
   return diff > 0 ? 'bad' : 'soft';
 }
@@ -5032,7 +5044,7 @@ function renderHistoryPage() {
           }
           const cells = `<span class="pf-mval">${Math.round(v)}</span>`
                       + `<span class="pf-msep">/</span>`
-                      + `<span class="pf-mtgt">${Math.round(t)}${esc(unit)}</span>`;
+                      + `<span class="pf-mtgt">${targetWithBand(t, unit)}</span>`;
           return metric(label, '', cells, goalCell(v, t, { suffix: unit, decimals: 0, underIsMiss: !!opts.underIsMiss }));
         };
         // Weight has no target, so it stays a day-on-day change — the one column therefore holds
