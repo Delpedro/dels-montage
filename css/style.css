@@ -240,9 +240,13 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .next-up-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; }
 .next-up-after { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .next-up-go { font-size: 12px; font-weight: 600; color: var(--sc); white-space: nowrap; }
-.quote-card { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
-.quote-text { font-size: 14px; color: var(--text); line-height: 1.5; font-style: italic; }
-.quote-author { font-size: 11px; color: var(--muted); margin-top: 6px; }
+/* One line under the greeting, not a card (19 Aug 2026). As a bordered tile with an accent rail it
+   read as something to act on and sat directly above Next up, which is the only thing on Home that
+   actually wants tapping. Empty until the quote loads, so a failed fetch leaves nothing rather than
+   a stuck "Loading..." — and no gap either, since the block stays display:none until then. */
+.daily-quote { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin: -0.75rem 0 1.25rem; }
+.quote-text { font-style: italic; }
+.quote-author { color: var(--muted2); white-space: nowrap; margin-left: 4px; }
 .landing-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 1.25rem; }
 .landing-stats-2 { grid-template-columns: repeat(2, 1fr); margin-bottom: 1.25rem; }
 .landing-section-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: -0.5rem 0 0.5rem; }
@@ -624,9 +628,20 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .goal-fill.empty { background: var(--border2); }
 
 .goal-hint { font-size: 10px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
-/* Names what the right-hand column on a check-in card actually is: change since the previous
-   check-in, not a shortfall against a macro target. Right-aligned so it sits over that column. */
-.pf-cmp { font-size: 9.5px; color: var(--muted); text-align: right; letter-spacing: 0.3px; margin: -4px 0 6px; }
+/* Check-in metrics (19 Aug 2026). Every row used to be its own .pf-lift with an `auto` value
+   column, so "79.9kg", "1985 / 2000" and "171 / 175g" each set their own left edge and the slashes
+   staggered down the card. One grid for the whole block gives the number, the slash and the target
+   a shared column each, and the deltas a shared right edge. Columns stay content-sized so nothing
+   can overflow into its neighbour whatever the figures turn out to be. */
+.pf-metrics { display: grid; grid-template-columns: 1fr auto auto auto minmax(46px, auto); column-gap: 8px; row-gap: 11px; align-items: baseline; }
+.pf-mname { font-size: 12.5px; color: var(--text); }
+.pf-mval { font-family: 'DM Mono', monospace; font-size: 12.5px; font-weight: 500; color: var(--text); text-align: right; }
+/* Weight and waist have no target to print, so they span the three number columns. */
+.pf-mwide { grid-column: span 3; }
+.pf-msep { font-family: 'DM Mono', monospace; font-size: 12.5px; color: var(--muted2); }
+.pf-mtgt { font-family: 'DM Mono', monospace; font-size: 12.5px; color: var(--muted); }
+.pf-metrics .pf-sub { display: block; }
+.pf-card.log .history-card-notes { margin-top: 11px; }
 .pf-badge { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--green); color: #04140c; border-radius: 20px; padding: 2px 7px; margin-left: 6px; }
 .pf-foot { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10.5px; color: var(--muted); }
 .pf-foot b { font-family: 'DM Mono', monospace; color: var(--text); font-weight: 500; }

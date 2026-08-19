@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-19-1502">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-19-1515">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -51,6 +51,10 @@
   <div class="page active" id="page-home">
     <div class="landing-greeting" id="landing-greeting">Good morning, Del</div>
     <div class="landing-date" id="landing-date"></div>
+    <div class="daily-quote" id="daily-quote" style="display:none;">
+      <span class="quote-text" id="quote-text"></span>
+      <span class="quote-author" id="quote-author"></span>
+    </div>
     <!-- Where you are in the rolling cycle. Hidden until there is history to work it out from. -->
     <div class="next-up" id="next-up" onclick="startNextSession()">
       <div class="next-up-top">
@@ -63,10 +67,6 @@
         <span class="next-up-after" id="next-up-after"></span>
         <span class="next-up-go" id="next-up-go">Start &rarr;</span>
       </div>
-    </div>
-    <div class="quote-card">
-      <div class="quote-text" id="quote-text">Loading...</div>
-      <div class="quote-author" id="quote-author"></div>
     </div>
     <div class="landing-stats landing-stats-2">
       <div class="landing-stat">
@@ -559,6 +559,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-19-1502"></script>
+<script src="js/app.js?v=2026-08-19-1515"></script>
 </body>
 </html>

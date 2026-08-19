@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1502';
+const APP_BUILD = '2026-08-19-1515';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -1161,6 +1161,14 @@ function todayStr() {
   return dateStr();
 }
 
+// Days since the epoch, wrapped to the length of a list — a pick that holds all day and moves on
+// at midnight. Built from local Y/M/D through Date.UTC so a timezone offset can't roll it early.
+function dayIndex(len) {
+  const d = new Date();
+  const days = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+  return ((days % len) + len) % len;
+}
+
 function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning, Del';
@@ -1174,11 +1182,16 @@ async function loadHomePage() {
   document.getElementById('landing-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   try {
-    const quotes = await sb(`quotes?select=quote,author`);
+    // One quote a day, not one a page load. A fresh random pick every time Home rendered meant the
+    // line changed on every refresh and every tap back from another tab — motion with no meaning
+    // behind it. `order=id` pins the list order too, so the row PostgREST happens to return first
+    // can't shuffle the choice underneath the date.
+    const quotes = await sb(`quotes?select=quote,author&order=id`);
     if (quotes && quotes.length > 0) {
-      const q = quotes[Math.floor(Math.random() * quotes.length)];
+      const q = quotes[dayIndex(quotes.length)];
       document.getElementById('quote-text').textContent = `"${q.quote}"`;
       document.getElementById('quote-author').textContent = q.author ? `— ${q.author}` : '';
+      document.getElementById('daily-quote').style.display = '';
     }
   } catch(e) {}
 
@@ -4809,8 +4822,18 @@ function renderHistoryPage() {
         const dnum = key => (prev && l[key] !== null && prev[key] !== null &&
                              l[key] !== undefined && prev[key] !== undefined)
           ? parseFloat(l[key]) - parseFloat(prev[key]) : null;
-        const row = (label, value, cell) => value === null || value === undefined ? '' :
-          `<div class="pf-lift"><span class="pf-lname">${esc(label)}</span><span class="pf-lval">${esc(value)}</span>${cell}</div>`;
+        // Each metric emits its cells straight into one grid for the whole block rather than
+        // owning a self-contained row, so the number, the slash and the target line up in columns
+        // down the card. As separate rows the value column was `auto`, so "79.9kg", "1985 / 2000"
+        // and "171 / 175g" each set their own left edge and the slashes staggered — which is most
+        // of what made the card look messy. `sub` is the small line under the label naming what
+        // this row is compared against; rows with a target inline don't need one.
+        const metric = (label, sub, valCells, cell) =>
+          `<span class="pf-mname">${esc(label)}${sub ? `<span class="pf-sub">${esc(sub)}</span>` : ''}</span>${valCells}${cell}`;
+        // No target to print, so the value spans the three number columns and right-aligns into
+        // the same edge as the targets above and below it.
+        const row = (label, sub, value, cell) => value === null || value === undefined ? '' :
+          metric(label, sub, `<span class="pf-mval pf-mwide">${esc(value)}</span>`, cell);
         // Macros are judged against the target as of 11 Aug 2026. This column used to be the change
         // since the previous check-in, which read as a shortfall it wasn't — "17g fibre, −10g" was
         // just 27g the day before, not a miss. Printing the target inline in the value column
@@ -4823,25 +4846,28 @@ function renderHistoryPage() {
           if (v === null) return '';
           const t = numOrNull(target);
           const unit = opts.unit === undefined ? 'g' : opts.unit;
-          const value = t === null ? `${v}${unit}` : `${Math.round(v)} / ${Math.round(t)}${unit}`;
-          const cell = t === null
-            ? deltaCell(dnum(key), { suffix: unit, decimals: 0, neutral: true })
-            : goalCell(v, t, { suffix: unit, decimals: 0, underIsMiss: !!opts.underIsMiss });
-          return row(label, value, cell);
+          if (t === null) {
+            return row(label, '', `${v}${unit}`, deltaCell(dnum(key), { suffix: unit, decimals: 0, neutral: true }));
+          }
+          const cells = `<span class="pf-mval">${Math.round(v)}</span>`
+                      + `<span class="pf-msep">/</span>`
+                      + `<span class="pf-mtgt">${Math.round(t)}${esc(unit)}</span>`;
+          return metric(label, '', cells, goalCell(v, t, { suffix: unit, decimals: 0, underIsMiss: !!opts.underIsMiss }));
         };
-        // Weight has no target, so it stays a day-on-day change — two different comparison bases in
-        // one column, which is only safe because both are named here and the macro rows carry their
-        // target inline. The previous check-in is often not yesterday, so name the actual date.
+        // Weight has no target, so it stays a day-on-day change — the one column therefore holds
+        // two different kinds of number, which is only safe because each row says which it is: the
+        // macro rows carry their target inline, weight and waist carry the date they moved from.
         const prevWaist = prevWaistByDate[l.date] || null;
         const dWaist = prevWaist ? parseFloat(l.waist_cm) - parseFloat(prevWaist.waist_cm) : null;
         const shortDate = d => new Date(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
-        const bases = [];
-        if (hasAnyGoal()) bases.push('macros vs target');
-        if (prev) bases.push(`weight vs ${shortDate(prev.date)}`);
-        // Named separately from the weight base because it is a different date — the last waist is
-        // usually a week back, the last check-in usually yesterday.
-        if (prevWaist) bases.push(`waist vs ${shortDate(prevWaist.date)}`);
-        const cmpLine = bases.length ? `<div class="pf-cmp">${bases.join(' · ')}</div>` : '';
+        // The comparison basis now sits on the row it belongs to instead of a run-on legend across
+        // the top of the card ("macros vs target · weight vs Tue 18 Aug · waist vs Wed 12 Aug"),
+        // which had to be read and then mentally mapped back onto three different rows. The macro
+        // rows need no legend at all — the target is printed in the row. Weight and waist each name
+        // their own date because they are different dates: the last waist is usually a week back,
+        // the last check-in usually yesterday.
+        const weightSub = prev ? `vs ${shortDate(prev.date)}` : '';
+        const waistSub = prevWaist ? `vs ${shortDate(prevWaist.date)}` : '';
         const footBits = [];
         if (l.steps != null) footBits.push(`<span>Steps <b>${esc(Number(l.steps).toLocaleString())}</b></span>`);
         if (l.energy) footBits.push(`<span>Energy <b>${esc(ENERGY_WORDS[l.energy] || l.energy)}</b></span>`);
@@ -4853,14 +4879,15 @@ function renderHistoryPage() {
             <span class="pf-name">CHECK-IN</span>
             <span class="pf-date">${new Date(l.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
           </div>
-          ${cmpLine}
-          ${row('Weight', l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, deltaCell(dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true}))}
-          ${row('Waist', l.waist_cm !== null && l.waist_cm !== undefined ? `${l.waist_cm}cm` : null, deltaCell(dWaist, {suffix:'cm', lowerIsBetter:true}))}
-          ${macroRow('Calories', 'calories', goalCalories(), {unit:''})}
-          ${macroRow('Protein', 'protein_g', MACRO_GOALS.protein_g, {underIsMiss:true})}
-          ${macroRow('Carbs', 'carbs_g', MACRO_GOALS.carbs_g)}
-          ${macroRow('Fat', 'fat_g', MACRO_GOALS.fat_g)}
-          ${macroRow('Fibre', 'fibre_g', MACRO_GOALS.fibre_g, {underIsMiss:true})}
+          <div class="pf-metrics">
+            ${row('Weight', weightSub, l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, deltaCell(dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true}))}
+            ${row('Waist', waistSub, l.waist_cm !== null && l.waist_cm !== undefined ? `${l.waist_cm}cm` : null, deltaCell(dWaist, {suffix:'cm', lowerIsBetter:true}))}
+            ${macroRow('Calories', 'calories', goalCalories(), {unit:''})}
+            ${macroRow('Protein', 'protein_g', MACRO_GOALS.protein_g, {underIsMiss:true})}
+            ${macroRow('Carbs', 'carbs_g', MACRO_GOALS.carbs_g)}
+            ${macroRow('Fat', 'fat_g', MACRO_GOALS.fat_g)}
+            ${macroRow('Fibre', 'fibre_g', MACRO_GOALS.fibre_g, {underIsMiss:true})}
+          </div>
           ${l.notes ? `<div class="history-card-notes">${esc(l.notes)}</div>` : ''}
           ${footBits.length ? `<div class="pf-foot">${footBits.join('')}</div>` : ''}
         </div>`;
@@ -4884,12 +4911,15 @@ function renderHistoryPage() {
                       ? (p.bestReps ? (p.best !== null ? `${p.best}×${p.bestReps}s` : `${p.bestReps}s`) : '—')
                       : p.best !== null ? `${p.best}×${p.bestReps || 0}`
                       : (p.bestReps ? `BW×${p.bestReps}` : '—');
-          const restTxt = p.avgRest !== null ? `rest ${fmtRest(p.avgRest)} avg` : 'rest —';
+          // A lift with one set has no rest to average — you don't rest after the last set — so
+          // this printed a bare `rest —` under a third of the lifts on the card. The logger's
+          // lastTimeRestLabel() has always returned '' in the same situation; History now matches.
+          const restTxt = p.avgRest !== null ? `rest ${fmtRest(p.avgRest)} avg` : '';
           const label = `${esc(p.exercise)}${p.variation ? ` <span style="color:var(--muted);">· ${esc(p.variation)}</span>` : ''}`;
           // Supersets: the lifts in one group carry the same tag, so they read as a pair on the card.
           const ssTag = p.supersetGroup ? `<span class="pf-ss">s/s ${esc(p.supersetGroup)}</span>` : '';
           return `<div class="pf-lift${p.supersetGroup ? ' pf-ss-row' : ''}">
-            <span><span class="pf-lname">${label}${ssTag}${p.isPR ? `<span class="pf-badge">${p.prKind === 'reps' ? 'REP PR' : 'PR'}</span>` : ''}</span><div class="pf-sub">${esc(restTxt)}</div></span>
+            <span><span class="pf-lname">${label}${ssTag}${p.isPR ? `<span class="pf-badge">${p.prKind === 'reps' ? 'REP PR' : 'PR'}</span>` : ''}</span>${restTxt ? `<div class="pf-sub">${esc(restTxt)}</div>` : ''}</span>
             <span class="pf-lval">${esc(value)}</span>
             ${p.best !== null ? deltaCell(p.delta, {decimals:1}) : '<span class="pf-d same">—</span>'}
           </div>`;
