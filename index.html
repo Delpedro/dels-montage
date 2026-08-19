@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-19-1515">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-19-1536">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -108,12 +108,18 @@
         <div class="landing-btn-sub">Track your session</div>
       </div>
     </div>
-    <div class="account-row">
-      <button type="button" class="account-link" onclick="exportAllData()" id="export-btn">Export my data</button>
-      <button type="button" class="account-link" onclick="openPasswordModal()">Change password</button>
+    <!-- Housekeeping, parked at the foot of the screen rather than under the last button: none of
+         it is why Del opened the app, and sitting it right below Log Workout made the whole stack
+         read as one crowded column. #page-home is a flex column and this block takes the slack
+         (margin-top:auto), so it lands just above the nav however short the page is. -->
+    <div class="landing-foot">
+      <div class="account-row">
+        <button type="button" class="account-link" onclick="exportAllData()" id="export-btn">Export my data</button>
+        <button type="button" class="account-link" onclick="openPasswordModal()">Change password</button>
+      </div>
+      <!-- Which build the phone is actually running. Read this out before reporting a missing feature. -->
+      <div class="build-tag" id="build-tag" onclick="checkForUpdate(true)"></div>
     </div>
-    <!-- Which build the phone is actually running. Read this out before reporting a missing feature. -->
-    <div class="build-tag" id="build-tag" onclick="checkForUpdate(true)"></div>
   </div>
 
   <!-- TODAY -->
@@ -251,20 +257,28 @@
           <div class="weekavg-waist-val" id="weekavg-waist-val">--<span class="weekavg-unit">cm</span></div>
           <div class="weekavg-waist-cmp" id="weekavg-waist-cmp"></div>
         </div>
-        <!-- Sessions and average steps for the week the arrows have landed on. They live in this
-             card rather than in tiles of their own because everything in it answers the same
-             question — how did that week go — and the arrows drive all of it, the same way the
-             waist figure above already works. -->
-        <div class="weekavg-split">
-          <div class="weekavg-half">
-            <div class="weekavg-half-val" id="weekavg-sessions">--</div>
-            <div class="weekavg-half-name">Sessions</div>
-          </div>
-          <div class="weekavg-half">
-            <div class="weekavg-half-val" id="weekavg-steps">--</div>
-            <div class="weekavg-half-name">Avg steps</div>
-            <div class="weekavg-half-days" id="weekavg-steps-days"></div>
-          </div>
+      </div>
+      <!-- Sessions, calories and steps for the week the arrows have landed on. They live in this
+           card rather than in tiles of their own because everything in it answers the same
+           question — how did that week go — and the arrows drive all of it, the same way the
+           waist figure above already works.
+           Outside .weekavg-body on purpose: the body is capped at 260px to keep the weight figure
+           and its comparison line a readable column, and three numbers with a "Mon–Wed · 3 days"
+           note under two of them need the card's full width to sit on one line each. -->
+      <div class="weekavg-split">
+        <div class="weekavg-half">
+          <div class="weekavg-half-val" id="weekavg-sessions">--</div>
+          <div class="weekavg-half-name">Sessions</div>
+        </div>
+        <div class="weekavg-half">
+          <div class="weekavg-half-val" id="weekavg-cals">--</div>
+          <div class="weekavg-half-name">Avg cals</div>
+          <div class="weekavg-half-days" id="weekavg-cals-days"></div>
+        </div>
+        <div class="weekavg-half">
+          <div class="weekavg-half-val" id="weekavg-steps">--</div>
+          <div class="weekavg-half-name">Avg steps</div>
+          <div class="weekavg-half-days" id="weekavg-steps-days"></div>
         </div>
       </div>
     </div>
@@ -559,6 +573,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-19-1515"></script>
+<script src="js/app.js?v=2026-08-19-1536"></script>
 </body>
 </html>

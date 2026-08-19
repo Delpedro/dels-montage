@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1515';
+const APP_BUILD = '2026-08-19-1536';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -4198,6 +4198,30 @@ let _weekAvgKey = null;
 let _weekWaists = {};
 let _weekSessions = {};
 let _weekSteps = {};
+let _weekCals = {};
+
+// Monday → { avg, days, first, last } for one numeric daily-log column, skipping the days that
+// carry no figure. `logs` arrives ordered date.asc, so each bucket comes out chronological and
+// first/last are the real ends of the span without a re-sort.
+function weeklyMeans(logs, field) {
+  const buckets = {};
+  (logs || []).forEach(l => {
+    const v = numOrNull(l[field]);
+    if (v === null) return;
+    (buckets[mondayOf(l.date)] ||= []).push({ v, date: l.date });
+  });
+  const out = {};
+  Object.keys(buckets).forEach(k => {
+    const b = buckets[k];
+    out[k] = {
+      avg: Math.round(b.reduce((a, c) => a + c.v, 0) / b.length),
+      days: b.length,
+      first: b[0].date,
+      last: b[b.length - 1].date
+    };
+  });
+  return out;
+}
 
 function renderWeeklyAverage(allWeights, allWaists = [], allLogs = [], allWorkouts = []) {
   const card = document.getElementById('weekavg-card');
@@ -4230,26 +4254,11 @@ function renderWeeklyAverage(allWeights, allWaists = [], allLogs = [], allWorkou
     _weekSessions[mondayOf(w.date)] = (_weekSessions[mondayOf(w.date)] || 0) + 1;
   });
 
-  // Steps: the mean of the days that have a figure, not of seven days. Dividing by 7 when the watch
-  // only synced on four of them prints a number lower than any day Del actually walked.
-  // allLogs is ordered date.asc, so each bucket comes out chronological and first/last below are
-  // the real ends of the span without a re-sort.
-  const stepBuckets = {};
-  (allLogs || []).forEach(l => {
-    const v = numOrNull(l.steps);
-    if (v === null) return;
-    (stepBuckets[mondayOf(l.date)] ||= []).push({ steps: v, date: l.date });
-  });
-  _weekSteps = {};
-  Object.keys(stepBuckets).forEach(k => {
-    const b = stepBuckets[k];
-    _weekSteps[k] = {
-      avg: Math.round(b.reduce((a, c) => a + c.steps, 0) / b.length),
-      days: b.length,
-      first: b[0].date,
-      last: b[b.length - 1].date
-    };
-  });
+  // Steps and calories: the mean of the days that have a figure, not of seven days. Dividing by 7
+  // when the watch only synced on four of them prints a number lower than any day Del actually
+  // walked, and the same holds for a week he only logged his food on three days of.
+  _weekSteps = weeklyMeans(allLogs, 'steps');
+  _weekCals  = weeklyMeans(allLogs, 'calories');
 
   // One pass, oldest first: carry an anchor Monday forward, and drop a new anchor whenever the
   // silence since the last logged week is long enough to count as having stopped.
@@ -4344,25 +4353,30 @@ function showWeeklyAverage(key) {
   }
 }
 
-// Sessions and average steps for the week the arrows are on (18 Aug 2026). They used to be two
-// tiles under this card; they read better as part of it, because the card already is "how did that
-// week go" and they are two more answers to it.
+// Sessions, average calories and average steps for the week the arrows are on (18 Aug 2026,
+// calories added 19 Aug). They used to be tiles under this card; they read better as part of it,
+// because the card already is "how did that week go" and they are three more answers to it.
 //
 // Sessions falls back to 0 rather than "--": a week in the middle of a run with no workouts in it
-// is a week he did not train, which is worth seeing. Steps cannot do the same — no steps recorded
-// means the watch did not sync, not that he did not walk, so that one stays a dash.
+// is a week Del did not train, which is worth seeing. The two averages cannot do the same — no
+// steps recorded means the watch did not sync rather than that he did not walk, and no calories
+// means he did not log rather than that he did not eat, so those stay dashes.
 function showWeeklySplit(key) {
   const sessEl = document.getElementById('weekavg-sessions');
-  const stepEl = document.getElementById('weekavg-steps');
   if (sessEl) sessEl.textContent = _weekSessions[key] || 0;
-  const stepNote = document.getElementById('weekavg-steps-days');
-  if (stepEl) {
-    const st = _weekSteps[key];
-    stepEl.textContent = st === undefined ? '--' : st.avg.toLocaleString();
-    // Say what was averaged. "MON–WED · 3 DAYS" is the whole reason this number can differ from
-    // Home's seven-day figure, and until it was written down the two just looked wrong.
-    if (stepNote) stepNote.textContent = st === undefined ? '' : stepsSpanLabel(st);
-  }
+  weekHalf('weekavg-cals', _weekCals[key]);
+  weekHalf('weekavg-steps', _weekSteps[key]);
+}
+
+// One averaged column of the split: the number, and under it the days it was averaged over.
+// "MON–WED · 3 DAYS" is the whole reason these can differ from Home's seven-day figures, and
+// until it was written down the two just looked wrong. Calories and steps carry their own span
+// each, because a day can hold one without the other — a walk with no food logged against it.
+function weekHalf(id, m) {
+  const el = document.getElementById(id);
+  const note = document.getElementById(id + '-days');
+  if (el) el.textContent = m === undefined ? '--' : m.avg.toLocaleString();
+  if (note) note.textContent = m === undefined ? '' : stepsSpanLabel(m);
 }
 
 // "Mon–Wed · 3 days", or "Mon · 1 day" when there is only one, or "7 days" for a full week where

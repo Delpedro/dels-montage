@@ -41,7 +41,8 @@ function fakeDom() {
   ['weekavg-card', 'weekavg-wk-name', 'weekavg-range', 'weekavg-val', 'weekavg-cmp',
    'weekavg-prev', 'weekavg-next',
    'weekavg-waist', 'weekavg-waist-val', 'weekavg-waist-cmp',
-   'weekavg-sessions', 'weekavg-steps'].forEach(get);
+   'weekavg-sessions', 'weekavg-steps', 'weekavg-steps-days',
+   'weekavg-cals', 'weekavg-cals-days'].forEach(get);
   return { els, get, document: { getElementById: id => get(id) } };
 }
 
@@ -50,9 +51,11 @@ function harness(today) {
   const app = load({
     functions: ['mondayOf', 'weeksBetween', 'weekRangeLabel',
                 'renderWeeklyAverage', 'showWeeklyAverage', 'showWeeklyWaist', 'showWeeklySplit',
+                'weeklyMeans', 'weekHalf',
                 'stepWeeklyAverage', 'stepsSpanLabel', 'numOrNull',
                 'dateStr', 'weekIndex'],
-    decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey', '_weekWaists', '_weekSessions', '_weekSteps'],
+    decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey', '_weekWaists', '_weekSessions',
+            '_weekSteps', '_weekCals'],
     deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today }
   });
   return { app, els: dom.els, get: dom.get };
@@ -318,7 +321,7 @@ console.log('Weekly average weight');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Sessions and average steps ride the same arrows (18 Aug 2026)
+// Sessions, calories and steps ride the same arrows (18 Aug 2026; calories 19 Aug)
 // ═══════════════════════════════════════════════════════════════════════════
 // They were tiles under this card and Del rejected three versions of that. Folded in, they have to
 // obey the card: press ‹ and every figure in the box must be about the week you landed on. A pair
@@ -335,10 +338,10 @@ console.log('Weekly average weight');
     { date: '2026-08-17' }                                                   // this week: 1
   ];
   const logs = [
-    { date: '2026-07-13', steps: 9000 },
-    { date: '2026-07-15', steps: '11000' },   // PostgREST hands whole numbers back as strings too
-    { date: '2026-08-17', steps: 6000 },
-    { date: '2026-08-10', steps: null }        // logged a check-in, watch never synced
+    { date: '2026-07-13', steps: 9000, calories: 2100 },
+    { date: '2026-07-15', steps: '11000', calories: '1900' }, // PostgREST hands whole numbers back as strings too
+    { date: '2026-08-17', steps: 6000, calories: 2000 },
+    { date: '2026-08-10', steps: null, calories: null }       // logged a check-in, watch never synced, no food logged
   ];
 
   const h = harness('2026-08-17');
@@ -348,16 +351,23 @@ console.log('Weekly average weight');
   eq(h.els['weekavg-sessions'].textContent, 3, 'the week of 13 Jul shows its own three sessions');
   eq(h.els['weekavg-steps'].textContent, '10,000',
      'and its own step average — the mean of the days that HAVE a figure, not a divide by seven');
+  eq(h.els['weekavg-cals'].textContent, '2,000',
+     'and its own calorie average, on the same two-days-logged basis');
+  eq(h.els['weekavg-cals-days'].textContent, 'Mon–Wed · 2 days',
+     'which names the days it averaged, so it can differ from Home without looking wrong');
 
   h.app.showWeeklyAverage('2026-08-17');
   eq(h.els['weekavg-sessions'].textContent, 1, 'arrowing to this week repaints the session count');
   eq(h.els['weekavg-steps'].textContent, '6,000', 'and the step average with it');
+  eq(h.els['weekavg-cals'].textContent, '2,000', 'and the calorie average with it');
 
   // A week inside the run with no workouts is a week he did not train. That is a fact worth
   // printing, not a gap — whereas no steps means the watch did not sync and must not read as zero.
   h.app.showWeeklyAverage('2026-08-10');
   eq(h.els['weekavg-sessions'].textContent, 0, 'a trained-nothing week prints 0, not a dash');
   eq(h.els['weekavg-steps'].textContent, '--', 'a week with no steps recorded prints a dash, not 0');
+  eq(h.els['weekavg-cals'].textContent, '--', 'and a week with no food logged prints a dash, not 0');
+  eq(h.els['weekavg-cals-days'].textContent, '', 'with no day-span note under a dash');
 
   // The card renders for people who have never logged either — it predates both.
   const bare = harness('2026-08-17');
@@ -365,6 +375,20 @@ console.log('Weekly average weight');
   bare.app.showWeeklyAverage('2026-07-13');
   eq(bare.els['weekavg-sessions'].textContent, 0, 'no workouts at all still renders a number');
   eq(bare.els['weekavg-steps'].textContent, '--', 'and no steps at all still renders a dash');
+  eq(bare.els['weekavg-cals'].textContent, '--', 'and no calories at all with it');
+
+  // Calories and steps keep their own day-spans: Del walks every day and logs his food most days,
+  // so one column averaging four days while the other averages six is normal, not a bug.
+  const split = harness('2026-08-17');
+  split.app.renderWeeklyAverage(weights, [], [
+    { date: '2026-08-17', steps: 8000, calories: 2000 },
+    { date: '2026-08-18', steps: 12000, calories: null }
+  ], []);
+  split.app.showWeeklyAverage('2026-08-17');
+  eq(split.els['weekavg-steps'].textContent, '10,000', 'steps average both days');
+  eq(split.els['weekavg-steps-days'].textContent, 'Mon–Tue · 2 days', 'and say so');
+  eq(split.els['weekavg-cals'].textContent, '2,000', 'calories average only the day that has one');
+  eq(split.els['weekavg-cals-days'].textContent, 'Mon · 1 day', 'and say so separately');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

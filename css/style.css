@@ -24,7 +24,11 @@ html.login-active { overflow: hidden; touch-action: none; }
 .btn-primary:active { transform: scale(0.98); background: #d14d20; }
 .login-error { font-size: 13px; color: var(--red); margin-top: 0.75rem; text-align: center; display: none; }
 
-#app { display: block; min-height: 100vh; padding-bottom: 80px; }
+/* A flex column, not a block, since 19 Aug: it lets a page grow to fill whatever is left of the
+   screen, which is what parks Home's account/build footer at the bottom instead of leaving it
+   stranded under the last button. padding-bottom clears the fixed nav. The topbar is still
+   position:sticky — sticky works on a flex item, the scroll container is the page either way. */
+#app { display: flex; flex-direction: column; min-height: 100vh; padding-bottom: 80px; }
 .topbar { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); padding: 0.75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
 .topbar-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1px; color: var(--accent); cursor: pointer; }
 .topbar-date { font-size: 11px; color: var(--muted); }
@@ -37,7 +41,7 @@ html.login-active { overflow: hidden; touch-action: none; }
 .nav-label { font-size: 10px; }
 
 .page { display: none; padding: 1rem; }
-.page.active { display: block; }
+.page.active { display: block; flex: 1 1 auto; }
 .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 1px; margin-bottom: 0.75rem; }
 .section-sub { font-size: 13px; color: var(--muted); margin-top: -0.5rem; margin-bottom: 0.75rem; }
 .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 0.875rem; }
@@ -220,7 +224,21 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .loading { text-align: center; color: var(--muted); font-size: 13px; padding: 1.5rem; }
 .empty { text-align: center; padding: 1.5rem 1rem; color: var(--muted); font-size: 13px; }
 
-/* LANDING PAGE */
+/* LANDING PAGE
+   Home is the one page with a footer that belongs at the foot of the screen rather than after the
+   content, so it lays itself out as a column and .landing-foot eats the leftover height. Everything
+   here is also spaced wider than the rest of the app (19 Aug) — with all the blocks on 1.25rem the
+   stack read as one solid slab, and Home is a glance, not a form. */
+#page-home.active { display: flex; flex-direction: column; }
+#page-home > .daily-quote { margin-bottom: 1.5rem; }
+#page-home > .next-up,
+#page-home > .landing-stats,
+#page-home > .landing-stats-2,
+#page-home > .backup-nudge,
+#page-home > .week-strip { margin-bottom: 1.5rem; }
+#page-home > .landing-actions { margin-bottom: 0; }
+.landing-foot { margin-top: auto; padding-top: 2rem; }
+
 .landing-greeting { font-family: 'DM Sans', sans-serif; font-size: 28px; font-weight: 600; letter-spacing: 0; margin-bottom: 2px; }
 .landing-date { font-size: 13px; color: var(--muted); margin-bottom: 1.25rem; }
 
@@ -244,12 +262,14 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
    read as something to act on and sat directly above Next up, which is the only thing on Home that
    actually wants tapping. Empty until the quote loads, so a failed fetch leaves nothing rather than
    a stuck "Loading..." — and no gap either, since the block stays display:none until then. */
-.daily-quote { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin: -0.75rem 0 1.25rem; }
+.daily-quote { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin: -0.5rem 0 1.25rem; }
 .quote-text { font-style: italic; }
 .quote-author { color: var(--muted2); white-space: nowrap; margin-left: 4px; }
 .landing-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 1.25rem; }
 .landing-stats-2 { grid-template-columns: repeat(2, 1fr); margin-bottom: 1.25rem; }
-.landing-section-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: -0.5rem 0 0.5rem; }
+/* No negative top margin any more: the blocks above it now own their own spacing, and pulling the
+   label up into them was half of why Home looked stacked on top of itself. */
+.landing-section-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 0.625rem; }
 .landing-stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; text-align: center; }
 .landing-stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 24px; line-height: 1; }
 .landing-stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
@@ -535,8 +555,11 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 /* Sessions | avg steps, under the same kind of divider the waist row uses. Two counts of the same
    week sitting side by side, so they get one shared rule above and a hairline between them rather
    than a box each — a box would make them a separate thing from the week this card is showing. */
-.weekavg-split { display: grid; grid-template-columns: 1fr 1fr; margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px solid var(--border2); }
+/* Three columns since 19 Aug (sessions, calories, steps). Full card width rather than the 260px
+   body above it — see index.html — so each figure keeps its day-span note on one line. */
+.weekavg-split { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px solid var(--border2); text-align: center; }
 .weekavg-half + .weekavg-half { border-left: 1px solid var(--border2); }
+.weekavg-half { padding: 0 4px; }
 .weekavg-half-val { font-family: 'Bebas Neue', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
 .weekavg-half-days { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); margin-top: 2px; }
 .weekavg-half-name { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 3px; }
@@ -703,7 +726,7 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 /* Sits just above the build stamp at the foot of Home — deliberately quiet, it's used twice a year. */
 /* Two links since 13 Aug 2026 (Export / Change password). Flex rather than centred text so they
    stay evenly spaced, and wrap onto two lines on a narrow phone instead of running together. */
-.account-row { margin-top: 1.75rem; display: flex; justify-content: center; align-items: center; gap: 14px; flex-wrap: wrap; }
+.account-row { display: flex; justify-content: center; align-items: center; gap: 14px; flex-wrap: wrap; }
 .account-link[disabled] { opacity: 0.5; cursor: default; }
 .account-link { font-size: 12px; color: var(--muted); background: none; border: none; padding: 4px 8px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font-family: 'DM Sans', sans-serif; }
 
