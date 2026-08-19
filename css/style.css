@@ -86,9 +86,13 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 /* ─── SESSION / PROGRAMME TILE COLOUR (17 Aug 2026) ────────
    The picker was seven identical grey boxes. The colour here is IDENTITY — what you're training
    (upper / lower / full body / CV) on the session screen, which programme on the screen above it.
-   It is never state. That split is the whole design: `done` and `selected` overwrite --sc, so
-   "logged today" stays green on a violet tile instead of competing with it, and green keeps
-   meaning exactly one thing across the whole app.
+   It is never state.
+
+   Which is why `done` no longer repaints the tile (19 Aug 2026). It used to overwrite --sc with
+   green, and that broke the rule this block is built on: Lower B went from violet to green for one
+   day and stopped looking like the tile you had learned to find. Identity that changes with state
+   isn't identity. State is now carried by the green "✓ logged today" line alone — one tick, on a
+   tile that still looks like itself.
    One custom property drives the rail, the name and the tint, so a new session type is one line
    rather than four rules. Only `.tinted` tiles get any of it — the ← Programmes tile stays plain. */
 .session-btn.tinted { padding-left: 1rem; background: var(--sc-bg); border-color: var(--sc-bd); }
@@ -110,14 +114,16 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 /* The folder, not the muscle — these two are the screen above. */
 .sc-prog-upper-lower  { --sc: var(--blue); --sc-bg: rgba(74,158,255,0.05); --sc-bd: rgba(74,158,255,0.28); }
 .sc-prog-full-body-cv { --sc: var(--teal); --sc-bg: rgba(63,185,176,0.05); --sc-bd: rgba(63,185,176,0.28); }
-/* State beats identity. Higher specificity than both `.session-btn.tinted` and the bare
-   `.session-btn.done` above, so it wins regardless of source order — don't rely on the ordering. */
-.session-btn.tinted.done     { --sc: var(--green);  --sc-bg: rgba(76,175,125,0.08); --sc-bd: var(--green); }
+/* The one state that still repaints a tile, and only for the instant between tapping it and the
+   logger opening — it's the tap landing, not a status. Higher specificity than `.session-btn.tinted`
+   so it wins regardless of source order; don't rely on the ordering. */
 .session-btn.tinted.selected { --sc: var(--accent); --sc-bg: rgba(232,93,47,0.1);   --sc-bd: var(--accent); }
 
 /* When you last did this one. Quiet and monospaced — it's context, not the thing you tapped for. */
 .session-last { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 7px; }
-.session-last.done { color: var(--green); font-family: 'DM Sans', sans-serif; font-weight: 600; }
+/* The only thing that marks a logged session now, so it carries a little more weight than the
+   "last · 15 Aug" line it replaces. */
+.session-last.done { color: var(--green); font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 600; }
 
 /* Both span the full grid rather than taking a cell: neither is a session, and a half-width
    "← Programmes" reads as a fifth thing you could train. */
