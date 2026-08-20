@@ -557,12 +557,12 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .weekavg-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .weekavg-arrow {
   flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
-  border: 1px solid var(--border2); background: var(--bg3); color: var(--muted2);
-  font-size: 22px; line-height: 1; font-family: 'DM Sans', sans-serif; cursor: pointer;
+  border: 1.5px solid var(--muted); background: var(--bg); color: var(--text);
+  font-size: 22px; font-weight: 700; line-height: 1; font-family: 'DM Sans', sans-serif; cursor: pointer;
   display: flex; align-items: center; justify-content: center; transition: all 0.15s;
 }
 .weekavg-arrow:active { border-color: var(--accent); color: var(--accent); }
-.weekavg-arrow:disabled { opacity: 0.25; cursor: default; }
+.weekavg-arrow:disabled { opacity: 0.35; cursor: default; }
 .weekavg-wk { flex: 1 1 auto; min-width: 0; }
 .weekavg-wk-name { font-family: 'Bebas Neue', sans-serif; font-size: 23px; letter-spacing: 0.5px; line-height: 1; color: var(--text); }
 .weekavg-range { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; margin-top: 4px; white-space: nowrap; }
