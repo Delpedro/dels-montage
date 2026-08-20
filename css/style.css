@@ -72,6 +72,13 @@ html.login-active { overflow: hidden; }
 .field-input:focus { border-color: var(--accent); }
 textarea.field-input { resize: vertical; min-height: 70px; }
 input[type="date"].field-input { -webkit-appearance: none; appearance: none; color-scheme: dark; }
+input[type="time"].field-input { -webkit-appearance: none; appearance: none; color-scheme: dark; }
+
+/* "Weighed at 07:12" under the weight box. Hidden until there is a weight to timestamp, so a day
+   with no weighing keeps the form exactly as short as it was. */
+.weigh-time { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.weigh-time-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; margin: 0; }
+.field-input-time { width: auto; flex: 1; padding: 7px 9px; font-size: 13px; }
 
 /* Cardio field rows sit in a grid, one field per cell. A label that wraps to two lines
    ("DURATION (MIN)" next to "INCLINE (%)") pushed its input down out of line with the
@@ -692,6 +699,9 @@ input[type="date"].field-input { -webkit-appearance: none; appearance: none; col
 .energy-range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg2); box-shadow: 0 2px 6px rgba(0,0,0,0.5); cursor: pointer; }
 .energy-labels { display: flex; justify-content: space-between; align-items: baseline; font-size: 9.5px; color: var(--muted); margin-top: 8px; }
 .energy-labels b { color: var(--accent); font-size: 11px; font-weight: 600; }
+/* Position 0 is "not set", not a low score. It reads muted so the slider does not look like it is
+   already holding an answer Del never gave. */
+.energy-labels b.energy-unset { color: var(--muted); font-weight: 500; }
 
 /* Quick-fill row at the top of the check-in modal */
 .quick-row { display: flex; gap: 6px; margin-bottom: 0.875rem; }

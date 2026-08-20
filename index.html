@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-19-1723">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-20-1117">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -131,7 +131,7 @@
       <div class="landing-stats" id="checkin-summary-stats" style="display:none;">
         <div class="landing-stat">
           <div class="landing-stat-value stat-accent" id="checkin-sum-weight">--</div>
-          <div class="landing-stat-label">kg</div>
+          <div class="landing-stat-label" id="checkin-sum-weight-label">kg</div>
         </div>
         <div class="landing-stat">
           <div class="landing-stat-value stat-amber" id="checkin-sum-cals">--</div>
@@ -352,7 +352,12 @@
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
         <div class="field-group">
           <label class="field-label">Weight (kg)</label>
-          <input type="number" step="0.1" class="field-input" id="log-weight" placeholder="82.0" />
+          <input type="number" step="0.1" class="field-input" id="log-weight" placeholder="82.0"
+                 oninput="syncWeightTime('log', true)" />
+          <div class="weigh-time" id="log-weight-time-row" style="display:none;">
+            <label class="weigh-time-label" for="log-weight-time">Weighed at</label>
+            <input type="time" class="field-input field-input-time" id="log-weight-time" />
+          </div>
         </div>
         <div class="field-group">
           <label class="field-label">Waist (cm)</label>
@@ -391,7 +396,7 @@
         <label class="field-label">Energy</label>
         <input type="range" class="energy-range" id="log-energy" min="0" max="5" step="1" value="0"
                aria-label="Energy level" oninput="setEnergy(parseInt(this.value))" />
-        <div class="energy-labels"><span>Flat</span><b id="log-energy-word">—</b><span>Flying</span></div>
+        <div class="energy-labels"><span>Not set</span><b id="log-energy-word" class="energy-unset">Not set</b><span>Flying</span></div>
       </div>
       <div class="field-group">
         <label class="field-label">Notes</label>
@@ -492,7 +497,12 @@
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
         <div class="field-group">
           <label class="field-label">Weight (kg)</label>
-          <input type="number" step="0.1" class="field-input" id="edit-weight" placeholder="82.0" />
+          <input type="number" step="0.1" class="field-input" id="edit-weight" placeholder="82.0"
+                 oninput="syncWeightTime('edit', true)" />
+          <div class="weigh-time" id="edit-weight-time-row" style="display:none;">
+            <label class="weigh-time-label" for="edit-weight-time">Weighed at</label>
+            <input type="time" class="field-input field-input-time" id="edit-weight-time" />
+          </div>
         </div>
         <div class="field-group">
           <label class="field-label">Waist (cm)</label>
@@ -531,7 +541,7 @@
         <label class="field-label">Energy</label>
         <input type="range" class="energy-range" id="edit-energy" min="0" max="5" step="1" value="0"
                aria-label="Energy level" oninput="setEditEnergy(parseInt(this.value))" />
-        <div class="energy-labels"><span>Flat</span><b id="edit-energy-word">—</b><span>Flying</span></div>
+        <div class="energy-labels"><span>Not set</span><b id="edit-energy-word" class="energy-unset">Not set</b><span>Flying</span></div>
       </div>
       <div class="field-group">
         <label class="field-label">Notes</label>
@@ -590,6 +600,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-19-1723"></script>
+<script src="js/app.js?v=2026-08-20-1117"></script>
 </body>
 </html>

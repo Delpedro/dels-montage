@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-19-1723';
+const APP_BUILD = '2026-08-20-1117';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -3919,10 +3919,52 @@ async function saveConditioning() {
   buildSessionGrid(selectedProgramme);
 }
 
+// ─── WEIGHT TIMESTAMP ─────────────────────────────────────
+// Scale weight swings a kilo overnight on water alone, so a reading is only comparable with another
+// one taken at the same point in the day. Until 20 Aug the row carried only the date, so a 7am
+// fasted weight and a 9pm post-dinner weight sat in the same trend line and the difference read as
+// a gain that never happened. Typing a weight now stamps the clock time beside it.
+//
+// Stamped, not derived: created_at is when the check-in was typed, which is regularly hours after
+// the scale was stood on. The box stays editable for exactly that case.
+function nowHHMM() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Postgres hands a `time` column back as HH:MM:SS; an <input type="time"> wants HH:MM.
+function hhmm(v) {
+  return v ? String(v).slice(0, 5) : '';
+}
+
+// Keeps the "Weighed at" row in step with the weight box: shown only when there is a weight to
+// timestamp, cleared when the weight goes. `stamp` fills a blank with the current time — and only a
+// blank, because retyping a weight (a correction, or the decimal landing a keystroke later) must not
+// overwrite a time set by hand or read back from an earlier save.
+function syncWeightTime(prefix, stamp) {
+  const weight = document.getElementById(`${prefix}-weight`);
+  const row = document.getElementById(`${prefix}-weight-time-row`);
+  const time = document.getElementById(`${prefix}-weight-time`);
+  if (!weight || !row || !time) return;
+  const hasWeight = String(weight.value).trim() !== '';
+  row.style.display = hasWeight ? 'flex' : 'none';
+  if (!hasWeight) { time.value = ''; return; }
+  if (stamp && !time.value) time.value = nowHHMM();
+}
+
+// Null unless there is both a weight and a time. A time on its own timestamps nothing, and a weight
+// deleted has to take its stamp with it or the row keeps yesterday's hour against today's blank.
+function weightTimeValue(prefix) {
+  const weight = numOrNull(document.getElementById(`${prefix}-weight`).value);
+  const time = document.getElementById(`${prefix}-weight-time`).value;
+  return (weight === null || !time) ? null : time;
+}
+
 // ─── DAILY LOG ────────────────────────────────────────────
 async function loadDailyLog(date = todayStr()) {
   document.getElementById('log-date').value = date;
   document.getElementById('log-weight').value = '';
+  document.getElementById('log-weight-time').value = '';
   document.getElementById('log-waist').value = '';
   clearMacroLine();
   document.getElementById('log-steps').value = '';
@@ -3941,6 +3983,7 @@ async function loadDailyLog(date = todayStr()) {
     // read back as an empty box, so re-saving the check-in quietly wiped it.
     const fill = (id, v) => { if (v != null) document.getElementById(id).value = v; };
     fill('log-weight', l.weight_kg);
+    document.getElementById('log-weight-time').value = hhmm(l.weight_time);
     fill('log-waist', l.waist_cm);
     fill('log-steps', l.steps);
     fill('log-cals', l.calories);
@@ -3952,6 +3995,9 @@ async function loadDailyLog(date = todayStr()) {
     if (l.energy) setEnergy(l.energy);   // energy 0 is the slider's "not set" position, not a value
     if (l.notes) document.getElementById('log-notes').value = l.notes;
   }
+  // Runs whether or not a log came back: it is what hides the "Weighed at" row on a day with no
+  // weight, and what shows it on a day that already has one.
+  syncWeightTime('log', false);
 }
 
 async function openCheckinModal(date = todayStr()) {
@@ -4004,6 +4050,10 @@ async function renderCheckinSummary() {
   emptyEl.style.display = 'none';
   statsEl.style.display = 'grid';
   document.getElementById('checkin-sum-weight').textContent = l.weight_kg ?? '--';
+  // The tile's unit carries the weighing time when there is one, so the number on Home says
+  // whether it is comparable with the one it is being read against.
+  document.getElementById('checkin-sum-weight-label').textContent =
+    l.weight_time ? `kg · ${hhmm(l.weight_time)}` : 'kg';
   document.getElementById('checkin-sum-cals').textContent = l.calories ?? '--';
   document.getElementById('checkin-sum-steps').textContent = l.steps != null ? Number(l.steps).toLocaleString() : '--';
   // The four macro pills that used to sit here were removed 11 Aug 2026 — the targets block above
@@ -4023,6 +4073,7 @@ async function saveDailyLog() {
   const data = {
     date,
     weight_kg: numOrNull(document.getElementById('log-weight').value),
+    weight_time: weightTimeValue('log'),
     waist_cm: numOrNull(document.getElementById('log-waist').value),
     steps: intOrNull(document.getElementById('log-steps').value),
     calories: intOrNull(document.getElementById('log-cals').value),
@@ -4051,14 +4102,23 @@ async function saveDailyLog() {
 }
 
 // Energy is stored 1–5 in the DB; 0 is the slider's "not set" position and saves as null.
-const ENERGY_WORDS = ['—', 'Flat', 'Low', 'OK', 'Good', 'Strong'];
+//
+// The words are the slider's two end labels and the four stops between them. They used to run
+// —/Flat/Low/OK/Good/Strong under a rail labelled "Flat … Flying", which meant the left end of the
+// rail promised Flat and delivered "—", and "Flying" was a word the slider could never actually
+// say. Del spotted it on 20 Aug. Now the rail reads "Not set … Flying" and the ends are the words:
+// position 0 is Not set, position 5 is Flying, and Flat is one notch in where a real answer starts.
+const ENERGY_WORDS = ['Not set', 'Flat', 'Low', 'OK', 'Good', 'Flying'];
 
 function setEnergy(val) {
   selectedEnergy = val;
   const slider = document.getElementById('log-energy');
   const word = document.getElementById('log-energy-word');
   if (slider) slider.value = val;
-  if (word) word.textContent = ENERGY_WORDS[val] || '—';
+  if (word) {
+    word.textContent = ENERGY_WORDS[val] || ENERGY_WORDS[0];
+    word.classList.toggle('energy-unset', !val);
+  }
 }
 
 // Copies the most recent earlier check-in into the form — the macros are hand-relayed
@@ -4080,6 +4140,11 @@ async function fillFromYesterday() {
   set('log-fat', l.fat_g);
   set('log-fibre', l.fibre_g);
   setEnergy(l.energy || 0);
+  // Yesterday's weighing time belongs to yesterday's weighing. This button copies the number, not
+  // the reading, so the stamp is cleared rather than carried across or reset to now — a copied
+  // weight wearing today's clock would be a fact nobody recorded.
+  document.getElementById('log-weight-time').value = '';
+  syncWeightTime('log', false);
   showToast(`Copied from ${l.date}`, 'success');
 }
 
@@ -4093,10 +4158,11 @@ function clearMacroLine() {
 }
 
 function clearCheckinFields() {
-  ['log-weight','log-waist','log-steps','log-cals','log-protein','log-carbs','log-fat','log-fibre','log-notes']
+  ['log-weight','log-weight-time','log-waist','log-steps','log-cals','log-protein','log-carbs','log-fat','log-fibre','log-notes']
     .forEach(id => { document.getElementById(id).value = ''; });
   clearMacroLine();
   setEnergy(0);
+  syncWeightTime('log', false);
 }
 
 // ─── ONE-LINE MACRO ENTRY (18 Aug 2026) ───────────────────
@@ -5077,7 +5143,10 @@ function renderHistoryPage() {
         // rows need no legend at all — the target is printed in the row. Weight and waist each name
         // their own date because they are different dates: the last waist is usually a week back,
         // the last check-in usually yesterday.
-        const weightSub = prev ? `vs ${shortDate(prev.date)}` : '';
+        // The weighing time leads the sub-line when it was recorded — "07:12 · vs Tue 18 Aug" says
+        // both what this reading is compared against and whether that comparison is fair.
+        const weightSub = [l.weight_time ? hhmm(l.weight_time) : '', prev ? `vs ${shortDate(prev.date)}` : '']
+          .filter(Boolean).join(' · ');
         const waistSub = prevWaist ? `vs ${shortDate(prevWaist.date)}` : '';
         const footBits = [];
         if (l.steps != null) footBits.push(`<span>Steps <b>${esc(Number(l.steps).toLocaleString())}</b></span>`);
@@ -5257,6 +5326,7 @@ function openEditLog(l) {
   // so opening a day with 0 steps and saving turned that 0 into "never recorded".
   const set = (id, v) => { document.getElementById(id).value = v ?? ''; };
   set('edit-weight', l.weight_kg);
+  document.getElementById('edit-weight-time').value = hhmm(l.weight_time);
   set('edit-waist', l.waist_cm);
   set('edit-fasting', l.fasting_hours);
   set('edit-cals', l.calories);
@@ -5267,6 +5337,7 @@ function openEditLog(l) {
   set('edit-fibre', l.fibre_g);
   document.getElementById('edit-notes').value = l.notes || '';
   setEditEnergy(editingEnergy);
+  syncWeightTime('edit', false);
   document.getElementById('edit-modal').style.display = 'block';
 }
 
@@ -5280,13 +5351,17 @@ function setEditEnergy(val) {
   const slider = document.getElementById('edit-energy');
   const word = document.getElementById('edit-energy-word');
   if (slider) slider.value = val;
-  if (word) word.textContent = ENERGY_WORDS[val] || '—';
+  if (word) {
+    word.textContent = ENERGY_WORDS[val] || ENERGY_WORDS[0];
+    word.classList.toggle('energy-unset', !val);
+  }
 }
 
 async function saveEditLog() {
   if (!editingLogDate) return;
   const res = await sb(`daily_logs?date=eq.${editingLogDate}`, 'PATCH', {
     weight_kg: numOrNull(document.getElementById('edit-weight').value),
+    weight_time: weightTimeValue('edit'),
     waist_cm: numOrNull(document.getElementById('edit-waist').value),
     fasting_hours: numOrNull(document.getElementById('edit-fasting').value),
     calories: intOrNull(document.getElementById('edit-cals').value),
