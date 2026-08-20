@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1200';
+const APP_BUILD = '2026-08-20-1211';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -185,6 +185,17 @@ function buildExerciseLibrary() {
       if (!map[ex.name]) { const { supersetGroup, ...shape } = ex; map[ex.name] = shape; }
     });
   });
+  // Variations stored on the exercise itself (exercises.variations, 20 Aug 2026). Until now a
+  // variation picker could only come from a session_exercises row, so a lift belonging to no fixed
+  // template could never have one — which is exactly what Seated Row is, and Del wants its four
+  // gym options (Pully / Machine / High Row / Low Row) on it.
+  //
+  // A template's own list still wins. That list is session-scoped on purpose: Upper A and Full Body
+  // A want Smith/BB on the Incline Press while the DB variant stays a separate exercise.
+  Object.entries(EXERCISE_VARIATIONS).forEach(([name, variations]) => {
+    if (!map[name]) map[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
+    if (!map[name].variations) map[name].variations = variations;
+  });
   return map;
 }
 let EXERCISE_LIBRARY = {};  // populated after loadSessionTemplates() resolves — see initApp()
@@ -201,13 +212,21 @@ let EXERCISE_LIBRARY = {};  // populated after loadSessionTemplates() resolves �
 //
 // Nothing here is load-bearing for saving. A missing id is filled in by the database's link
 // trigger from the name, which is what keeps a service-worker-cached old app.js saving sets.
-let EXERCISE_IDS = {};   // name → uuid
+let EXERCISE_IDS = {};          // name → uuid
+let EXERCISE_VARIATIONS = {};   // name → string[], straight off the exercises row
 
+// Populates both maps. Does NOT rebuild EXERCISE_LIBRARY — initApp() awaits this *before* the
+// build, so buildExerciseLibrary() can fold the variations in on its own terms. Rebuilding here
+// would race loadCustomExercises(), which is deliberately not awaited.
 async function loadExerciseIds() {
-  const rows = await sb('exercises?select=id,name');
-  const map = {};
-  (rows || []).forEach(r => { map[r.name] = r.id; });
-  EXERCISE_IDS = map;
+  const rows = await sb('exercises?select=id,name,variations');
+  const ids = {}, variations = {};
+  (rows || []).forEach(r => {
+    ids[r.name] = r.id;
+    if (Array.isArray(r.variations) && r.variations.length) variations[r.name] = r.variations;
+  });
+  EXERCISE_IDS = ids;
+  EXERCISE_VARIATIONS = variations;
 }
 
 // Returns { exercise_id } to spread into a row, or {} when the name isn't known yet — a brand new
@@ -1240,9 +1259,11 @@ async function initApp(page = 'home') {
   document.getElementById('log-date').max = todayStr();
   await autoCloseStaleWorkouts();  // Clean up orphans from >24hrs ago before rendering the session grid
   await loadSessionTemplates();  // Fixed-session templates now live in Supabase, not a hardcoded array — must resolve before anything reads SESSIONS
+  // Before the build, not after: buildExerciseLibrary() folds EXERCISE_VARIATIONS in, and every
+  // workout_sets write consults EXERCISE_IDS — the logger can open the moment initApp returns.
+  await loadExerciseIds();
   EXERCISE_LIBRARY = buildExerciseLibrary();
   loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
-  await loadExerciseIds();  // Awaited: every workout_sets write consults it, and the logger can open immediately after this
   await loadGoals();      // Must resolve before renderCheckinSummary/loadHistory — both judge macros against it
   buildSessionGrid();
   renderCheckinSummary();

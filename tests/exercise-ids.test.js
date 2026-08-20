@@ -122,6 +122,60 @@ async function main() {
     eq(app.lib()['Smith Squat'].sets, 3, 'and it lands in the library with the default shape');
   }
 
+  // ── Variations that belong to the lift, not to a session ────────────────────────────────────
+  // Del's four Seated Row options (Pully / Machine / High Row / Low Row) have nowhere to live in
+  // session_exercises, because Seated Row is in no fixed template. exercises.variations is that
+  // home, and buildExerciseLibrary() is where the two sources meet.
+  {
+    const app = load({
+      functions: ['buildExerciseLibrary'],
+      decls: ['SESSIONS', 'EXERCISE_VARIATIONS'],
+      accessors: {
+        seed: `(sessions, variations) => { SESSIONS = sessions; EXERCISE_VARIATIONS = variations; }`,
+      },
+    });
+
+    app.seed(
+      [{ id: 'upper-b', exercises: [{ name: 'Seated Cable Row', sets: 3, variations: ['Cable', 'Machine'] }] }],
+      { 'Seated Row': ['Pully', 'Machine', 'High Row', 'Low Row'], 'Seated Cable Row': ['Wrong'] });
+
+    const lib = app.buildExerciseLibrary();
+    eq(JSON.stringify(lib['Seated Row'].variations),
+      JSON.stringify(['Pully', 'Machine', 'High Row', 'Low Row']),
+      'an exercise in no template still gets its picker');
+    eq(lib['Seated Row'].sets, 3, 'and a default shape to hang it on');
+    // Session-scoped on purpose: Upper A and Full Body A want Smith/BB on the Incline Press while
+    // the DB variant stays a separate exercise.
+    eq(JSON.stringify(lib['Seated Cable Row'].variations), JSON.stringify(['Cable', 'Machine']),
+      'a template that already has a list keeps it — the session-scoped one wins');
+  }
+
+  // ── The merge did what Del asked, and nothing more ──────────────────────────────────────────
+  {
+    const sql = fs.readFileSync(path.join(
+      __dirname, '..', 'supabase', 'migrations', '20260820150000_merge_duplicate_exercises.sql'), 'utf8');
+
+    for (const [src, dst] of [
+      ['Seated Row (Mach)', 'Seated Row'], ['Seated Row Mach', 'Seated Row'],
+      ['PullUps', 'Pull Ups'], ['Sitting BB curl (restrict)', 'Sitting BB Restricted Curl'],
+      ['Farmer Walks', 'Farmers Walk'],
+    ]) {
+      ok(sql.includes(`('${src}',`) && sql.includes(`'${dst}')`), `${src} merges into ${dst}`);
+    }
+    // Del asked for "Pull-Ups", a third spelling neither row used, so the merge lands on the
+    // existing name and the rename follows it.
+    ok(sql.indexOf("rename_exercise(v_id, 'Pull-Ups')") > sql.indexOf("('PullUps',"),
+      'Pull-Ups is a rename after the merge, not a merge target that does not exist yet');
+
+    // The three he did NOT rule on must still be standing.
+    for (const name of ['High Row', 'Seated Cable Row', 'Incline DB Curl']) {
+      ok(!new RegExp(`\\('${name}',`).test(sql), `${name} is left alone — it was never his call to merge`);
+    }
+
+    ok(/raise exception 'merge_exercises: % and % both hold a set/.test(sql),
+      'a merge that would breach UNIQUE(workout_id, exercise, set_number) stops rather than losing a set');
+  }
+
   // ── The migration keeps its two load-bearing properties ─────────────────────────────────────
   {
     const sql = fs.readFileSync(path.join(
