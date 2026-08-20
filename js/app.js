@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1126';
+const APP_BUILD = '2026-08-20-1136';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -485,30 +485,60 @@ async function refreshSession(force = false) {
   return refreshInFlight;
 }
 
+// A tap on Get In had no visible effect of any kind until it was completely finished, and three
+// separate paths ended in nothing happening at all: an empty field returned silently, a hung
+// connection never resolved, and enterApp() could stall on a frame that never came. All three look
+// identical from the outside — "1password populates the two fields and the get in button wont work"
+// (Del, 20 Aug 2026, locked out on the phone for the third time).
+//
+// The hung connection is the one that explains why force-quitting the app "fixed" it every time.
+// fetch() had no timeout, and an iOS PWA resumed after being backgrounded will happily hand a stale
+// socket to the next request and sit on it indefinitely. Nothing about the session was ever wrong;
+// a new process just got a new network stack.
+const LOGIN_TIMEOUT_MS = 12000;
+
 async function handleLogin() {
   const email = document.getElementById('login-email').value.trim();
   const pw = document.getElementById('login-password').value;
   const err = document.getElementById('login-error');
-  if (!email || !pw) return;
+  const btn = document.getElementById('login-btn');
+  const fail = msg => { err.textContent = msg; err.style.display = 'block'; };
+
+  // Never a silent return. If the fields look full and this fires anyway, that is worth seeing —
+  // it means the password manager filled something the page cannot read.
+  if (!email || !pw) { fail('Enter your email and password'); return; }
+  if (btn && btn.disabled) return;   // a second tap must not start a second token request
+
+  err.style.display = 'none';
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
+
+  // AbortController rather than a bare timer: aborting tears the dead connection down, so tapping
+  // again gets a fresh socket instead of queueing behind the one that is already hanging.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LOGIN_TIMEOUT_MS);
 
   let res;
   try {
     res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: pw })
+      body: JSON.stringify({ email, password: pw }),
+      signal: ctrl.signal
     });
   } catch (e) {
     // Worth telling apart from a wrong password — otherwise a dead connection reads as
     // "I've forgotten my own password" and you retype it five times.
-    err.textContent = "Can't reach the server — check your connection";
-    err.style.display = 'block';
+    fail(e && e.name === 'AbortError'
+      ? 'The server did not answer — tap Get In again'
+      : "Can't reach the server — check your connection");
     return;
+  } finally {
+    clearTimeout(timer);
+    if (btn) { btn.disabled = false; btn.textContent = 'Get In'; }
   }
 
   if (!res.ok) {
-    err.textContent = res.status === 400 ? 'Wrong email or password' : `Login failed (${res.status})`;
-    err.style.display = 'block';
+    fail(res.status === 400 ? 'Wrong email or password' : `Login failed (${res.status})`);
     return;
   }
 
@@ -519,16 +549,30 @@ async function handleLogin() {
   await enterApp('home');
 }
 
-// Shared by a fresh login and by restoring a stored session on load — the two-frame wait is what
-// stops the login card flashing over the app as the scroll lock is released.
+// One animation frame, or 60ms, whichever lands first. requestAnimationFrame does NOT fire in a
+// backgrounded webview, and enterApp() awaited two of them before hiding the login screen — so a
+// PWA resumed mid-login could sit there with a valid session behind a login card that never went
+// away. The wait is a nicety (it stops the card flashing over the app as the scroll lock releases),
+// so it must never be something the app can hang on.
+function nextFrame() {
+  return new Promise(resolve => {
+    let settled = false;
+    const fire = () => { if (!settled) { settled = true; resolve(); } };
+    requestAnimationFrame(fire);
+    setTimeout(fire, 60);
+  });
+}
+
+// Shared by a fresh login and by restoring a stored session on load.
 async function enterApp(page = 'home') {
   document.documentElement.classList.remove('login-active');
   window.scrollTo(0, 0);
-  await new Promise(r => requestAnimationFrame(r));
-  await new Promise(r => requestAnimationFrame(r));
+  await nextFrame();
+  await nextFrame();
   document.getElementById('login-screen').style.display = 'none';
   initApp(page);
 }
+
 
 function showLoginScreen(message) {
   const err = document.getElementById('login-error');
@@ -5150,10 +5194,17 @@ function renderHistoryPage() {
         // rows need no legend at all — the target is printed in the row. Weight and waist each name
         // their own date because they are different dates: the last waist is usually a week back,
         // the last check-in usually yesterday.
-        // The weighing time leads the sub-line when it was recorded — "07:12 · vs Tue 18 Aug" says
-        // both what this reading is compared against and whether that comparison is fair.
-        const weightSub = [l.weight_time ? hhmm(l.weight_time) : '', prev ? `vs ${shortDate(prev.date)}` : '']
-          .filter(Boolean).join(' · ');
+        // The weighing time leads the sub-line, and the reading being compared against carries its
+        // own — "08:20 · vs 07:45 Wed 19 Aug". One time on its own answers nothing: the whole point
+        // of the column is whether the two readings are comparable, and that needs both hours, not
+        // today's hour and yesterday's date. Either time is dropped from the line when it was never
+        // recorded, which is every row before 20 Aug 2026.
+        const prevWeighed = prev && prev.weight_time ? `${hhmm(prev.weight_time)} ` : '';
+        const weightSub = [
+          l.weight_time ? hhmm(l.weight_time) : '',
+          prev ? `vs ${prevWeighed}${shortDate(prev.date)}` : ''
+        ].filter(Boolean).join(' · ');
+
         const waistSub = prevWaist ? `vs ${shortDate(prevWaist.date)}` : '';
         const footBits = [];
         if (l.steps != null) footBits.push(`<span>Steps <b>${esc(Number(l.steps).toLocaleString())}</b></span>`);
