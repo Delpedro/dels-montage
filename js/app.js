@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1219';
+const APP_BUILD = '2026-08-20-1301';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -4491,20 +4491,20 @@ function renderWeightChart(points) {
 
   box.innerHTML = `<svg viewBox="0 0 ${W} 112" role="img" aria-label="Weight trend">
     <defs><linearGradient id="wgrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#e85d2f" stop-opacity="0.26"/>
-      <stop offset="100%" stop-color="#e85d2f" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#b45527" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="#b45527" stop-opacity="0"/>
     </linearGradient></defs>
     <path d="${area}" fill="url(#wgrad)"/>
-    <polyline points="${poly}" fill="none" stroke="#e85d2f" stroke-width="2" stroke-linejoin="round"/>
+    <polyline points="${poly}" fill="none" stroke="#b45527" stroke-width="2" stroke-linejoin="round"/>
     ${coords.map((c, i) => {
       const last = i === coords.length - 1;
-      return `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="${last ? 4 : 2.4}" fill="${last ? '#e85d2f' : '#0e0e0e'}" stroke="#e85d2f" stroke-width="1.7"/>`;
+      return `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="${last ? 4 : 2.4}" fill="${last ? '#b45527' : '#fdfaf4'}" stroke="#b45527" stroke-width="1.7"/>`;
     }).join('')}
     ${coords.map((c, i) => labelled(i)
-      ? `<text x="${c[0].toFixed(1)}" y="${(c[1] - 8).toFixed(1)}" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" font-weight="500" fill="${i === coords.length - 1 ? '#e85d2f' : '#888'}">${points[i].v.toFixed(1)}</text>`
+      ? `<text x="${c[0].toFixed(1)}" y="${(c[1] - 8).toFixed(1)}" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" font-weight="500" fill="${i === coords.length - 1 ? '#b45527' : '#6a6053'}">${points[i].v.toFixed(1)}</text>`
       : '').join('')}
     ${coords.map((c, i) => labelled(i)
-      ? `<text x="${c[0].toFixed(1)}" y="106" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="7" fill="#666">${dayOf(points[i].date)}</text>`
+      ? `<text x="${c[0].toFixed(1)}" y="106" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="7" fill="#8d8272">${dayOf(points[i].date)}</text>`
       : '').join('')}
   </svg>`;
 }

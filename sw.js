@@ -12,7 +12,7 @@
 // on the way out and refreshes it on the way back. Combined with the ?v= build stamp on the asset
 // URLs in index.html and the version.json check in app.js, there is no longer any layer that can
 // hold a stale build.
-const CACHE_NAME = 'dlog-2026-08-20-1219';
+const CACHE_NAME = 'dlog-2026-08-20-1301';
 const APP_SHELL = [
   './',
   './index.html',
@@ -88,8 +88,8 @@ function offlineResponse(request) {
   if (!isNav) return new Response('', { status: 503, statusText: 'Offline' });
   return new Response(
     '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<style>body{font:16px/1.5 system-ui,sans-serif;background:#111;color:#eee;padding:2rem;text-align:center}' +
-    'button{font:inherit;padding:.75rem 1.5rem;margin-top:1rem;border:0;border-radius:8px;background:#2a7;color:#fff}</style>' +
+    '<style>body{font:16px/1.5 system-ui,sans-serif;background:#f4efe6;color:#231f1a;padding:2rem;text-align:center}' +
+    'button{font:inherit;padding:.75rem 1.5rem;margin-top:1rem;border:0;border-radius:8px;background:#4f7a3f;color:#fff}</style>' +
     "<h1>D-LOG can't reach the network</h1><p>Your logged sets are safe. Try again when you have signal.</p>" +
     '<button onclick="location.reload()">Retry</button>',
     { status: 503, statusText: 'Offline', headers: { 'Content-Type': 'text/html; charset=utf-8' } }

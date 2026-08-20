@@ -1,11 +1,16 @@
 :root {
-  --bg: #0e0e0e; --bg2: #161616; --bg3: #1e1e1e;
-  --border: #2a2a2a; --border2: #333;
-  --text: #f0f0f0; --muted: #666; --muted2: #888;
-  --accent: #e85d2f; --green: #4caf7d; --blue: #4a9eff; --amber: #f0a050; --red: #e05555;
+  /* Cream, 20 Aug 2026. D-LOG was dark from the first build until Del picked a light
+     ground off a contact sheet of fourteen. Warm sand rather than white: the identity
+     colours are the same four ideas as before, darkened enough to letter with on paper.
+     --muted is still the dimmer of the two greys, which on a light ground means the
+     LIGHTER one — don't "fix" that back. */
+  --bg: #f4efe6; --bg2: #fdfaf4; --bg3: #fdfaf4;
+  --border: #e2d9c9; --border2: #d2c6b1;
+  --text: #231f1a; --muted: #8d8272; --muted2: #6a6053;
+  --accent: #b45527; --green: #4f7a3f; --blue: #3a6b96; --amber: #9a6a17; --red: #a63f30;
   /* Identity-only colours, added 17 Aug 2026 for the session/programme tiles. Deliberately NOT
      reused for state anywhere — see the tile block below for why the split matters. */
-  --violet: #9b7ede; --teal: #3fb9b0;
+  --violet: #71519b; --teal: #2c7a6b;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -28,7 +33,7 @@ html.login-active { overflow: hidden; }
 .form-group input { width: 100%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; padding: 14px 16px; color: var(--text); font-size: 15px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.2s; }
 .form-group input:focus { border-color: var(--accent); }
 .btn-primary { width: 100%; background: var(--accent); border: none; border-radius: 8px; padding: 14px; color: #fff; font-size: 15px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; margin-top: 0.5rem; transition: background 0.2s, transform 0.1s; }
-.btn-primary:active { transform: scale(0.98); background: #d14d20; }
+.btn-primary:active { transform: scale(0.98); background: #933f1c; }
 .login-error { font-size: 13px; color: var(--red); margin-top: 0.75rem; text-align: center; display: none; }
 
 /* A flex column, not a block, since 19 Aug: it lets a page grow to fill whatever is left of the
@@ -98,9 +103,9 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .session-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.875rem; }
 .session-btn { position: relative; background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 0.875rem; text-align: left; cursor: pointer; transition: all 0.15s; }
 .session-edit-btn { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--accent); background: var(--bg2); color: var(--accent); font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
-.session-edit-btn:active { background: rgba(232,93,47,0.16); }
-.session-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.1); }
-.session-btn.done { border-color: var(--green); background: rgba(76,175,125,0.08); }
+.session-edit-btn:active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.session-btn.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.session-btn.done { border-color: var(--green); background: color-mix(in srgb, var(--green) 8%, transparent); }
 .session-name { font-size: 14px; font-weight: 600; color: var(--text); }
 .session-focus { font-size: 11px; color: var(--muted2); margin-top: 2px; }
 
@@ -126,19 +131,19 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
   line-height: 1.05; color: var(--sc);
 }
 /* Violet and teal are new. Blue, green, amber and accent were all already carrying a meaning. */
-.sc-upper { --sc: var(--amber);  --sc-bg: rgba(240,160,80,0.05);  --sc-bd: rgba(240,160,80,0.28); }
-.sc-lower { --sc: var(--violet); --sc-bg: rgba(155,126,222,0.05); --sc-bd: rgba(155,126,222,0.28); }
-.sc-full  { --sc: var(--teal);   --sc-bg: rgba(63,185,176,0.05);  --sc-bd: rgba(63,185,176,0.28); }
-.sc-cv    { --sc: var(--blue);   --sc-bg: rgba(74,158,255,0.05);  --sc-bd: rgba(74,158,255,0.28); }
-.sc-open  { --sc: var(--violet); --sc-bg: rgba(155,126,222,0.05); --sc-bd: rgba(155,126,222,0.28); }
-.sc-own   { --sc: var(--muted2); --sc-bg: rgba(255,255,255,0.02); --sc-bd: var(--border2); }
+.sc-upper { --sc: var(--amber);  --sc-bg: color-mix(in srgb, var(--amber) 6%, transparent);  --sc-bd: color-mix(in srgb, var(--amber) 32%, transparent); }
+.sc-lower { --sc: var(--violet); --sc-bg: color-mix(in srgb, var(--violet) 6%, transparent); --sc-bd: color-mix(in srgb, var(--violet) 32%, transparent); }
+.sc-full  { --sc: var(--teal);   --sc-bg: color-mix(in srgb, var(--teal) 6%, transparent);  --sc-bd: color-mix(in srgb, var(--teal) 32%, transparent); }
+.sc-cv    { --sc: var(--blue);   --sc-bg: color-mix(in srgb, var(--blue) 6%, transparent);  --sc-bd: color-mix(in srgb, var(--blue) 32%, transparent); }
+.sc-open  { --sc: var(--violet); --sc-bg: color-mix(in srgb, var(--violet) 6%, transparent); --sc-bd: color-mix(in srgb, var(--violet) 32%, transparent); }
+.sc-own   { --sc: var(--muted2); --sc-bg: color-mix(in srgb, var(--text) 2%, transparent); --sc-bd: var(--border2); }
 /* The folder, not the muscle — these two are the screen above. */
-.sc-prog-upper-lower  { --sc: var(--blue); --sc-bg: rgba(74,158,255,0.05); --sc-bd: rgba(74,158,255,0.28); }
-.sc-prog-full-body-cv { --sc: var(--teal); --sc-bg: rgba(63,185,176,0.05); --sc-bd: rgba(63,185,176,0.28); }
+.sc-prog-upper-lower  { --sc: var(--blue); --sc-bg: color-mix(in srgb, var(--blue) 6%, transparent); --sc-bd: color-mix(in srgb, var(--blue) 32%, transparent); }
+.sc-prog-full-body-cv { --sc: var(--teal); --sc-bg: color-mix(in srgb, var(--teal) 6%, transparent); --sc-bd: color-mix(in srgb, var(--teal) 32%, transparent); }
 /* The one state that still repaints a tile, and only for the instant between tapping it and the
    logger opening — it's the tap landing, not a status. Higher specificity than `.session-btn.tinted`
    so it wins regardless of source order; don't rely on the ordering. */
-.session-btn.tinted.selected { --sc: var(--accent); --sc-bg: rgba(232,93,47,0.1);   --sc-bd: var(--accent); }
+.session-btn.tinted.selected { --sc: var(--accent); --sc-bg: color-mix(in srgb, var(--accent) 12%, transparent);   --sc-bd: var(--accent); }
 
 /* When you last did this one. Quiet and monospaced — it's context, not the thing you tapped for. */
 .session-last { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 7px; }
@@ -193,13 +198,13 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 
 .variation-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
 .var-btn { flex: 1; padding: 7px 8px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all 0.15s; text-align: center; font-family: 'DM Sans', sans-serif; display: flex; align-items: center; justify-content: center; }
-.var-btn.selected { border-color: var(--accent); background: rgba(232,93,47,0.15); color: var(--accent); font-weight: 600; }
+.var-btn.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-weight: 600; }
 
 .pill { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
-.pill-sets { background: rgba(74,158,255,0.15); color: var(--blue); }
-.pill-reps { background: rgba(76,175,125,0.15); color: var(--green); }
-.pill-rest { background: rgba(255,255,255,0.05); color: var(--muted2); }
-.pill-accent { background: rgba(232,93,47,0.15); color: var(--accent); font-weight: 600; }
+.pill-sets { background: color-mix(in srgb, var(--blue) 15%, transparent); color: var(--blue); }
+.pill-reps { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+.pill-rest { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted2); }
+.pill-accent { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-weight: 600; }
 
 /* One-line macro entry on the check-in (18 Aug 2026). Set apart from the ordinary fields with a
    left rule, because it is a shortcut INTO them rather than another thing to fill in — everything
@@ -213,14 +218,14 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .btn { border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; border: none; }
 .btn-full { width: 100%; }
 .btn-save { background: var(--accent); color: #fff; }
-.btn-save:active { background: #d14d20; transform: scale(0.98); }
+.btn-save:active { background: #933f1c; transform: scale(0.98); }
 .btn-outline { background: transparent; border: 1px solid var(--border2); color: var(--text); }
 .btn-outline:active { background: var(--bg3); }
 
 .week-strip { display: flex; gap: 5px; margin-bottom: 0.875rem; }
 .week-day { flex: 1; background: var(--bg3); border-radius: 8px; padding: 7px 3px; text-align: center; border: 1px solid var(--border); }
-.week-day.done { border-color: var(--green); background: rgba(76,175,125,0.1); }
-.week-day.today { border-color: var(--accent); background: rgba(232,93,47,0.1); }
+.week-day.done { border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+.week-day.today { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .week-day.rest { opacity: 0.35; }
 .wd-name { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
 .wd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border2); margin: 0 auto; }
@@ -236,9 +241,9 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 
 /* The overdue-backup line on Home. Hidden by default and shown by renderBackupPrompt(), so a stale
    cache or a JS failure leaves no empty box behind. Amber, not red: nothing is broken yet. */
-.backup-nudge { display: none; align-items: center; gap: 8px; margin-bottom: 0.875rem; padding: 10px 12px; background: rgba(240,160,80,0.1); border: 1px solid var(--amber); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--amber); cursor: pointer; }
+.backup-nudge { display: none; align-items: center; gap: 8px; margin-bottom: 0.875rem; padding: 10px 12px; background: color-mix(in srgb, var(--amber) 10%, transparent); border: 1px solid var(--amber); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--amber); cursor: pointer; }
 .backup-nudge::before { content: '⤓'; font-size: 15px; }
-.backup-nudge:active { background: rgba(240,160,80,0.2); }
+.backup-nudge:active { background: color-mix(in srgb, var(--amber) 20%, transparent); }
 
 .history-date { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
 .history-stats { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -306,7 +311,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .landing-btn-icon { font-size: 28px; margin-bottom: 6px; }
 .landing-btn-label { font-size: 13px; font-weight: 600; color: var(--text); }
 .landing-btn-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.landing-btn.primary { border-color: var(--accent); background: rgba(232,93,47,0.08); }
+.landing-btn.primary { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 
 /* STOPWATCH PILL */
 /* ─── INLINE WATCH (inside each exercise tile) ─────────── */
@@ -326,7 +331,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: rgba(30, 30, 30, 0.72);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
   border: none;
   padding: 0;
   cursor: pointer;
@@ -357,7 +362,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
 }
-.ex-remove-btn:active { background: rgba(255, 255, 255, 0.06); }
+.ex-remove-btn:active { background: color-mix(in srgb, var(--text) 6%, transparent); }
 
 .ex-watch-ring {
   position: absolute;
@@ -367,7 +372,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
   transform: rotate(-90deg);
   pointer-events: none;
 }
-.ex-watch-bg { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 2; }
+.ex-watch-bg { fill: none; stroke: color-mix(in srgb, var(--text) 8%, transparent); stroke-width: 2; }
 .ex-watch-fill {
   fill: none;
   stroke: var(--accent);
@@ -400,7 +405,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .ex-watch.done .ex-watch-inner { color: var(--green); }
 
 /* Flash green when a rest is saved */
-.ex-watch.flash-green { background: rgba(76,175,125,0.85); }
+.ex-watch.flash-green { background: color-mix(in srgb, var(--green) 85%, transparent); }
 .ex-watch.flash-green .ex-watch-inner { color: #fff; }
 
 .ex-watch-time {
@@ -444,7 +449,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 }
 .history-tab.active {
   border-color: var(--accent);
-  background: rgba(232,93,47,0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
 }
 
@@ -524,8 +529,8 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .template-ex-btn:disabled { opacity: 0.3; cursor: default; }
 .template-ex-sets { font-size: 11px; color: var(--muted2); font-family: 'DM Mono', monospace; width: 48px; text-align: center; }
 
-.edit-template-link { display: block; text-align: center; font-size: 12px; font-weight: 600; color: var(--accent); background: rgba(232,93,47,0.08); border: 1px solid var(--accent); border-radius: 8px; padding: 9px; margin-bottom: 0.75rem; cursor: pointer; }
-.edit-template-link:active { background: rgba(232,93,47,0.16); }
+.edit-template-link { display: block; text-align: center; font-size: 12px; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid var(--accent); border-radius: 8px; padding: 9px; margin-bottom: 0.75rem; cursor: pointer; }
+.edit-template-link:active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 
 /* ─── STATS: HERO + MACROS (redesign 10 Aug 2026) ─────────── */
 .stats-hero { text-align: center; padding: 0.25rem 0 0; }
@@ -659,7 +664,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .goal-name { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
 .goal-val { font-family: 'DM Mono', monospace; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .goal-val b { font-weight: 500; }
-.goal-track { height: 5px; border-radius: 3px; background: var(--bg3); overflow: hidden; }
+.goal-track { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
 .goal-fill { display: block; height: 100%; border-radius: 3px; transition: width 0.3s ease; }
 .goal-left { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); text-align: right; white-space: nowrap; }
 
@@ -694,16 +699,16 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .pf-mtgt { font-family: 'DM Mono', monospace; font-size: 12.5px; color: var(--muted); }
 .pf-metrics .pf-sub { display: block; }
 .pf-card.log .history-card-notes { margin-top: 11px; }
-.pf-badge { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--green); color: #04140c; border-radius: 20px; padding: 2px 7px; margin-left: 6px; }
+.pf-badge { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--green); color: var(--bg2); border-radius: 20px; padding: 2px 7px; margin-left: 6px; }
 .pf-foot { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10.5px; color: var(--muted); }
 .pf-foot b { font-family: 'DM Mono', monospace; color: var(--text); font-weight: 500; }
 .pf-delete { font-size: 10px; color: var(--red); letter-spacing: 0.5px; cursor: pointer; font-weight: 600; margin-left: auto; }
 
 /* ─── ENERGY SLIDER (replaces emoji picker, 10 Aug 2026) ──── */
 /* value 0 = not set; 1–5 map to Flat/Low/OK/Good/Strong. */
-.energy-range { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; border-radius: 5px; background: linear-gradient(90deg, #3a3a3a, var(--accent)); outline: none; padding: 0; margin: 4px 0 0; }
-.energy-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg2); box-shadow: 0 2px 6px rgba(0,0,0,0.5); cursor: pointer; }
-.energy-range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg2); box-shadow: 0 2px 6px rgba(0,0,0,0.5); cursor: pointer; }
+.energy-range { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; border-radius: 5px; background: linear-gradient(90deg, #ded4c2, var(--accent)); outline: none; padding: 0; margin: 4px 0 0; }
+.energy-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg2); box-shadow: 0 1px 4px rgba(35,31,26,0.20); cursor: pointer; }
+.energy-range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg2); box-shadow: 0 1px 4px rgba(35,31,26,0.20); cursor: pointer; }
 .energy-labels { display: flex; justify-content: space-between; align-items: baseline; font-size: 9.5px; color: var(--muted); margin-top: 8px; }
 .energy-labels b { color: var(--accent); font-size: 11px; font-weight: 600; }
 /* The thumb has to rest somewhere, and it rests on Flat. While that is only where the control sits
@@ -712,8 +717,8 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 
 /* Quick-fill row at the top of the check-in modal */
 .quick-row { display: flex; gap: 6px; margin-bottom: 0.875rem; }
-.quick-btn { flex: 1; background: rgba(232,93,47,0.08); border: 1px solid var(--accent); border-radius: 8px; padding: 9px 6px; font-size: 11px; font-weight: 600; color: var(--accent); font-family: 'DM Sans', sans-serif; cursor: pointer; }
-.quick-btn:active { background: rgba(232,93,47,0.18); }
+.quick-btn { flex: 1; background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid var(--accent); border-radius: 8px; padding: 9px 6px; font-size: 11px; font-weight: 600; color: var(--accent); font-family: 'DM Sans', sans-serif; cursor: pointer; }
+.quick-btn:active { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .quick-btn.ghost { background: var(--bg3); border-color: var(--border2); color: var(--muted2); }
 
 /* ─── LAST TIME CARD ──────────────────────────────────────── */
@@ -736,7 +741,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 /* ─── SUPERSETS (11 Aug 2026) ─────────────────────────────── */
 /* The ⇄ button at the foot of each exercise block opens a picker of what to superset it with. */
 .ss-btn { display: block; width: 100%; margin-top: 6px; padding: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); background: none; border: 1px dashed var(--border2); border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
-.ss-btn.active { color: var(--blue); border-style: solid; border-color: var(--blue); background: rgba(74,158,255,0.08); }
+.ss-btn.active { color: var(--blue); border-style: solid; border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, transparent); }
 /* Linked blocks share a blue rail, so a superset reads as one unit once they've snapped together */
 .exercise-block.in-superset { border-left: 2px solid var(--blue); }
 
@@ -747,10 +752,10 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .ss-pick { display: block; width: 100%; margin-bottom: 5px; padding: 10px; font-size: 13px; font-weight: 600; text-align: left; color: var(--text); background: var(--bg2); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
 .ss-pick:active { border-color: var(--blue); }
 .ss-pick-note { display: block; margin-top: 2px; font-size: 10px; font-weight: 500; color: var(--amber); }
-.ss-pick-clear { color: var(--red); border-color: rgba(224,85,85,0.35); margin-top: 3px; margin-bottom: 0; }
+.ss-pick-clear { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); margin-top: 3px; margin-bottom: 0; }
 .ss-pick-add { margin-top: 3px; font-size: 13px; }
 .ss-picker-empty { font-size: 12px; color: var(--muted); padding: 2px 0 6px; }
-.pf-ss { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(74,158,255,0.16); color: var(--blue); border-radius: 20px; padding: 2px 7px; margin-left: 6px; }
+.pf-ss { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--blue); border-radius: 20px; padding: 2px 7px; margin-left: 6px; }
 
 /* ─── BUILD STAMP + UPDATE BANNER (11 Aug 2026) ───────────── */
 /* The build the phone is actually running, at the bottom of Home. Deliberately tiny and grey — it's
@@ -765,7 +770,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .build-tag { margin: 0.5rem 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.05em; color: var(--muted2); opacity: 0.6; cursor: pointer; }
 
 /* Only shown when a newer build is live but reloading now would interrupt a workout in progress. */
-.update-banner { position: fixed; left: 12px; right: 12px; bottom: 78px; z-index: 300; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--accent); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+.update-banner { position: fixed; left: 12px; right: 12px; bottom: 78px; z-index: 300; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--accent); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); box-shadow: 0 6px 20px rgba(35,31,26,0.16); }
 .update-banner button { padding: 7px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; background: var(--accent); border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
 
 /* ─── THE APP'S OWN CONFIRM (19 Aug 2026) ──────────────────
@@ -784,4 +789,4 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 /* Content-sized would let a long label like "Finish without them" squeeze Cancel to nothing. */
 .confirm-actions .btn { flex: 1; min-width: 0; }
 .confirm-yes-danger { background: var(--red); }
-.confirm-yes-danger:active { background: #c94848; }
+.confirm-yes-danger:active { background: #8e3428; }
