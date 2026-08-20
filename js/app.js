@@ -9,13 +9,57 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1814';
+const APP_BUILD = '2026-08-20-1829';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
 // case a network-first service worker is supposed to make impossible, and the first thing to rule
 // out when a fix "didn't work".
 let serverBuild = null;
+
+// ─── EVERY REQUEST HAS A DEADLINE ─────────────────────────
+// 20 August 2026, and this is the bug six attempts at the "login bug" were standing next to.
+//
+// "i cant do anything, the only thing that will work is closing down and opening the app - and
+// thats fucking wrecking my head" (Del). Plus, in the same breath, two facts that name the cause
+// between them: **it worked in the browser**, and **he was still on build 1805 after 1814 shipped.**
+//
+// An iOS PWA is not relaunched when you tap its icon — the suspended web view is resumed, and it
+// hands the next request a socket from a network stack that died while the phone was asleep. That
+// fetch never resolves and never rejects. It just sits there. A browser tab does not do this
+// because opening it is a fresh navigation, which is exactly the asymmetry Del reported.
+//
+// Attempt #6 fixed the timeout in ONE place — handleLogin() — and nine other fetches were left
+// unbounded. Two of them are the whole failure:
+//
+//   1. On load, a stored session goes validAccessToken() → refreshSession() → fetch(). Hangs, so
+//      enterApp() is never reached and the login screen sits there over a perfectly good session.
+//      Tapping Get In then hangs on the same dead stack until its 12s abort — which Del, reasonably,
+//      never waited for.
+//   2. checkForUpdate() → fetch('version.json'). Hangs *inside the try*, so its finally never runs,
+//      so updateCheckRunning stays true forever, so the app can never check for an update again
+//      for the life of that web view. **That is why he was stranded on 1805.** applyUpdate() then
+//      awaits refreshInFlight, which is the promise from (1), which never settles either.
+//
+// Force-quitting was the only cure because a new process gets a new network stack. Nothing was ever
+// wrong with the session, the password, or the palette.
+//
+// So: no request in this app may be unbounded. A dead socket has to fail like a dead socket —
+// loudly, in seconds — instead of pretending to still be working.
+const NET_TIMEOUT_MS = 10000;
+
+// AbortController rather than a bare timer, deliberately: aborting tears the dead connection down,
+// so the *next* request gets a fresh socket instead of queueing behind a corpse. A timer that only
+// rejects the promise would leave the stack just as jammed.
+//
+// A caller that brings its own signal is passed straight through — handleLogin() owns its own
+// deadline because it has a specific sentence to show when it expires.
+function netFetch(url, opts = {}, timeoutMs = NET_TIMEOUT_MS) {
+  if (opts.signal) return fetch(url, opts);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -32,7 +76,7 @@ async function checkForUpdate(force = false) {
   updateCheckRunning = true;
   lastUpdateCheck = Date.now();
   try {
-    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    const res = await netFetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) return;
     const { build } = await res.json();
     serverBuild = build || null;
@@ -48,6 +92,12 @@ async function checkForUpdate(force = false) {
     // the reload isn't working, and looping would leave the app unusable rather than merely stale.
     if (sessionStorage.getItem('dlog_update_tried') === build) { showUpdateBanner(); return; }
     sessionStorage.setItem('dlog_update_tried', build);
+    // Released BEFORE applyUpdate rather than in the finally. applyUpdate ends in location.reload(),
+    // so the flag's value afterwards is academic — but if anything in there ever fails to settle,
+    // leaving this true would silently retire the app's ability to update itself for the rest of the
+    // web view's life. That is the shape of the bug that stranded Del on 1805; it does not get to
+    // happen twice.
+    updateCheckRunning = false;
     await applyUpdate();
   } catch (e) {
     // offline / DNS / GitHub Pages hiccup — nothing to do
@@ -75,9 +125,15 @@ async function applyUpdate() {
   // same morning, and why reopening quickly seemed to avoid it: GoTrue lets a spent token through
   // for ~10 seconds, so only the slow reopen actually noticed.
   //
-  // The wait is one HTTP round trip at most, and it can't hang the update: a dead connection
-  // rejects or resolves the same promise, and the reload happens either way.
-  if (refreshInFlight) { try { await refreshInFlight; } catch (e) {} }
+  // The wait is one HTTP round trip at most, and it can't hang the update — but only because
+  // refreshSession()'s fetch now has a deadline. It did not, and this await is where that hang
+  // became "the app can never update itself again". Raced anyway: this promise belongs to another
+  // function, and a reload that is merely early is infinitely better than one that never comes.
+  if (refreshInFlight) {
+    try {
+      await Promise.race([refreshInFlight, new Promise(r => setTimeout(r, NET_TIMEOUT_MS))]);
+    } catch (e) {}
+  }
   try {
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -398,7 +454,7 @@ async function sb(path, method = 'GET', body = null, { quiet = false, upsert = f
   if (upsert && method === 'POST') opts.headers.Prefer = 'return=minimal,resolution=merge-duplicates';
   let res;
   try {
-    res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+    res = await netFetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
 
     // A 401 here means PostgREST rejected the JWT even though we thought it was live — clock skew,
     // a password change on another device, or a token revoked server-side. Refresh once and retry
@@ -407,7 +463,7 @@ async function sb(path, method = 'GET', body = null, { quiet = false, upsert = f
       const fresh = await refreshSession(true);
       if (fresh) {
         opts.headers = sbHeaders(fresh, method);
-        res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+        res = await netFetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
       }
     }
   } catch (e) {
@@ -444,7 +500,7 @@ async function sb(path, method = 'GET', body = null, { quiet = false, upsert = f
 // still goes through the same token + 401-retry path rather than hand-rolling headers.
 async function createWorkoutRow(sessionId) {
   const body = JSON.stringify({ date: todayStr(), session_type: sessionId, notes: '' });
-  const send = (token) => fetch(`${SUPABASE_URL}/rest/v1/workouts`, {
+  const send = (token) => netFetch(`${SUPABASE_URL}/rest/v1/workouts`, {
     method: 'POST',
     headers: { ...sbHeaders(token, 'POST'), 'Prefer': 'return=representation' },
     body
@@ -537,7 +593,7 @@ async function refreshSession(force = false) {
 
   refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      const res = await netFetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST',
         headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: authSession.refresh_token })
@@ -618,7 +674,10 @@ async function handleLogin() {
 
   let res;
   try {
-    res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    // Routed through netFetch for one reason: so that grepping this file for a bare fetch( finds
+    // nothing. Its own signal is set, so netFetch passes it through and LOGIN_TIMEOUT_MS still owns
+    // the deadline here — this call has a specific sentence to show when it expires.
+    res = await netFetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password: pw }),
@@ -716,7 +775,7 @@ function handleLogout() {
   // "log out this device". There is no sign-out-everywhere button; if a device is ever lost, revoke
   // the sessions from the PC (see CODEBASE.md → Auth).
   if (token) {
-    fetch(`${SUPABASE_URL}/auth/v1/logout?scope=local`, {
+    netFetch(`${SUPABASE_URL}/auth/v1/logout?scope=local`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` }
     }).catch(() => {});
@@ -736,10 +795,18 @@ window.addEventListener('load', async () => {
 
   authSession = loadStoredSession();
   if (!authSession) return;
-  // Refreshes if stale. Offline this returns the stored token rather than logging out, so the app
-  // still opens on a dead connection — it just can't reach the database, same as before.
+
+  // Del's words for the old behaviour here were "i cant do anything". He was right, and the screen
+  // was lying to him: a stored session was being restored, the request had died, and the login card
+  // sat there looking like a login card with a dead button. Nothing said a word. Say the word.
+  loginStep('restoring your session');
+
+  // Refreshes if stale. Offline — and now, a timed-out request — this returns the stored token
+  // rather than logging out, so the app still opens on a dead connection. It just can't reach the
+  // database, same as before. What it must never do again is neither.
   const token = await validAccessToken();
-  if (!token) return;
+  if (!token) { loginStep('session expired — sign in', true); return; }
+  loginStep('session ok · opening');
   await enterApp(sessionStorage.getItem('del_page') || 'home');
 });
 
@@ -768,7 +835,7 @@ async function verifyCurrentPassword(current) {
   if (!email) return 'Session expired — log out and back in';
   let res;
   try {
-    res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    res = await netFetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password: current })
@@ -810,7 +877,7 @@ async function savePassword() {
 
   let res;
   try {
-    res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    res = await netFetch(`${SUPABASE_URL}/auth/v1/user`, {
       method: 'PUT',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: pw })

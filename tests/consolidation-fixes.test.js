@@ -202,7 +202,8 @@ function dateAt(iso) {
       'pw-error': { textContent: '', style: {} },
     };
     const api = load({
-      functions: ['verifyCurrentPassword', 'savePassword'],
+      functions: ['verifyCurrentPassword', 'savePassword', 'netFetch'],
+      decls: ['NET_TIMEOUT_MS'],
       deps: {
         document: { getElementById: (id) => fields[id] },
         authSession: email ? { email } : null,

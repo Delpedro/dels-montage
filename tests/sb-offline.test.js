@@ -50,8 +50,11 @@ function build({ fetchImpl, token = 'jwt-abc', refreshTo = null, now = () => Dat
   };
 
   const api = load({
-    functions: ['netFail', 'sb', 'createWorkoutRow'],
-    decls: ['lastNetToastAt'],
+    // netFetch is lifted rather than stubbed: these tests shadow the global fetch, and every
+    // request in the app now goes through the wrapper to get its deadline. Exercising the real one
+    // keeps this harness honest about what sb() actually calls.
+    functions: ['netFail', 'sb', 'createWorkoutRow', 'netFetch'],
+    decls: ['lastNetToastAt', 'NET_TIMEOUT_MS'],
     deps,
   });
   return { ...api, toasts, logouts, calls };

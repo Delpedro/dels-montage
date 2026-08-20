@@ -59,8 +59,8 @@ function harness(fetchImpl, enterImpl) {
   els['login-btn'].textContent = 'Get In';
   const calls = { fetch: 0, stored: [], entered: [], page: null, reshown: [] };
   const app = load({
-    functions: ['handleLogin', 'renderLoginDiag', 'loginStep'],
-    decls: ['LOGIN_TIMEOUT_MS', 'APP_BUILD', 'serverBuild', 'loginStatus'],
+    functions: ['handleLogin', 'renderLoginDiag', 'loginStep', 'netFetch'],
+    decls: ['LOGIN_TIMEOUT_MS', 'APP_BUILD', 'serverBuild', 'loginStatus', 'NET_TIMEOUT_MS'],
     deps: {
       document: { getElementById: id => els[id] || null },
       SUPABASE_URL: 'https://example.supabase.co',
