@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1842';
+const APP_BUILD = '2026-08-20-1852';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1787,16 +1787,27 @@ async function startNextSession() {
   showPage('workout');
   showWorkoutView('opening', s.name);
 
+  // The 1-2s wait, 20 Aug 2026: "not happy with that either" (Del). Three network hops ran strictly
+  // back to back - the grid build, then the open-rows read inside beginWorkoutSession(), then the
+  // POST that creates the row. The first two are independent (one paints tiles, the other asks what
+  // is already open today), so the read starts HERE and is handed down through btn.select() rather
+  // than being fired once the grid has landed. Two hops deep instead of three.
+  //
+  // The POST is deliberately still behind the read: it is the read that decides whether a row needs
+  // creating at all, and opening the logger before its row exists is the shape of the July cardio
+  // loss. Del chose this over the instant version for exactly that reason.
+  const openRows = fetchOpenWorkoutRows();
+
   await buildSessionGrid(s.programme);
   const btn = document.getElementById('session-btn-' + s.id);
   // The card offered a session the grid does not contain — a template deleted between Home
   // painting and Start being tapped. The picker is the honest fallback; a dead 'opening' panel
   // is not.
-  if (!btn) { showWorkoutView('grid'); return; }
+  if (!btn) { showWorkoutView('grid'); return; }   // openRows is dropped here — a spare GET, not a leak
 
   // Cancelling one of the two confirms inside here is a real answer, not a failure — but the
   // picker has already been left behind, so put it back rather than stranding him on 'opening'.
-  if (!await btn.select()) showWorkoutView('grid');
+  if (!await btn.select(openRows)) showWorkoutView('grid');
 }
 
 async function buildSessionGrid(programmeId = null) {
@@ -1907,8 +1918,11 @@ function sessionTile(s, doneTodaySessions, lastMap = {}) {
   // to *await* entering the session and a synthetic .click() throws the promise away, but it must
   // not get there by calling selectSession() itself - that is the second copy the comment on
   // startNextSession() warns about. One call, reachable two ways.
-  btn.select = () => selectSession(s, btn);
-  btn.onclick = btn.select;
+  // The optional argument is startNextSession()'s in-flight open-rows read. A plain tap has no
+  // prefetch to hand over, and onclick is wrapped rather than assigned so a MouseEvent never
+  // arrives in its place.
+  btn.select = (openRows = null) => selectSession(s, btn, openRows);
+  btn.onclick = () => btn.select();
   return btn;
 }
 
@@ -2272,10 +2286,20 @@ function askConfirm({ title, body = '', yes = 'OK', no = 'Cancel', danger = fals
   return new Promise(resolve => { confirmResolve = resolve; });
 }
 
+// Today's workouts rows that were never completed. Split out of beginWorkoutSession() so a caller
+// that knows a session is coming can start it early and overlap it with its own work — see
+// startNextSession(). Always resolves to an array: sb() already turns a failed GET into [], and the
+// catch covers a malformed body, because every caller reads this as "nothing is open".
+function fetchOpenWorkoutRows() {
+  return sb(`workouts?date=eq.${todayStr()}&completed_at=is.null&select=id,session_type,notes,workout_sets(id),cardio_logs(id)`)
+    .then(rows => rows || [])
+    .catch(() => []);
+}
+
 // Resolves in-progress/resume/warn-and-switch and eagerly creates the workout row.
 // Sets selectedSession/selectedVariations/currentWorkoutId/currentWorkoutHasSets on success.
 // Shared by selectSession() (fixed sessions) and startOpenWorkout() (Open Workout).
-async function beginWorkoutSession(session) {
+async function beginWorkoutSession(session, openRowsPrefetch = null) {
   // Which of today's rows, if any, is a session ACTUALLY under way.
   //
   // `completed_at IS NULL` is not the answer on its own, and believing it was is the 19 Aug bug: a
@@ -2287,7 +2311,10 @@ async function beginWorkoutSession(session) {
   // The rule is the counters' rule (workoutRowHasContent) plus the draft, because a session you are
   // standing in the middle of can have no rows yet. Anything failing both is a ghost: deleted on
   // sight rather than left to ask the question again tomorrow.
-  const openRows = await sb(`workouts?date=eq.${todayStr()}&completed_at=is.null&select=id,session_type,notes,workout_sets(id),cardio_logs(id)`) || [];
+  //
+  // The caller may already have this in flight (startNextSession does) — awaiting a promise that has
+  // been running for 400ms costs nothing, so both paths share one query and one set of rules.
+  const openRows = await (openRowsPrefetch || fetchOpenWorkoutRows());
 
   // A row for the session being tapped is kept whether or not it has anything in it — it is about to
   // be resumed, so adopting it is cheaper than deleting it and posting a replacement.
@@ -2375,7 +2402,7 @@ function showWorkoutView(mode, sessionName = '') {
 // cancelling the already-logged-today confirm, or cancelling the in-progress warning inside
 // beginWorkoutSession() - and the caller has to be able to tell that apart from success, because
 // startNextSession() has already left the picker behind by then and needs somewhere to put him.
-async function selectSession(session, btn) {
+async function selectSession(session, btn, openRows = null) {
   if (btn.classList.contains('done')) {
     const again = await askConfirm({
       title: `${session.name} is already logged today`,
@@ -2404,7 +2431,7 @@ async function selectSession(session, btn) {
   // memory for the rest of the browser session.
   const sessionCopy = { ...session, exercises: session.exercises.map(ex => ({ ...ex })) };
 
-  const ok = await beginWorkoutSession(sessionCopy);
+  const ok = await beginWorkoutSession(sessionCopy, openRows);
   if (!ok) return false;
 
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));

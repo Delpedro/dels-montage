@@ -54,7 +54,10 @@ function harness({ rows, draft = null }) {
   };
 
   const app = load({
-    functions: ['workoutRowHasContent', 'draftHasContentFor', 'beginWorkoutSession'],
+    // fetchOpenWorkoutRows is the GET beginWorkoutSession used to make inline. It was split out on
+    // 20 Aug so startNextSession() can start it early — the query and the "always an array" rule are
+    // unchanged, so the scenarios below still exercise exactly what they did.
+    functions: ['workoutRowHasContent', 'draftHasContentFor', 'fetchOpenWorkoutRows', 'beginWorkoutSession'],
     decls: [
       'selectedSession', 'selectedVariations', 'removedSessionExercises',
       'supersetGroups', 'supersetBaseOrder', 'supersetsTouched',
