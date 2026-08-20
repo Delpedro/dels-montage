@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1829';
+const APP_BUILD = '2026-08-20-1838';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5405,22 +5405,17 @@ function renderHistoryPage() {
         const prevWaist = prevWaistByDate[l.date] || null;
         const dWaist = prevWaist ? parseFloat(l.waist_cm) - parseFloat(prevWaist.waist_cm) : null;
         const shortDate = d => new Date(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
-        // The comparison basis now sits on the row it belongs to instead of a run-on legend across
-        // the top of the card ("macros vs target · weight vs Tue 18 Aug · waist vs Wed 12 Aug"),
-        // which had to be read and then mentally mapped back onto three different rows. The macro
-        // rows need no legend at all — the target is printed in the row. Weight and waist each name
-        // their own date because they are different dates: the last waist is usually a week back,
-        // the last check-in usually yesterday.
-        // The weighing time leads the sub-line, and the reading being compared against carries its
-        // own — "08:20 · vs 07:45 Wed 19 Aug". One time on its own answers nothing: the whole point
-        // of the column is whether the two readings are comparable, and that needs both hours, not
-        // today's hour and yesterday's date. Either time is dropped from the line when it was never
-        // recorded, which is every row before 20 Aug 2026.
-        const prevWeighed = prev && prev.weight_time ? `${hhmm(prev.weight_time)} ` : '';
-        const weightSub = [
-          l.weight_time ? hhmm(l.weight_time) : '',
-          prev ? `vs ${prevWeighed}${shortDate(prev.date)}` : ''
-        ].filter(Boolean).join(' · ');
+        // The comparison basis sits on the row it belongs to instead of a run-on legend across the
+        // top of the card ("macros vs target · weight vs Tue 18 Aug · waist vs Wed 12 Aug"), which
+        // had to be read and then mentally mapped back onto three different rows. The macro rows
+        // need no legend at all — the target is printed in the row. Waist names its date because
+        // the last waist reading is usually a week back, not the card below.
+        // The sub-line is the weighing time and nothing else. It used to name the reading being
+        // compared against as well ("08:20 · vs 07:45 Wed 19 Aug"), but the feed is already in
+        // date order, so the previous check-in is the card directly below this one — restating its
+        // date here only added a second thing to read and left a dangling separator on every row
+        // with no time recorded, which is every row before 20 Aug 2026.
+        const weightSub = l.weight_time ? hhmm(l.weight_time) : '';
 
         const waistSub = prevWaist ? `vs ${shortDate(prevWaist.date)}` : '';
         const footBits = [];
