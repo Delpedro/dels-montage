@@ -120,5 +120,32 @@ const at = (type, date) => ({ session_type: type, date });
      'a session started today and not yet saved shows as Resume, not as the one after it');
 }
 
+// ── Start must not stop off at the picker on the way ─────────────────────────────────────────
+// 20 Aug 2026. This is an ordering bug, and ordering is invisible to a behavioural test that awaits
+// the whole thing and then looks at the result — by then the picker has already been shown and
+// hidden again. What Del saw was a *frame*. So assert the order at the source: the placeholder must
+// be up before the first await, or the browser gets a chance to paint the grid.
+{
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  const start = src.indexOf('async function startNextSession');
+  const fn = src.slice(start, src.indexOf('\n}\n', start));
+
+  const opening = fn.indexOf("showWorkoutView('opening'");
+  const firstAwait = fn.indexOf('await ');
+  ok(opening > -1, 'startNextSession puts the opening placeholder up at all');
+  ok(opening < firstAwait,
+     'and does it BEFORE the first await — after it, the picker gets a frame to paint in, which is the bug');
+  ok(fn.indexOf('showPage(') < opening,
+     'navigation still happens first: a tap that does nothing for two round trips is its own bug');
+  ok(!/\.click\(\)/.test(fn),
+     'it awaits the tile handler rather than firing a synthetic click, whose promise cannot be awaited');
+  ok(!/selectSession\(/.test(fn),
+     'but still does not call selectSession() itself — that is the second copy the comment warns about');
+  ok(/showWorkoutView\('grid'\)/.test(fn),
+     'and a cancelled confirm lands on the picker rather than stranding him on the placeholder');
+}
+
 console.log(`  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

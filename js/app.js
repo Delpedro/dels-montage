@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1805';
+const APP_BUILD = '2026-08-20-1814';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1699,15 +1699,37 @@ async function renderNextUp() {
 }
 
 // Straight into the session the card is offering. Deliberately routed through the real tile's own
-// click handler rather than calling selectSession() directly: the tile owns the already-logged-today
+// handler rather than calling selectSession() directly: the tile owns the already-logged-today
 // confirm, the selected highlight and the cardio branch, and a second copy of all that would drift
 // out of step with it exactly like the seven copies showWorkoutView() replaced.
+//
+// The ORDER is the whole bug, 20 Aug 2026: "it goes to workout page first for a second then diverts
+// to the next planned workout....not cool" (Del). This used to show the page and leave the session
+// PICKER on screen while it did two network round trips - buildSessionGrid() and then the workouts
+// row inside beginWorkoutSession() - so a tap on Start visibly landed on a choice he had not asked
+// to make and then jumped off it again. On a slow gym connection that is not a flash, it is a wait
+// on the wrong screen.
+//
+// Navigation still happens on the first line, because a tap that does nothing for two round trips
+// is its own bug. What changed is what fills the gap: showWorkoutView('opening') runs synchronously
+// straight after showPage(), so the browser never paints a frame with the picker in it, and the
+// wait now names the session it is opening instead of offering three others.
 async function startNextSession() {
   const s = nextUpSession;
   if (!s) return;
   showPage('workout');
+  showWorkoutView('opening', s.name);
+
   await buildSessionGrid(s.programme);
-  document.getElementById('session-btn-' + s.id)?.click();
+  const btn = document.getElementById('session-btn-' + s.id);
+  // The card offered a session the grid does not contain — a template deleted between Home
+  // painting and Start being tapped. The picker is the honest fallback; a dead 'opening' panel
+  // is not.
+  if (!btn) { showWorkoutView('grid'); return; }
+
+  // Cancelling one of the two confirms inside here is a real answer, not a failure — but the
+  // picker has already been left behind, so put it back rather than stranding him on 'opening'.
+  if (!await btn.select()) showWorkoutView('grid');
 }
 
 async function buildSessionGrid(programmeId = null) {
@@ -1814,7 +1836,12 @@ function sessionTile(s, doneTodaySessions, lastMap = {}) {
     ? '<div class="session-last done">✓ logged today</div>'
     : (last ? `<div class="session-last">last · ${esc(last)}</div>` : '');
   btn.innerHTML = `${editBtn}<div class="session-name">${esc(s.name)}</div><div class="session-focus">${esc(s.focus)}</div>${foot}`;
-  btn.onclick = () => selectSession(s, btn);
+  // The click handler is published on the element as well as bound to it. startNextSession() needs
+  // to *await* entering the session and a synthetic .click() throws the promise away, but it must
+  // not get there by calling selectSession() itself - that is the second copy the comment on
+  // startNextSession() warns about. One call, reachable two ways.
+  btn.select = () => selectSession(s, btn);
+  btn.onclick = btn.select;
   return btn;
 }
 
@@ -2254,15 +2281,33 @@ async function beginWorkoutSession(session) {
 // drifted: saveWorkout() set the grid back but never hid the pill, so finishing a workout left you
 // on the picker with the finished session's name still stuck to the top of it. One function now
 // owns all four, which is what makes that class of bug impossible rather than merely fixed.
+// 'opening' is the fourth mode and the odd one out: it is not a place you can be left, it is the
+// two round trips between tapping Start on the Next up card and the logger existing. It keeps the
+// pill, because the pill already answers the only question worth asking while you wait - which
+// session is this.
 function showWorkoutView(mode, sessionName = '') {
   const grid = mode === 'grid';
   document.getElementById('session-grid').style.display = grid ? 'grid' : 'none';
   document.getElementById('session-pill').style.display = grid ? 'none' : 'flex';
   document.getElementById('workout-logger').style.display = mode === 'logger' ? 'block' : 'none';
   document.getElementById('conditioning-form').style.display = mode === 'conditioning' ? 'block' : 'none';
+  document.getElementById('workout-opening').style.display = mode === 'opening' ? 'block' : 'none';
+  // The subtitle is the picker's caption — "Choose your session" — and buildSessionGrid() rewrites
+  // it a moment after 'opening' goes up, so there is no point setting different text here. Hide it:
+  // an instruction to choose, sitting directly above a panel saying the choice is already made, is
+  // the same contradiction in words that the visible picker was in pixels.
+  //
+  // NOTE it is only hidden for 'opening'. It is also visibly wrong in 'logger' and 'conditioning' —
+  // "Choose your session" stays on screen above an open logger — but that is older than this change
+  // and Del has not been asked about it. Flagged in TDLR.md, not fixed here.
+  document.getElementById('workout-subtitle').style.display = mode === 'opening' ? 'none' : 'block';
   if (!grid) document.getElementById('session-pill-name').textContent = sessionName;
 }
 
+// Returns whether a session was actually entered. Both ways out are a deliberate choice by Del -
+// cancelling the already-logged-today confirm, or cancelling the in-progress warning inside
+// beginWorkoutSession() - and the caller has to be able to tell that apart from success, because
+// startNextSession() has already left the picker behind by then and needs somewhere to put him.
 async function selectSession(session, btn) {
   if (btn.classList.contains('done')) {
     const again = await askConfirm({
@@ -2271,7 +2316,7 @@ async function selectSession(session, btn) {
       yes: 'Log it again',
       no: 'Cancel',
     });
-    if (!again) return;
+    if (!again) return false;
   }
 
   if (session.cardio) {
@@ -2283,7 +2328,7 @@ async function selectSession(session, btn) {
     currentWorkoutHasSets = false;
 
     showWorkoutView('conditioning', session.name);
-    return;
+    return true;
   }
 
   // Clone before mutating — `session` here is the live SESSIONS array element (see buildSessionGrid),
@@ -2293,13 +2338,14 @@ async function selectSession(session, btn) {
   const sessionCopy = { ...session, exercises: session.exercises.map(ex => ({ ...ex })) };
 
   const ok = await beginWorkoutSession(sessionCopy);
-  if (!ok) return;
+  if (!ok) return false;
 
   document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
 
   showWorkoutView('logger', sessionCopy.name);
   buildWorkoutLogger(sessionCopy);
+  return true;
 }
 
 // 'open' (Open Workout) is deliberately not in SESSIONS — its exercise list is per-workout, not fixed.

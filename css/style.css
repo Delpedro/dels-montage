@@ -772,6 +772,16 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .build-tag { margin: 0.5rem 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.05em; color: var(--muted2); opacity: 0.6; cursor: pointer; }
 
 /* Only shown when a newer build is live but reloading now would interrupt a workout in progress. */
+/* The gap between tapping Start and the logger being ready. Deliberately shaped like the exercise
+   cards it is about to become rather than a spinner: it says "this is loading", not "something is
+   happening somewhere". */
+.opening-note { font-size: 13px; color: var(--muted); margin-bottom: 0.875rem; }
+.opening-bar { height: 58px; border-radius: 12px; margin-bottom: 0.625rem; background: color-mix(in srgb, var(--text) 7%, transparent); animation: opening-pulse 1.4s ease-in-out infinite; }
+.opening-bar:nth-child(3) { animation-delay: 0.15s; }
+.opening-bar:nth-child(4) { animation-delay: 0.3s; }
+@keyframes opening-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .opening-bar { animation: none; } }
+
 .update-banner { position: fixed; left: 12px; right: 12px; bottom: 78px; z-index: 300; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--accent); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); box-shadow: 0 6px 20px rgba(35,31,26,0.16); }
 .update-banner button { padding: 7px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; background: var(--accent); border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
 

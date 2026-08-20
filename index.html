@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-20-1805">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-20-1814">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -223,6 +223,18 @@
       </div>
     </div>
     <div id="workout-logger" style="display:none;"></div>
+
+    <!-- The Workout page's fourth panel, and the only one that is not a destination: it is what is
+         on screen between tapping Start on the Next up card and the logger being ready. Two network
+         round trips happen in that gap (the session grid, then the workouts row), and before this
+         existed the session PICKER was what filled it - so tapping Start visibly landed on a choice
+         Del had not asked to make, then jumped off it again. See startNextSession(). -->
+    <div id="workout-opening" style="display:none;">
+      <div class="opening-note">Opening your session…</div>
+      <div class="opening-bar"></div>
+      <div class="opening-bar"></div>
+      <div class="opening-bar"></div>
+    </div>
   </div>
 
   <!-- STATS -->
@@ -606,6 +618,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-20-1805"></script>
+<script src="js/app.js?v=2026-08-20-1814"></script>
 </body>
 </html>
