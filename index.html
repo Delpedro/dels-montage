@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-20-1301">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-20-1805">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -35,6 +35,12 @@
     </div>
     <button class="btn-primary" id="login-btn" onclick="handleLogin()">Get In</button>
     <div class="login-error" id="login-error">Wrong email or password</div>
+    <!-- Not decoration, and not temporary. Six attempts at the login bug all died in the same
+         place: no way to tell from the phone whether the tap reached JS at all, and no way to tell
+         which build was running when it did. Every path through handleLogin() now writes one line
+         here. A tap that appears to do nothing still leaves a mark - and if the mark never changes,
+         the tap never reached JS, which is a different bug entirely. -->
+    <div class="login-diag" id="login-diag"></div>
   </div>
 </div>
 
@@ -600,6 +606,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-20-1301"></script>
+<script src="js/app.js?v=2026-08-20-1805"></script>
 </body>
 </html>

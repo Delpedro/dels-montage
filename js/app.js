@@ -9,7 +9,13 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1301';
+const APP_BUILD = '2026-08-20-1805';
+
+// What version.json says, once we have asked. Only ever used for the login readout: if this and
+// APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
+// case a network-first service worker is supposed to make impossible, and the first thing to rule
+// out when a fix "didn't work".
+let serverBuild = null;
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -29,6 +35,8 @@ async function checkForUpdate(force = false) {
     const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) return;
     const { build } = await res.json();
+    serverBuild = build || null;
+    renderLoginDiag();
     if (!build || build === APP_BUILD) return;
 
     // Mid-workout, a surprise reload in the middle of typing a set is worse than being one build
@@ -561,7 +569,28 @@ async function refreshSession(force = false) {
 // a new process just got a new network stack.
 const LOGIN_TIMEOUT_MS = 12000;
 
+// The login screen's black box. Always shows the running build; shows the last thing handleLogin()
+// did on top of it. Deliberately terse and monospaced - it gets read off a phone at arm's length.
+let loginStatus = null;
+
+function renderLoginDiag() {
+  const el = document.getElementById('login-diag');
+  if (!el) return;
+  const stale = serverBuild && serverBuild !== APP_BUILD;
+  const parts = ['build ' + APP_BUILD];
+  if (stale) parts.push('STALE · server has ' + serverBuild);
+  if (loginStatus) parts.push(loginStatus.text);
+  el.textContent = parts.join('  ·  ');
+  el.classList.toggle('warn', !!stale || !!(loginStatus && loginStatus.warn));
+}
+
+function loginStep(text, warn = false) {
+  loginStatus = { text, warn };
+  renderLoginDiag();
+}
+
 async function handleLogin() {
+  loginStep('tap');
   const email = document.getElementById('login-email').value.trim();
   const pw = document.getElementById('login-password').value;
   const err = document.getElementById('login-error');
@@ -570,8 +599,13 @@ async function handleLogin() {
 
   // Never a silent return. If the fields look full and this fires anyway, that is worth seeing —
   // it means the password manager filled something the page cannot read.
-  if (!email || !pw) { fail('Enter your email and password'); return; }
-  if (btn && btn.disabled) return;   // a second tap must not start a second token request
+  // Lengths, not contents. Enough to tell "the manager filled nothing the page can read" apart
+  // from "the manager filled something", which is the whole question, without ever putting a
+  // password on screen.
+  if (!email || !pw) { fail('Enter your email and password'); loginStep('empty · email ' + email.length + ' · pw ' + pw.length, true); return; }
+  // A second tap must not start a second token request. This was the last silent return left in
+  // the function, and from the outside it is indistinguishable from a dead button - so it says so.
+  if (btn && btn.disabled) { loginStep('already signing in - wait'); return; }
 
   err.style.display = 'none';
   if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
@@ -580,6 +614,7 @@ async function handleLogin() {
   // again gets a fresh socket instead of queueing behind the one that is already hanging.
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), LOGIN_TIMEOUT_MS);
+  loginStep('sending · email ' + email.length + ' · pw ' + pw.length);
 
   let res;
   try {
@@ -595,6 +630,9 @@ async function handleLogin() {
     fail(e && e.name === 'AbortError'
       ? 'The server did not answer — tap Get In again'
       : "Can't reach the server — check your connection");
+    loginStep(e && e.name === 'AbortError'
+      ? 'aborted after ' + (LOGIN_TIMEOUT_MS / 1000) + 's'
+      : 'network: ' + ((e && e.name) || 'unknown'), true);
     return;
   } finally {
     clearTimeout(timer);
@@ -603,14 +641,25 @@ async function handleLogin() {
 
   if (!res.ok) {
     fail(res.status === 400 ? 'Wrong email or password' : `Login failed (${res.status})`);
+    loginStep('http ' + res.status, true);
     return;
   }
 
-  storeSession(await res.json());
-  err.style.display = 'none';
-  document.getElementById('login-password').value = '';
-  sessionStorage.setItem('del_page', 'home');
-  await enterApp('home');
+  // Past this line the token is good and the login screen is about to be torn down - so anything
+  // that throws in here left Del looking at a half-built app with no login screen and no message,
+  // which from the outside reads exactly like "the button did nothing". Put the login screen back
+  // and say what broke instead.
+  try {
+    loginStep('token ok · opening');
+    storeSession(await res.json());
+    err.style.display = 'none';
+    document.getElementById('login-password').value = '';
+    sessionStorage.setItem('del_page', 'home');
+    await enterApp('home');
+  } catch (e) {
+    showLoginScreen('Signed in, but the app failed to open');
+    loginStep('open failed: ' + ((e && e.message) || e), true);
+  }
 }
 
 // One animation frame, or 60ms, whichever lands first. requestAnimationFrame does NOT fire in a
@@ -683,13 +732,7 @@ document.getElementById('login-password').addEventListener('keydown', e => {
 });
 
 window.addEventListener('load', async () => {
-  const pill = document.getElementById('sw-pill');
-  if (pill) {
-    pill.addEventListener('pointerdown', swPillPointerDown);
-    pill.addEventListener('pointerup', swPillPointerUp);
-    pill.addEventListener('pointerleave', swPillPointerCancel);
-    pill.addEventListener('pointercancel', swPillPointerCancel);
-  }
+  renderLoginDiag();
 
   authSession = loadStoredSession();
   if (!authSession) return;

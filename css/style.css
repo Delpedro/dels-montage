@@ -35,6 +35,8 @@ html.login-active { overflow: hidden; }
 .btn-primary { width: 100%; background: var(--accent); border: none; border-radius: 8px; padding: 14px; color: #fff; font-size: 15px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; margin-top: 0.5rem; transition: background 0.2s, transform 0.1s; }
 .btn-primary:active { transform: scale(0.98); background: #933f1c; }
 .login-error { font-size: 13px; color: var(--red); margin-top: 0.75rem; text-align: center; display: none; }
+.login-diag { font-family: 'DM Mono', monospace; font-size: 10px; line-height: 1.5; color: var(--muted); margin-top: 1.25rem; text-align: center; letter-spacing: 0.02em; word-break: break-word; }
+.login-diag.warn { color: var(--red); }
 
 /* A flex column, not a block, since 19 Aug: it lets a page grow to fill whatever is left of the
    screen, which is what parks Home's account/build footer at the bottom instead of leaving it
