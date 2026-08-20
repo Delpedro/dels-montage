@@ -48,7 +48,14 @@ html.login-active { overflow: hidden; }
 .nav-label { font-size: 10px; }
 
 .page { display: none; padding: 1rem; }
-.page.active { display: block; flex: 1 1 auto; }
+/* Phone-first, and until 20 Aug 2026 literally only phone-shaped: on a desktop window every page
+   stretched to the full width of the browser. The History check-in card is a five-column grid whose
+   label column is `1fr`, so at 2,000px wide the label sat on the left and its value and change
+   columns ended up a whole screen away on the right — Del read that as the "vs" being broken. It
+   was not broken, it was two thousand pixels to the right of the word it belonged to.
+   Capping the reading width makes a wide window show the same layout the phone does, centred. */
+.page.active { display: block; flex: 1 1 auto; width: 100%; max-width: 520px; margin: 0 auto; }
+
 .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 1px; margin-bottom: 0.75rem; }
 .section-sub { font-size: 13px; color: var(--muted); margin-top: -0.5rem; margin-bottom: 0.75rem; }
 .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 0.875rem; }
