@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-20-1117">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-20-1123">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0e0e0e">
@@ -394,9 +394,9 @@
       </div>
       <div class="field-group">
         <label class="field-label">Energy</label>
-        <input type="range" class="energy-range" id="log-energy" min="0" max="5" step="1" value="0"
+        <input type="range" class="energy-range" id="log-energy" min="1" max="5" step="1" value="1"
                aria-label="Energy level" oninput="setEnergy(parseInt(this.value))" />
-        <div class="energy-labels"><span>Not set</span><b id="log-energy-word" class="energy-unset">Not set</b><span>Flying</span></div>
+        <div class="energy-labels"><span>Flat</span><b id="log-energy-word" class="energy-unset">Flat</b><span>Flying</span></div>
       </div>
       <div class="field-group">
         <label class="field-label">Notes</label>
@@ -539,9 +539,9 @@
       </div>
       <div class="field-group">
         <label class="field-label">Energy</label>
-        <input type="range" class="energy-range" id="edit-energy" min="0" max="5" step="1" value="0"
+        <input type="range" class="energy-range" id="edit-energy" min="1" max="5" step="1" value="1"
                aria-label="Energy level" oninput="setEditEnergy(parseInt(this.value))" />
-        <div class="energy-labels"><span>Not set</span><b id="edit-energy-word" class="energy-unset">Not set</b><span>Flying</span></div>
+        <div class="energy-labels"><span>Flat</span><b id="edit-energy-word" class="energy-unset">Flat</b><span>Flying</span></div>
       </div>
       <div class="field-group">
         <label class="field-label">Notes</label>
@@ -600,6 +600,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-20-1117"></script>
+<script src="js/app.js?v=2026-08-20-1123"></script>
 </body>
 </html>

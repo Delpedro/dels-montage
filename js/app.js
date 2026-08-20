@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1117';
+const APP_BUILD = '2026-08-20-1123';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -4101,23 +4101,30 @@ async function saveDailyLog() {
   renderCheckinSummary();
 }
 
-// Energy is stored 1–5 in the DB; 0 is the slider's "not set" position and saves as null.
+// Energy is stored 1–5 in the DB, and null when it was never answered.
 //
-// The words are the slider's two end labels and the four stops between them. They used to run
-// —/Flat/Low/OK/Good/Strong under a rail labelled "Flat … Flying", which meant the left end of the
-// rail promised Flat and delivered "—", and "Flying" was a word the slider could never actually
-// say. Del spotted it on 20 Aug. Now the rail reads "Not set … Flying" and the ends are the words:
-// position 0 is Not set, position 5 is Flying, and Flat is one notch in where a real answer starts.
-const ENERGY_WORDS = ['Not set', 'Flat', 'Low', 'OK', 'Good', 'Flying'];
+// The rail runs Flat → Flying and holds nothing else. It briefly carried a sixth stop on the left
+// labelled "Not set", which was the wrong fix to the right complaint: Del dragged the thumb fully
+// left, expected Flat, and got "—". He rejected "Not set" on sight the same morning — a state word
+// has no business being one end of a scale.
+//
+// So the thumb rests at Flat when nothing has been chosen, because a slider has to sit somewhere,
+// and the WORD is what carries the difference: muted while it is only a resting position, accent
+// once Del has actually moved it. Untouched still saves null rather than Flat — where the control
+// happens to rest is not an answer he gave, and a check-in that quietly claims he felt flat every
+// day he skipped the question is worse than one that says nothing.
+//
+// Index 0 is a placeholder for that null and is never rendered: setEnergy falls back to 1.
+const ENERGY_WORDS = ['—', 'Flat', 'Low', 'OK', 'Good', 'Flying'];
 
 function setEnergy(val) {
-  selectedEnergy = val;
+  selectedEnergy = val || null;
   const slider = document.getElementById('log-energy');
   const word = document.getElementById('log-energy-word');
-  if (slider) slider.value = val;
+  if (slider) slider.value = selectedEnergy || 1;
   if (word) {
-    word.textContent = ENERGY_WORDS[val] || ENERGY_WORDS[0];
-    word.classList.toggle('energy-unset', !val);
+    word.textContent = ENERGY_WORDS[selectedEnergy || 1];
+    word.classList.toggle('energy-unset', !selectedEnergy);
   }
 }
 
@@ -5346,14 +5353,15 @@ function closeEditLog() {
   editingLogDate = null;
 }
 
+// Same rules as setEnergy() — see the note above ENERGY_WORDS.
 function setEditEnergy(val) {
-  editingEnergy = val;
+  editingEnergy = val || null;
   const slider = document.getElementById('edit-energy');
   const word = document.getElementById('edit-energy-word');
-  if (slider) slider.value = val;
+  if (slider) slider.value = editingEnergy || 1;
   if (word) {
-    word.textContent = ENERGY_WORDS[val] || ENERGY_WORDS[0];
-    word.classList.toggle('energy-unset', !val);
+    word.textContent = ENERGY_WORDS[editingEnergy || 1];
+    word.classList.toggle('energy-unset', !editingEnergy);
   }
 }
 

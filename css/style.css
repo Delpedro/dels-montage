@@ -699,8 +699,8 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .energy-range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg2); box-shadow: 0 2px 6px rgba(0,0,0,0.5); cursor: pointer; }
 .energy-labels { display: flex; justify-content: space-between; align-items: baseline; font-size: 9.5px; color: var(--muted); margin-top: 8px; }
 .energy-labels b { color: var(--accent); font-size: 11px; font-weight: 600; }
-/* Position 0 is "not set", not a low score. It reads muted so the slider does not look like it is
-   already holding an answer Del never gave. */
+/* The thumb has to rest somewhere, and it rests on Flat. While that is only where the control sits
+   rather than an answer Del gave, the word reads muted — the rail itself never says "not set". */
 .energy-labels b.energy-unset { color: var(--muted); font-weight: 500; }
 
 /* Quick-fill row at the top of the check-in modal */

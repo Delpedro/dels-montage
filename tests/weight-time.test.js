@@ -133,24 +133,27 @@ console.log('Weighing time + energy slider ends');
   const app = load({
     functions: ['setEnergy'],
     decls: ['ENERGY_WORDS'],
-    accessors: { words: '() => ENERGY_WORDS' },
+    accessors: { words: '() => ENERGY_WORDS', chosen: '() => selectedEnergy' },
     deps: { document: { getElementById: id => els[id] || null } },
   });
   const words = app.words();
 
-  eq(words.length, 6, 'six stops: not-set plus the five the DB stores');
-  eq(words[0], 'Not set', 'position 0 says what it is instead of "—"');
-  eq(words[1], 'Flat', 'Flat is a real answer, one notch in');
-  eq(words[5], 'Flying', 'and the top of the scale is the word printed on the right of the rail');
+  eq(words[1], 'Flat', 'the left end of the rail is Flat');
+  eq(words[5], 'Flying', 'and the right end is Flying — both ends are words the slider can actually say');
 
+  // Nothing chosen: the thumb has to sit somewhere, so it sits on Flat and reads muted. The rail
+  // itself never says "not set" — Del rejected that outright.
   app.setEnergy(0);
-  eq(els['log-energy-word'].textContent, 'Not set', 'dragged fully left, the slider says Not set');
-  ok(els['log-energy-word'].classes['energy-unset'], 'and reads muted, not as a scored answer');
+  eq(els['log-energy-word'].textContent, 'Flat', 'unanswered, the word is Flat, not a dash and not "Not set"');
+  eq(els['log-energy'].value, 1, 'with the thumb resting at the left end');
+  ok(els['log-energy-word'].classes['energy-unset'], 'but muted, because resting there is not an answer he gave');
+  eq(app.chosen(), null, 'and it saves null — an untouched slider must not claim he felt flat');
 
   app.setEnergy(5);
   eq(els['log-energy-word'].textContent, 'Flying', 'dragged fully right, it says Flying');
   ok(!els['log-energy-word'].classes['energy-unset'], 'in the accent colour, because now it is an answer');
   eq(els['log-energy'].value, 5, 'and the thumb follows the value it was set to');
+  eq(app.chosen(), 5, 'which is the value that gets stored');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);
