@@ -94,5 +94,45 @@ eq(htmlBuild, appBuild, 'the ?v= stamps match APP_BUILD');
 // ── version.json is never served from cache ────────────────────────────────
 ok(/version\.json/.test(swSrc) && /no-store/.test(swSrc), 'version.json is fetched no-store — a cached copy would defeat the whole mechanism');
 
+// ── The app must notice a new build without an F5 (20 Aug 2026) ────────────
+//
+// Every trigger used to be a transition — load, pageshow(persisted), visibilitychange — so a tab
+// left open and focused never checked again, and the load check almost always fired inside GitHub
+// Pages' publish lag. Del: "i had to press f5 on pc to refresh it on pc too".
+const pollMs = Number((appSrc.match(/UPDATE_POLL_MS = (\d+)/) || [])[1]);
+const throttleMs = Number((appSrc.match(/UPDATE_THROTTLE_MS = (\d+)/) || [])[1]);
+ok(pollMs > 0, 'there is a periodic update poll');
+ok(/setInterval\(\(\) => \{\s*if \(document\.visibilityState === 'visible'\) checkForUpdate\(\);\s*\}, UPDATE_POLL_MS\)/.test(appSrc),
+  'the poll runs on an interval and only while the page is visible');
+ok(throttleMs < pollMs, 'the throttle is shorter than the poll — otherwise setInterval jitter swallows every other tick');
+ok(!/Date\.now\(\) - lastUpdateCheck < 60000/.test(appSrc), 'the old 60s throttle literal is gone');
+
+// A reload mid-tap wipes both fields and reads as "the button did nothing" — the exact symptom of
+// the login bug. Offer the banner instead, but only once he has actually started typing.
+const checkBody = appSrc.slice(appSrc.indexOf('async function checkForUpdate('));
+const check = checkBody.slice(0, checkBody.indexOf('\n}\n'));
+ok(/if \(loginInputBusy\(\)\) \{ showUpdateBanner\(\); return; \}/.test(check), 'a busy login screen gets the banner, not a reload');
+ok(check.indexOf('loginInputBusy()') < check.indexOf("sessionStorage.setItem('dlog_update_tried'"),
+  'the login guard runs before the one-automatic-reload flag is spent');
+
+const busySrc = appSrc.slice(appSrc.indexOf('function loginInputBusy()'));
+const loginInputBusy = new Function('document', `${busySrc.slice(0, busySrc.indexOf('\n}\n') + 2)}\nreturn loginInputBusy;`);
+function fakeDoc(loginActive, email, pass) {
+  return {
+    documentElement: { classList: { contains: (c) => loginActive && c === 'login-active' } },
+    getElementById: (id) => (id === 'login-email' ? { value: email } : id === 'login-password' ? { value: pass } : null),
+  };
+}
+eq(loginInputBusy(fakeDoc(false, 'a@b.com', 'x'))(), false, 'inside the app, typed-in login fields are irrelevant');
+eq(loginInputBusy(fakeDoc(true, '', ''))(), false, 'an untouched login screen is the best moment to take a new build');
+eq(loginInputBusy(fakeDoc(true, 'a@b.com', ''))(), true, 'an email half-typed blocks the auto-reload');
+eq(loginInputBusy(fakeDoc(true, '', 'hunter2'))(), true, 'a password half-typed blocks the auto-reload');
+
+// The banner is the only way out of a stale build on the login screen — it has to be in front of it.
+const cssSrc = fs.readFileSync(path.join(root, 'css', 'style.css'), 'utf8');
+const bannerZ = Number((cssSrc.match(/\.update-banner \{[^}]*z-index: (\d+)/) || [])[1]);
+const loginZ = Number((cssSrc.match(/#login-screen \{[^}]*z-index: (\d+)/) || [])[1]);
+ok(bannerZ > loginZ, `the update banner (${bannerZ}) sits above the login screen (${loginZ})`);
+
 console.log(`sw-update: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

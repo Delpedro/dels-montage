@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1852';
+const APP_BUILD = '2026-08-20-1900';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -68,11 +68,18 @@ if ('serviceWorker' in navigator) {
 let updateCheckRunning = false;
 let lastUpdateCheck = 0;
 
-// `force` skips the 60s throttle (used on first load). Silent on any failure — a flaky connection
+// The poll below runs every 60s, and setInterval drifts late — a background tab is throttled, a
+// resumed web view fires the tick whenever it wakes. A 60s throttle would swallow roughly every
+// other tick as "too soon"; 20s leaves room for the jitter while still collapsing the burst of
+// checks a foreground can produce (visibilitychange + pageshow + the tick landing together).
+const UPDATE_THROTTLE_MS = 20000;
+const UPDATE_POLL_MS = 60000;
+
+// `force` skips the throttle (used on first load). Silent on any failure — a flaky connection
 // must never block the app, and the next foreground will try again.
 async function checkForUpdate(force = false) {
   if (updateCheckRunning) return;
-  if (!force && Date.now() - lastUpdateCheck < 60000) return;
+  if (!force && Date.now() - lastUpdateCheck < UPDATE_THROTTLE_MS) return;
   updateCheckRunning = true;
   lastUpdateCheck = Date.now();
   try {
@@ -87,6 +94,12 @@ async function checkForUpdate(force = false) {
     // behind — offer it instead. (Inputs are draft-saved, but a running rest timer and the scroll
     // position are not worth losing while he's under a bar.)
     if (currentWorkoutId) { showUpdateBanner(); return; }
+
+    // Same rule on the login screen. A reload mid-tap wipes both fields and reads as "the button
+    // did nothing" — the exact symptom that cost eight rounds on the login bug. Only when he has
+    // actually started typing: a login screen sitting untouched is the best moment there is to
+    // take a new build.
+    if (loginInputBusy()) { showUpdateBanner(); return; }
 
     // One automatic reload per build, then stop. If the page comes back still running the old build
     // the reload isn't working, and looping would leave the app unusable rather than merely stale.
@@ -143,6 +156,15 @@ async function applyUpdate() {
   location.reload();
 }
 
+// The login screen is a full-viewport overlay, so anything the banner offers there is the only way
+// out of a stale build — but only if he is mid-entry. Empty fields mean nothing is lost by a reload.
+function loginInputBusy() {
+  if (!document.documentElement.classList.contains('login-active')) return false;
+  const email = document.getElementById('login-email');
+  const pass = document.getElementById('login-password');
+  return !!((email && email.value) || (pass && pass.value));
+}
+
 function showUpdateBanner() {
   if (document.getElementById('update-banner')) return;
   const bar = document.createElement('div');
@@ -159,6 +181,16 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pageshow', (e) => { if (e.persisted) checkForUpdate(true); });
 window.addEventListener('load', () => checkForUpdate(true));
+
+// ...and the one moment neither of those covers: nothing happening at all. Every trigger above is a
+// transition, so a tab left open and focused — a phone on the bench between sets, a PC tab open all
+// evening — never checked again after the load check, which GitHub Pages' ~30-60s publish lag means
+// almost always fired before the new build existed. That is the whole reason Del kept pressing F5.
+// Skipped while hidden: a background tab's timers are throttled to minutes anyway, and
+// visibilitychange already covers the return.
+setInterval(() => {
+  if (document.visibilityState === 'visible') checkForUpdate();
+}, UPDATE_POLL_MS);
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 // The scroll-lock that used to live here forced window.scrollTo(0, 0) on every scroll event while

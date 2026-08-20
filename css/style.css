@@ -782,7 +782,10 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 @keyframes opening-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) { .opening-bar { animation: none; } }
 
-.update-banner { position: fixed; left: 12px; right: 12px; bottom: 78px; z-index: 300; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--accent); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); box-shadow: 0 6px 20px rgba(35,31,26,0.16); }
+/* z-index 1000, above #login-screen's 999: the login screen is a full-viewport opaque
+   overlay, so a banner below it is invisible on the one screen where it is the only way out of a
+   stale build. Above the 200/300 modals too, which it already was. */
+.update-banner { position: fixed; left: 12px; right: 12px; bottom: 78px; z-index: 1000; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--accent); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); box-shadow: 0 6px 20px rgba(35,31,26,0.16); }
 .update-banner button { padding: 7px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; background: var(--accent); border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
 
 /* ─── THE APP'S OWN CONFIRM (19 Aug 2026) ──────────────────
