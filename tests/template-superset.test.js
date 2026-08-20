@@ -51,10 +51,10 @@ const app = load({
     'templateDisplayOrder', 'templateExerciseByName', 'pairTemplateSuperset', 'clearTemplateSuperset',
     'templateSupersetPickerHtml', 'addTemplateSupersetPartner', 'addTemplateExercise',
     'moveTemplateExercise', 'changeTemplateExerciseSets', 'removeTemplateExercise',
-    'saveSessionTemplate',
+    'saveSessionTemplate', 'exerciseIdFields',
   ],
   decls: ['editingTemplateExercises', 'editingTemplateGroups', 'editingTemplatePickerFor',
-    'editingTemplateSessionId', 'EXERCISE_LIBRARY', 'selectedProgramme'],
+    'editingTemplateSessionId', 'EXERCISE_LIBRARY', 'EXERCISE_IDS', 'selectedProgramme'],
   deps: {
     renderTemplateEditorRows: () => { calls.renders++; },
     // saveSessionTemplate's collaborators. sb() records the write so the row order can be asserted —
@@ -79,6 +79,7 @@ const app = load({
     order: '() => editingTemplateExercises.map(e => e.name)',
     groups: '() => editingTemplateGroups.map(g => [...g])',
     pickerFor: '() => editingTemplatePickerFor',
+    setExerciseIds: '(m) => { EXERCISE_IDS = m; }',
     setsOf: '(n) => (editingTemplateExercises.find(e => e.name === n) || {}).sets',
     reset: `(names, lib) => {
       editingTemplateExercises = names.map(n => ({ name: n, sets: 3, reps: '8–12', rest: '90s' }));
@@ -338,6 +339,24 @@ async function asyncCases() {
     eq(rows[2].superset_group, '1', '…on both members');
     eq(rows[1].superset_group, null, 'and nothing else is tagged');
     ok(rows.every(r => r.session_id === 'lower-b'), 'every row belongs to the session being edited');
+  }
+
+  {
+    // Save Changes deletes this session's rows and re-inserts them, so it is the one place a
+    // template exercise can quietly lose its identity and come back as a brand new one. The id
+    // rides along with the name (exercise identity, 20 Aug 2026); a name with no id yet is left
+    // for the database's link trigger to resolve rather than being sent as an explicit null.
+    reset();
+    app.setExerciseIds({ 'Leg Curl': 'c0ffee00-0000-4000-8000-000000000001' });
+    calls.saved = [];
+    await app.saveSessionTemplate();
+
+    const row = calls.saved[0].find(r => r.name === 'Leg Curl');
+    eq(row.exercise_id, 'c0ffee00-0000-4000-8000-000000000001',
+      'a known exercise is re-inserted against its existing id, not as a new one');
+    ok(!('exercise_id' in calls.saved[0].find(r => r.name === 'RDL')),
+      'and an unmapped one omits the key rather than sending null');
+    app.setExerciseIds({});
   }
 
   {

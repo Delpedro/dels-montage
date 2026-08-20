@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1136';
+const APP_BUILD = '2026-08-20-1200';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
@@ -188,6 +188,51 @@ function buildExerciseLibrary() {
   return map;
 }
 let EXERCISE_LIBRARY = {};  // populated after loadSessionTemplates() resolves — see initApp()
+
+// ─── EXERCISE IDENTITY ────────────────────────────────────
+// An exercise used to BE its name: workout_sets.exercise, session_exercises.name and the keys of
+// EXERCISE_LIBRARY were all the same free-text string, so respelling one orphaned its history.
+// Migration 20260820140000 gave every exercise a row in `exercises` with a stable uuid, and the
+// three tables now carry an exercise_id FK alongside the name.
+//
+// Names remain the in-memory key on purpose — they key EXERCISE_LIBRARY, the draft, previousSets,
+// the superset groups and a few hundred DOM ids, and converting all of that buys nothing the FK
+// doesn't already give. This map is the boundary: name in, durable id out, sent with every write.
+//
+// Nothing here is load-bearing for saving. A missing id is filled in by the database's link
+// trigger from the name, which is what keeps a service-worker-cached old app.js saving sets.
+let EXERCISE_IDS = {};   // name → uuid
+
+async function loadExerciseIds() {
+  const rows = await sb('exercises?select=id,name');
+  const map = {};
+  (rows || []).forEach(r => { map[r.name] = r.id; });
+  EXERCISE_IDS = map;
+}
+
+// Returns { exercise_id } to spread into a row, or {} when the name isn't known yet — a brand new
+// exercise typed in Open Workout, or a map that hasn't loaded. Never sends null: an explicit null
+// and an absent key both leave the trigger to resolve it, and the absent key keeps the payload
+// honest about what the client actually knew.
+function exerciseIdFields(name) {
+  const id = EXERCISE_IDS[name];
+  return id ? { exercise_id: id } : {};
+}
+
+// A name typed into Open Workout or the template editor is new to this app session but not
+// necessarily new to the database, so this is find-or-create. The `exercises` row itself is made
+// by the custom_exercises link trigger; reading its id straight back afterwards is what lets the
+// very first set logged under the new name carry the id, instead of it appearing only after the
+// next app start. Both entry points share this — they had drifted into two identical copies.
+async function registerNewExercise(name) {
+  const existing = await sb(`custom_exercises?name=eq.${encodeURIComponent(name)}&select=id`);
+  if (!existing || existing.length === 0) {
+    await sb('custom_exercises', 'POST', { name });
+  }
+  const row = await sb(`exercises?name=eq.${encodeURIComponent(name)}&select=id`);
+  if (row && row[0]) EXERCISE_IDS[name] = row[0].id;
+  EXERCISE_LIBRARY[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
+}
 
 // Merges in custom_exercises rows (typed on the fly in Open Workout) — called once at app init.
 async function loadCustomExercises() {
@@ -732,7 +777,7 @@ async function savePassword() {
 // only one of the two backup routes that can still fall behind. A test pins it against the schema.
 const EXPORT_TABLES = [
   'workouts', 'workout_sets', 'cardio_logs', 'conditioning_logs', 'daily_logs',
-  'goals', 'custom_exercises', 'session_templates', 'session_exercises', 'quotes',
+  'goals', 'custom_exercises', 'exercises', 'session_templates', 'session_exercises', 'quotes',
   // Nothing you'd miss if it were lost — one row saying when you last backed up. It's here because
   // "the export is every table" is a rule worth keeping absolute: the moment there's a judgement
   // call about which tables count, the list starts drifting, which is the exact failure this and
@@ -1197,6 +1242,7 @@ async function initApp(page = 'home') {
   await loadSessionTemplates();  // Fixed-session templates now live in Supabase, not a hardcoded array — must resolve before anything reads SESSIONS
   EXERCISE_LIBRARY = buildExerciseLibrary();
   loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
+  await loadExerciseIds();  // Awaited: every workout_sets write consults it, and the logger can open immediately after this
   await loadGoals();      // Must resolve before renderCheckinSummary/loadHistory — both judge macros against it
   buildSessionGrid();
   renderCheckinSummary();
@@ -1983,11 +2029,7 @@ async function promptTemplateCustomExercise() {
     showToast(`${name} already exists — pick it from the dropdown`, 'error');
     return;
   }
-  const existing = await sb(`custom_exercises?name=eq.${encodeURIComponent(name)}&select=id`);
-  if (!existing || existing.length === 0) {
-    await sb('custom_exercises', 'POST', { name });
-  }
-  EXERCISE_LIBRARY[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
+  await registerNewExercise(name);
   addTemplateExercise(name);
   return name;   // so the superset picker can pair with what was just typed in
 }
@@ -2005,7 +2047,7 @@ async function saveSessionTemplate() {
   // derived order instead would bake a pairing into the sort permanently, so unpairing next week
   // would leave the exercise stranded next to its ex-partner — the 13 Aug Lower B bug, one save later.
   const rows = editingTemplateExercises.map((ex, i) => ({
-    session_id: id, name: ex.name, sets: ex.sets, reps: ex.reps, rest: ex.rest,
+    session_id: id, name: ex.name, ...exerciseIdFields(ex.name), sets: ex.sets, reps: ex.reps, rest: ex.rest,
     note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
     band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i,
     superset_group: groupMap[ex.name] || null
@@ -3098,7 +3140,8 @@ async function offerSaveOpenAsTemplate(exercises, supersetTags = {}) {
   if (!tplRes.ok) { showToast(`Couldn't save session (${tplRes.status})`, 'error'); return; }
 
   const rows = exercises.map((ex, i) => ({
-    session_id: id, name: ex.name, sets: ex.sets || 3, reps: ex.reps || '8–12', rest: ex.rest || '90s',
+    session_id: id, name: ex.name, ...exerciseIdFields(ex.name),
+    sets: ex.sets || 3, reps: ex.reps || '8–12', rest: ex.rest || '90s',
     note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
     band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i,
     superset_group: supersetTags[ex.name] || null
@@ -3190,11 +3233,7 @@ async function promptCustomExercise() {
     showToast(`${name} already exists — pick it from the dropdown`, 'error');
     return;
   }
-  const existing = await sb(`custom_exercises?name=eq.${encodeURIComponent(name)}&select=id`);
-  if (!existing || existing.length === 0) {
-    await sb('custom_exercises', 'POST', { name });
-  }
-  EXERCISE_LIBRARY[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
+  await registerNewExercise(name);
   await addOpenExercise(name);
   return name;   // so the superset picker can pair with what was just typed in
 }
@@ -3560,6 +3599,7 @@ function collectExerciseSets(ex, supersetGroup) {
       const setObj = {
         workout_id: currentWorkoutId,
         exercise: exName,
+        ...exerciseIdFields(exName),
         set_number: i,
         weight: isBodyweight ? null : optionalWeightValue(ex, wVal),
         reps: parseInt(rVal) || null,
