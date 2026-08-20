@@ -167,13 +167,45 @@ async function main() {
     ok(sql.indexOf("rename_exercise(v_id, 'Pull-Ups')") > sql.indexOf("('PullUps',"),
       'Pull-Ups is a rename after the merge, not a merge target that does not exist yet');
 
-    // The three he did NOT rule on must still be standing.
+    // The three Del had not ruled on at that point stayed out of this file. He ruled on them
+    // straight afterwards, and they are handled in 20260820160000 instead — this pins that the
+    // first migration didn't help itself to a decision that hadn't been made yet.
     for (const name of ['High Row', 'Seated Cable Row', 'Incline DB Curl']) {
-      ok(!new RegExp(`\\('${name}',`).test(sql), `${name} is left alone — it was never his call to merge`);
+      ok(!new RegExp(`\\('${name}',`).test(sql), `${name} is not merged here — it was not yet Del's call`);
     }
 
     ok(/raise exception 'merge_exercises: % and % both hold a set/.test(sql),
       'a merge that would breach UNIQUE(workout_id, exercise, set_number) stops rather than losing a set');
+  }
+
+  // ── Folding the row variants: a merged set keeps what made it different ─────────────────────
+  // High Row and Seated Cable Row became variations of Seated Row rather than disappearing into it.
+  // Two sessions had logged more than one variant, which is a straight breach of
+  // UNIQUE(workout_id, exercise, set_number) — hence the renumber, and hence the order it uses.
+  {
+    const sql = fs.readFileSync(path.join(
+      __dirname, '..', 'supabase', 'migrations', '20260820160000_fold_row_variants.sql'), 'utf8');
+
+    ok(/set variation = 'High Row'\s+where exercise_id = v_high and variation is null/.test(sql),
+      "High Row's sets are stamped with the variation that replaces the name");
+    ok(/set variation = 'Pully'\s+where exercise_id = v_cable and variation is null/.test(sql),
+      "Seated Cable Row's sets become the Pully variation");
+    ok(/variation is null/.test(sql) && (sql.match(/variation is null/g) || []).length === 2,
+      'and only ever fills a blank — a variation Del recorded himself is never overwritten');
+
+    // The order matters more than it looks: rows are written per exercise as Mark Done is tapped,
+    // so created_at is the order of the session. set_number alone would interleave the variants.
+    ok(/row_number\(\) over \(partition by workout_id order by created_at, set_number\)/.test(sql),
+      'the renumber follows the order Del actually trained, not the old set numbers');
+    ok(sql.indexOf('set_number = set_number + 10000') < sql.indexOf('row_number() over'),
+      'and parks the rows out of the unique key first, because by then they all share one name');
+
+    // Seated Cable Row carried a Cable/Machine list into Seated Row. Left in place it would beat
+    // the exercise-level list, giving a different picker inside full-body-c than outside it.
+    ok(/update public\.session_exercises set variations = null where exercise_id = v_seated/.test(sql),
+      'the absorbed template loses its own variation list so one list applies everywhere');
+
+    ok(/merge_exercises\(v_curl_from, v_curl_into\)/.test(sql), 'and the incline curl pair is merged');
   }
 
   // ── The migration keeps its two load-bearing properties ─────────────────────────────────────
