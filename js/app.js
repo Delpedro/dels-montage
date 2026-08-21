@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-21-1558';
+const APP_BUILD = '2026-08-21-1613';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -2996,12 +2996,15 @@ function renderExerciseBlock(ex, session) {
     html += renderSetRow(ex, i, filteredPrev[i-1], session.id, defaultVar);
   }
 
-  if (session.id === 'open') {
-    html += `<div class="set-row-controls" id="set-controls-${esc(ex.name)}" style="display:flex;gap:8px;margin-top:8px;">
+  // Every session, not just Open Workout. A fixed session already allows a today-only add/remove of
+  // a whole exercise (the ✕ above, addOpenExercise below) and saveDraft/peekDraftSetCounts already
+  // persist a changed row count for any non-cardio session — this button pair was the only half of
+  // that flexibility still fenced off, which is why the 3.5kg to-failure set after the lateral
+  // raises had nowhere to go, and why a set cut short mid-session could only be recorded as a blank row.
+  html += `<div class="set-row-controls" id="set-controls-${esc(ex.name)}" style="display:flex;gap:8px;margin-top:8px;">
       <button type="button" class="btn btn-outline" style="flex:1;" onclick="addOpenSetRow('${jsAttr(ex.name)}')">+ Add Set</button>
       <button type="button" class="btn btn-outline" style="flex:1;" onclick="removeOpenSetRow('${jsAttr(ex.name)}')">− Remove Set</button>
     </div>`;
-  }
 
   html += `<button class="btn btn-outline btn-full" id="done-btn-${esc(ex.name)}" onclick="completeExercise('${jsAttr(ex.name)}')" style="margin-top:8px;">Mark Done</button>`;
   html += renderSupersetControl(ex);
@@ -3541,8 +3544,11 @@ function removeOpenExercise(name) {
   saveDraft(selectedSession.id);
 }
 
-// Open Workout only — appends one more set row (mutates this exercise instance's own `sets`
-// count, safe since addOpenExercise clones it off the shared EXERCISE_LIBRARY template).
+// Appends one more set row, on any session (mutates this exercise instance's own `sets` count,
+// safe because selectSession clones off the shared EXERCISE_LIBRARY template rather than aliasing it).
+// The session id has to be threaded through rather than hardcoded to 'open': renderSetRow bakes it
+// into each input's oninput="saveDraft(...)", so an added row on Upper 1 used to save the draft
+// under 'open' — and peekDraft* rejects a mismatched id, silently binning the whole session's draft.
 function addOpenSetRow(exName) {
   const ex = selectedSession?.exercises.find(e => e.name === exName);
   if (!ex) return;
@@ -3550,16 +3556,16 @@ function addOpenSetRow(exName) {
   const controls = document.getElementById(`set-controls-${exName}`);
   if (controls) {
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = renderSetRow(ex, ex.sets, null, 'open', selectedVariations[exName]);
+    wrapper.innerHTML = renderSetRow(ex, ex.sets, null, selectedSession.id, selectedVariations[exName]);
     while (wrapper.firstChild) controls.parentNode.insertBefore(wrapper.firstChild, controls);
   }
   const pill = document.getElementById(`sets-pill-${exName}`);
   if (pill) pill.textContent = `${ex.sets} sets`;
-  saveDraft('open');
+  saveDraft(selectedSession.id);
 }
 
-// Open Workout only — removes the last set row. Keeps at least one row per exercise (to remove
-// the whole exercise, use the ✕ button instead).
+// Removes the last set row, on any session. Keeps at least one row per exercise (to remove the
+// whole exercise, use the ✕ button instead).
 function removeOpenSetRow(exName) {
   const ex = selectedSession?.exercises.find(e => e.name === exName);
   if (!ex || ex.sets <= 1) return;
@@ -3569,7 +3575,7 @@ function removeOpenSetRow(exName) {
   ex.sets -= 1;
   const pill = document.getElementById(`sets-pill-${exName}`);
   if (pill) pill.textContent = `${ex.sets} sets`;
-  saveDraft('open');
+  saveDraft(selectedSession.id);
 }
 
 // ─── CARDIO SECTION ───────────────────────────────────────
