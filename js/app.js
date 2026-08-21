@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-21-1529';
+const APP_BUILD = '2026-08-21-1535';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -253,7 +253,7 @@ const TRAINING_PROGRAMMES = [
     // "Upper / Lower Training Programme" wrapped to three lines there. The `focus` line under it
     // already says what's in the programme, so "Training Programme" was saying nothing twice.
     name: 'Upper / Lower',
-    focus: 'Upper A, Lower A, Upper B, Lower B'
+    focus: 'Upper 1, Lower 1, Upper 2, Lower 2'
   },
   {
     id: 'full-body-cv',
@@ -275,7 +275,7 @@ function buildExerciseLibrary() {
   SESSIONS.forEach(s => {
     // Copy, minus supersetGroup: a pairing belongs to the session it was set in, not to the exercise.
     // Every caller clones from here ({...EXERCISE_LIBRARY[name]}), so leaving the tag on would carry
-    // Upper A's pairing into an Open Workout — two exercises that happened to be tagged '1' in their
+    // Upper 1's pairing into an Open Workout — two exercises that happened to be tagged '1' in their
     // source templates would silently pair themselves the moment you added them.
     (s.exercises || []).forEach(ex => {
       if (!map[ex.name]) { const { supersetGroup, ...shape } = ex; map[ex.name] = shape; }
@@ -286,7 +286,7 @@ function buildExerciseLibrary() {
   // template could never have one — which is exactly what Seated Row is, and Del wants its four
   // gym options (Pully / Machine / High Row / Low Row) on it.
   //
-  // A template's own list still wins. That list is session-scoped on purpose: Upper A and Full Body
+  // A template's own list still wins. That list is session-scoped on purpose: Upper 1 and Full Body
   // A want Smith/BB on the Incline Press while the DB variant stays a separate exercise.
   Object.entries(EXERCISE_VARIATIONS).forEach(([name, variations]) => {
     if (!map[name]) map[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
@@ -1677,9 +1677,11 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   });
 }
 
-// Squeezes a session name into a seventh of a phone's width — "Upper A" → UA, "Full Body A" → FBA,
+// Squeezes a session name into a seventh of a phone's width — "Upper 1" → U1, "Full Body A" → FBA,
 // "CV + Pump" → CVP. Initials, except that a word already written in capitals is an acronym and is
-// kept whole (dropping CV to a bare C would lose the only part that identifies the session).
+// kept whole (dropping CV to a bare C would lose the only part that identifies the session). A digit
+// is uppercase-equal to itself, so it survives the same way — which is what keeps Upper 1 and
+// Upper 2 apart on a strip seven columns wide.
 // A one-word name keeps its first five letters instead, since its initial alone says nothing.
 // The full name rides along in the tile's `title`, and History spells every session out in full.
 function shortSessionLabel(name) {
@@ -1707,8 +1709,8 @@ function getSessionById(id) {
 
 // ─── TILE COLOUR (17 Aug 2026) ────────────────────────────
 // Which colour a session tile wears. Keyed on the **id prefix**, never the name: the name is
-// editable in the ✎ template editor, the id isn't, so renaming "Lower B" to "Legs B" would
-// otherwise silently drop it back to grey. A session that matches nothing falls through to the
+// editable in the ✎ template editor, the id isn't, so renaming "Lower B" to "Lower 2" — which is
+// exactly what happened on 21 Aug 2026 — would otherwise silently drop it back to grey. A session that matches nothing falls through to the
 // neutral class rather than picking a colour at random.
 function sessionColourClass(s) {
   const id = s.id || '';
@@ -1746,7 +1748,7 @@ function lastTrainedLabel(date) {
 }
 
 // ─── NEXT UP (18 Aug 2026) ────────────────────────────────
-// Del trains a rolling Upper A → Lower A → Upper B → Lower B rotation at ~5 sessions a week, so the
+// Del trains a rolling Upper 1 → Lower 1 → Upper 2 → Lower 2 rotation at ~5 sessions a week, so the
 // cycle drifts across weekdays and never lines up with a calendar. Home's week strip is
 // weekday-shaped and therefore cannot answer the only question he asks Home on the way to the gym:
 // which one is next. Every fact needed to answer it was already in the app; nothing ever said it.
@@ -1767,7 +1769,7 @@ function nextInRotation(recent, sessions = SESSIONS, programmes = TRAINING_PROGR
     if (s && fixed.has(s.programme)) { last = s; lastDate = w.date; break; }
   }
   // No history inside a fixed programme — say nothing rather than guess. sb() hands back [] on a
-  // failed GET, so guessing here would print "Upper A next" at a man standing in a gym with no
+  // failed GET, so guessing here would print "Upper 1 next" at a man standing in a gym with no
   // signal, which is worse than an absent card.
   if (!last) return null;
 
@@ -1784,9 +1786,9 @@ let nextUpSession = null;
 // Paints the card, or hides it. One request, deliberately not awaited by loadHomePage — a slow gym
 // connection must not hold the rest of Home behind it.
 //
-// The in-progress branch matters more than it looks. Without it, doing half of Upper B and glancing
-// at Home would offer Lower B, and tapping that lands on beginWorkoutSession's "you have an
-// in-progress Upper B, start Lower B instead?" confirm — a dead end built by the card itself.
+// The in-progress branch matters more than it looks. Without it, doing half of Upper 2 and glancing
+// at Home would offer Lower 2, and tapping that lands on beginWorkoutSession's "you have an
+// in-progress Upper 2, start Lower 2 instead?" confirm — a dead end built by the card itself.
 async function renderNextUp() {
   const card = document.getElementById('next-up');
   if (!card) return;
@@ -1897,7 +1899,7 @@ async function buildSessionGrid(programmeId = null) {
       btn.className = `session-btn programme-btn tinted sc-prog-${p.id}`;
       btn.id = `programme-btn-${p.id}`;
       // A programme's "last trained" is the most recent of any session inside it, and it names
-      // which one — "last · Lower A, today" answers what to do next better than a bare date does.
+      // which one — "last · Lower 1, today" answers what to do next better than a bare date does.
       let bestId = null, bestDate = null;
       SESSIONS.filter(s => s.programme === p.id).forEach(s => {
         const d = lastMap[s.id];
@@ -1989,7 +1991,7 @@ function showProgrammeSessions(programmeId) {
 }
 
 // ─── SESSION TEMPLATE EDITOR ────────────────────────────────
-// Permanent reorder / add / remove exercises / add-remove sets for a fixed session (Upper A, etc).
+// Permanent reorder / add / remove exercises / add-remove sets for a fixed session (Upper 1, etc).
 // Works on a cloned buffer (editingTemplateExercises) — nothing touches the live SESSIONS/DB until Save.
 //
 // editingTemplateExercises is the BASE order — the order with no supersets applied, exactly like the

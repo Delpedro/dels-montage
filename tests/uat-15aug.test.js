@@ -201,18 +201,20 @@ eq(app.state().swActiveExercise, 'Incline Chest Press', 'a timer on an unpaired 
 // ── 3 · WEEK STRIP LABELS ───────────────────────────────────────────────────────────────────────
 console.log('  shortSessionLabel');
 
-// Del's real session names, straight out of session_templates.
-eq(app.shortSessionLabel('Upper A'), 'UA', 'Upper A → UA');
-eq(app.shortSessionLabel('Lower A'), 'LA', 'Lower A → LA');
-eq(app.shortSessionLabel('Upper B'), 'UB', 'Upper B → UB');
-eq(app.shortSessionLabel('Lower B'), 'LB', 'Lower B → LB');
+// Del's real session names, straight out of session_templates. Letters became numbers on
+// 21 Aug 2026 — a digit is equal to its own uppercase, so it takes the acronym branch and is kept
+// whole rather than being read as an initial. That is the only reason U1 isn't just U.
+eq(app.shortSessionLabel('Upper 1'), 'U1', 'Upper 1 → U1');
+eq(app.shortSessionLabel('Lower 1'), 'L1', 'Lower 1 → L1');
+eq(app.shortSessionLabel('Upper 2'), 'U2', 'Upper 2 → U2');
+eq(app.shortSessionLabel('Lower 2'), 'L2', 'Lower 2 → L2');
 eq(app.shortSessionLabel('Full Body A'), 'FBA', 'Full Body A → FBA');
 eq(app.shortSessionLabel('CV + Pump'), 'CVP', 'CV + Pump → CVP, the + dropped and the acronym kept whole');
 eq(app.shortSessionLabel('Open Workout'), 'OW', 'Open Workout → OW');
 
 // The four Upper/Lower sessions are the ones that sit next to each other on the strip, so they are
 // the ones that must not collide.
-const strip = ['Upper A', 'Lower A', 'Upper B', 'Lower B'].map(app.shortSessionLabel);
+const strip = ['Upper 1', 'Lower 1', 'Upper 2', 'Lower 2'].map(app.shortSessionLabel);
 eq(new Set(strip).size, 4, 'the four programme sessions abbreviate to four different labels');
 
 // A word already in capitals is an acronym — reducing CV to C would throw away the identifying half.
