@@ -126,7 +126,7 @@ console.log('data export');
   // and again when app_meta was added. Adding a table means adding it here and to EXPORT_TABLES.
   // tools/backup.js needs nothing.
   const KNOWN_TABLES = [
-    'app_meta', 'cardio_logs', 'conditioning_logs', 'custom_exercises', 'daily_logs', 'exercises', 'goals',
+    'app_meta', 'cardio_logs', 'conditioning_logs', 'custom_exercises', 'daily_logs', 'exercises', 'goals', 'profiles',
     'quotes', 'session_exercises', 'session_templates', 'workout_sets', 'workouts',
   ];
 

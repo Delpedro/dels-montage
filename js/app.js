@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-21-1613';
+const APP_BUILD = '2026-08-21-1846';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -938,7 +938,7 @@ async function savePassword() {
 // only one of the two backup routes that can still fall behind. A test pins it against the schema.
 const EXPORT_TABLES = [
   'workouts', 'workout_sets', 'cardio_logs', 'conditioning_logs', 'daily_logs',
-  'goals', 'custom_exercises', 'exercises', 'session_templates', 'session_exercises', 'quotes',
+  'goals', 'profiles', 'custom_exercises', 'exercises', 'session_templates', 'session_exercises', 'quotes',
   // Nothing you'd miss if it were lost — one row saying when you last backed up. It's here because
   // "the export is every table" is a rule worth keeping absolute: the moment there's a judgement
   // call about which tables count, the list starts drifting, which is the exact failure this and
@@ -1205,6 +1205,31 @@ async function autoCloseStaleWorkouts() {
     { completed_at: new Date().toISOString() }, { quiet: true });
 }
 
+// ─── THE PERSON USING THE APP ─────────────────────────────
+// Added 21 Aug 2026 — the first step of the second-user work (MULTIUSER-PLAN.md §5).
+//
+// Until now D-LOG had no concept of a person at all: getGreeting() returned the literal string
+// 'Good morning, Del'. With one account that reads as a nice touch. With two it means the second
+// person is greeted by the first person's name every time they open the app.
+//
+// One row per user — profiles.user_id IS the primary key — so this is a single object rather than
+// a list, and there is no "which row is the current one" question to get wrong later. (goals is
+// the counter-example: it has a surrogate id and has to be read `order=updated_at.desc&limit=1`.)
+//
+// A MISSING ROW IS NOT AN ERROR. It means an account nobody has onboarded yet, which is exactly
+// what the onboarding form keys off. So everything here has to read as blank rather than broken:
+// no name in the greeting, no toast, no console noise.
+let PROFILE = { display_name: null, onboarded_at: null };
+
+async function loadProfile() {
+  // No ?user_id=eq.… filter: RLS scopes the table to the caller, and the primary key means there
+  // is at most one row to come back. Sending the id would be decorative — the server ignores what
+  // the client claims about whose data this is, which is the whole point of the policy.
+  const rows = await sb('profiles?select=*&limit=1');
+  if (!rows || !rows[0]) return;   // not onboarded — the greeting drops the name, see getGreeting()
+  PROFILE = rows[0];
+}
+
 // ─── MACRO TARGETS ────────────────────────────────────────
 // Added 11 Aug 2026. Before this the app had no targets, so every macro comparison in the UI was
 // "change since the previous check-in" — which read as a goal shortfall and caused real confusion
@@ -1406,7 +1431,11 @@ async function initApp(page = 'home') {
   await loadExerciseIds();
   EXERCISE_LIBRARY = buildExerciseLibrary();
   loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
-  await loadGoals();      // Must resolve before renderCheckinSummary/loadHistory — both judge macros against it
+  // Two independent single-row reads, so they go together rather than one after the other — this
+  // runs on every app start, sometimes on a gym connection. Both must resolve before showPage():
+  // loadHomePage prints the greeting, and renderCheckinSummary/loadHistory judge macros against
+  // the targets.
+  await Promise.all([loadProfile(), loadGoals()]);
   buildSessionGrid();
   renderCheckinSummary();
   showPage(page);
@@ -1452,11 +1481,14 @@ function dayIndex(len) {
   return ((days % len) + len) % len;
 }
 
+// The name comes from the profile row now, not from the source (21 Aug 2026). If there is no row
+// yet — a brand new account that hasn't been onboarded — it greets without a name rather than
+// guessing, inventing "there" or, worst of all, calling someone else Del.
 function getGreeting() {
   const h = new Date().getHours();
-  if (h < 12) return 'Good morning, Del';
-  if (h < 17) return 'Good afternoon, Del';
-  return 'Good evening, Del';
+  const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const name = (PROFILE.display_name || '').trim();
+  return name ? `${part}, ${name}` : part;
 }
 
 // ─── LANDING PAGE ─────────────────────────────────────────

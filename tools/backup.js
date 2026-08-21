@@ -31,10 +31,11 @@ const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 
-// The whole public schema is 10 tables as of Aug 2026 and every one of them holds something the app
-// can't be rebuilt without. Anything lower means the enumeration query half-worked, which would
-// otherwise write a confident-looking backup that is quietly missing tables.
-const MIN_TABLES = 10;
+// The whole public schema is 13 tables as of 21 Aug 2026 (profiles was the latest) and every one of
+// them holds something the app can't be rebuilt without. Anything lower means the enumeration query
+// half-worked, which would otherwise write a confident-looking backup that is quietly missing
+// tables. Raise this when a table is added; never lower it to make a failing run pass.
+const MIN_TABLES = 13;
 
 // Tables that are expected to be non-empty. If one of these comes back empty the dump is almost
 // certainly a failure being written to disk as a success, which is worse than no backup at all —
