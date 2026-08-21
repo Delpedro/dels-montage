@@ -100,4 +100,9 @@ insert into public.profiles (user_id, display_name)
 values ('10575e31-6c18-4d95-8f71-8fff682d29ef', 'Del')
 on conflict (user_id) do nothing;
 
+-- Sex and height WERE filled in afterwards (male, 172.7 cm) — by a one-off query, deliberately not
+-- from this file. THIS REPO IS PUBLIC. A migration is the wrong place for anybody's body
+-- measurements, and re-running this file on a fresh database should not resurrect them. Anything
+-- personal belongs in the row, not in version control.
+
 commit;
