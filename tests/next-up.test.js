@@ -116,8 +116,8 @@ const at = (type, date) => ({ session_type: type, date });
      'and that helper is still sets-or-cardio-or-notes');
   ok(/order=date\.desc,completed_at\.desc/.test(fn),
      'and still asks for them newest-first, with an in-progress session ahead of a finished one');
-  ok(/!live\.completed_at && live\.date === todayStr\(\)/.test(fn),
-     'a session started today and not yet saved shows as Resume, not as the one after it');
+  ok(/liveWorkoutRow\(rows, todayStr\(\)\)/.test(fn),
+     'and asks liveWorkoutRow() which session is live rather than reading it off recent[0]');
 }
 
 // ── Start must not stop off at the picker on the way ─────────────────────────────────────────
@@ -145,6 +145,67 @@ const at = (type, date) => ({ session_type: type, date });
      'but still does not call selectSession() itself — that is the second copy the comment warns about');
   ok(/showWorkoutView\('grid'\)/.test(fn),
      'and a cancelled confirm lands on the picker rather than stranding him on the placeholder');
+}
+
+// ── Which session is LIVE, 21 Aug 2026 ───────────────────────────────────────────────────────
+// Del, three sets into the first exercise of Upper A: "home page - in progress (not sure) when i
+// started the first exercise (smith incline) on 3rd set - it wasnt working". The card offered him
+// Upper A as *Next up* — the session he was standing in — and only corrected itself an hour later.
+//
+// The database says why, and the timing is the proof: his screenshot is 10:51, and the first
+// Mark Done of that session wrote its rows at 10:53. Sets go to the DB on Mark Done, not on typing,
+// so the whole of the first exercise is a window in which a live session has NOTHING in the
+// database. renderNextUp() was reading the live session off the newest row that had DB content, so
+// for that window it could not see the session at all.
+//
+// Both halves of the rule below matter, and the second is why the old code was written that way:
+// a `workouts` row exists from the instant a tile is tapped, so "there is an open row" on its own
+// reports a session that never happened (the ghost bug, 19 Aug). The draft is what tells a session
+// being typed into apart from one that was tapped and abandoned.
+{
+  const { liveWorkoutRow } = load({ functions: ['workoutRowHasContent', 'liveWorkoutRow'] });
+  const TODAY = '2026-08-21';
+  const row = (type, date, extra = {}) => ({ session_type: type, date, notes: '', workout_sets: [], cardio_logs: [], ...extra });
+  const noDraft = () => false;
+  const draftFor = id => type => type === id;
+
+  // The bug itself.
+  {
+    const rows = [row('upper-a', TODAY), row('lower-b', '2026-08-19', { workout_sets: [{ id: 1 }], completed_at: '2026-08-19T10:00:00Z' })];
+    const live = liveWorkoutRow(rows, TODAY, draftFor('upper-a'));
+    eq(live && live.session_type, 'upper-a', 'three sets typed and nothing saved yet is still an in-progress Upper A');
+    eq(liveWorkoutRow(rows, TODAY, noDraft), null, 'but the same row with no draft behind it is a ghost, not a session');
+  }
+
+  // The half that already worked — part-saved, which is all the card could see before.
+  {
+    const rows = [row('upper-a', TODAY, { workout_sets: [{ id: 1 }] })];
+    eq(liveWorkoutRow(rows, TODAY, noDraft).session_type, 'upper-a', 'a session with rows in the DB is live whether or not a draft survives');
+  }
+
+  // Finished, and yesterday's.
+  {
+    eq(liveWorkoutRow([row('upper-a', TODAY, { workout_sets: [{ id: 1 }], completed_at: '2026-08-21T11:49:45Z' })], TODAY, draftFor('upper-a')), null,
+       'a saved workout is finished, not in progress — even if its draft has not been cleared yet');
+    eq(liveWorkoutRow([row('upper-a', '2026-08-20')], TODAY, draftFor('upper-a')), null,
+       "yesterday's abandoned row is not today's session, however live its draft looks");
+  }
+
+  // A draft for one session must not light up a different session's row.
+  {
+    const rows = [row('lower-a', TODAY)];
+    eq(liveWorkoutRow(rows, TODAY, draftFor('upper-a')), null, 'the draft has to belong to the row it is vouching for');
+  }
+
+  // Today's open one wins over today's finished one — PostgREST hands them over nullsfirst, and the
+  // find() must take the first match rather than the last.
+  {
+    const rows = [row('lower-a', TODAY), row('upper-a', TODAY, { workout_sets: [{ id: 1 }], completed_at: '2026-08-21T11:49:45Z' })];
+    eq(liveWorkoutRow(rows, TODAY, draftFor('lower-a')).session_type, 'lower-a', 'a second session started after the first was saved is the live one');
+  }
+
+  eq(liveWorkoutRow([], TODAY, noDraft), null, 'no rows, no live session');
+  eq(liveWorkoutRow(null, TODAY, noDraft), null, 'and a failed GET (sb returns []) never crashes the card');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

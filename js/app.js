@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-20-1911';
+const APP_BUILD = '2026-08-21-1529';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1591,6 +1591,28 @@ function draftHasContentFor(sessionType) {
   }
 }
 
+// Which of today's rows, if any, is the session you are standing in the middle of — or null.
+//
+// THE 21 AUG 2026 BUG. Del, three sets into Smith Incline on Upper A: "home page - in progress (not
+// sure) when i started the first exercise (smith incline) on 3rd set - it wasnt working". Home
+// offered him Upper A as *Next up*, the session he was already doing, and only switched to
+// "In progress" an hour later. The data says exactly why: the first Mark Done of that session landed
+// at 10:53, two minutes AFTER his screenshot. Sets are written on Mark Done, not on typing, so
+// renderNextUp() — which read the live session off the most recent row that had DB content — could
+// not see a session until it was part-saved. The whole first exercise is a blind spot.
+//
+// The rule here is the ghost rule, the one beginWorkoutSession() has used since 19 Aug: content in
+// the row OR a live draft for that session type. Both halves are needed. Without the draft an
+// untouched session is invisible; without the row check a stray tap on a tile would report a
+// workout with nothing in it as in progress, which is the ghost bug this app already fixed once.
+//
+// `hasDraft` is injected so this stays pure and testable — see tests/next-up.test.js.
+function liveWorkoutRow(rows, today, hasDraft = draftHasContentFor) {
+  return (rows || []).find(w =>
+    !w.completed_at && w.date === today && (workoutRowHasContent(w) || hasDraft(w.session_type))
+  ) || null;
+}
+
 async function realWorkoutsBetween(fromDate, toDate = null) {
   const range = `date=gte.${fromDate}` + (toDate ? `&date=lte.${toDate}` : '');
   const rows = await sb(`workouts?${range}&select=id,date,session_type,notes,completed_at,workout_sets(id),cardio_logs(id)`) || [];
@@ -1775,10 +1797,13 @@ async function renderNextUp() {
   // PostgREST, which is what puts today's in-progress session ahead of today's finished one.
   const rows = await sb('workouts?select=session_type,date,notes,completed_at,workout_sets(id),cardio_logs(id)&order=date.desc,completed_at.desc&limit=20') || [];
   const recent = rows.filter(workoutRowHasContent);
-  if (!recent.length) return hide();
 
-  const live = recent[0];
-  const liveSession = !live.completed_at && live.date === todayStr() ? getSessionById(live.session_type) : null;
+  // `recent` answers "where am I in the rotation", which is a question only finished work can
+  // answer. Which session is LIVE is a different question with a different rule — see
+  // liveWorkoutRow(). Reading the live one off `recent[0]` was the 21 Aug bug: it made the card
+  // wait for the first Mark Done before it would admit a session had started.
+  const live = liveWorkoutRow(rows, todayStr());
+  const liveSession = live ? getSessionById(live.session_type) : null;
   const next = liveSession ? null : nextInRotation(recent);
   if (!liveSession && !next) return hide();
 
