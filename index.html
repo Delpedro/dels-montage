@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-22-1527">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-22-1555">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -122,6 +122,10 @@
       <div class="account-row">
         <button type="button" class="account-link" onclick="exportAllData()" id="export-btn">Export my data</button>
         <button type="button" class="account-link" onclick="openPasswordModal()">Change password</button>
+        <!-- The only way back into the onboarding answers. Without it a typo in the name, or a
+             height entered in inches, is permanent: onboarded_at gates the form and nothing else
+             writes the profiles row. -->
+        <button type="button" class="account-link" onclick="openOnboarding(true)">Your details</button>
       </div>
       <!-- Which build the phone is actually running. Read this out before reporting a missing feature. -->
       <div class="build-tag" id="build-tag" onclick="checkForUpdate(true)"></div>
@@ -616,8 +620,34 @@
     </div>
   </div>
 </div>
+<!-- ONBOARDING — layout C, one question per screen. Del picked the letter off the contact sheet on
+     22 Aug. The eight questions, their copy and every rule live in ONBOARD_STEPS in js/app.js; this
+     is only the frame they are rendered into, which is why there are no field markup blocks here. -->
+<div id="onboarding" style="display:none;">
+  <div class="ob-top">
+    <span class="ob-brand">D-LOG</span>
+    <span class="ob-date" id="ob-date"></span>
+  </div>
+  <div class="ob-body">
+    <div class="ob-rail" id="ob-rail"></div>
+    <div class="ob-wrap">
+      <h2 class="ob-q" id="ob-q"></h2>
+      <p class="ob-sub" id="ob-sub"></p>
+      <div id="ob-field"></div>
+      <div class="ob-err" id="ob-err"></div>
+    </div>
+    <div class="ob-foot">
+      <span class="ob-foot-left">
+        <button type="button" class="ob-back" id="ob-back" onclick="obBack()">&larr; Back</button>
+        <span class="ob-count" id="ob-count"></span>
+      </span>
+      <button type="button" class="ob-next" id="ob-next" onclick="obNext()">Next</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-22-1527"></script>
+<script src="js/app.js?v=2026-08-22-1555"></script>
 </body>
 </html>

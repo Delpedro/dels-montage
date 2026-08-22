@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-22-1527';
+const APP_BUILD = '2026-08-22-1555';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -783,6 +783,10 @@ function showLoginScreen(message) {
   if (message) { err.textContent = message; err.style.display = 'block'; }
   else { err.style.display = 'none'; }
   window.scrollTo(0, 0);
+  // A token can expire with the onboarding form open. The login screen sits in front of it either
+  // way (z-index 999 against 900), but leaving it mounted means the NEXT person to log in on this
+  // phone lands on somebody else's half-answered form the moment the login screen hides.
+  closeOnboarding();
   document.documentElement.classList.add('login-active');
   document.getElementById('login-screen').style.display = 'flex';
 }
@@ -1230,6 +1234,368 @@ async function loadProfile() {
   PROFILE = rows[0];
 }
 
+// ─── ONBOARDING ───────────────────────────────────────────
+// 22 Aug 2026. Step 2 of the second-user work: the form that fills the profiles row in.
+//
+// LAYOUT C, picked by Del off the contact sheet (aa915156) after seeing all three. One question per
+// screen, eight screens, thumb already on the keyboard. It is the slowest of the three and the most
+// copy to write, and it was chosen for the reason it exists at all: the first person through it has
+// never used a training app, and a single page of eleven fields is where that person stops.
+//
+// EVERY ANSWER EXCEPT THE NAME IS SKIPPABLE. Tap Next with the field blank and the column stays
+// null — deliberate, and it matches the table, where display_name is the only NOT NULL. A form that
+// will not let you past a question you cannot answer is how someone ends up typing a guess, and a
+// fabricated height is worse than a blank one because nothing ever prompts you to correct a number
+// that looks filled in.
+//
+// UNITS IS NOT ASKED. The column exists, nothing in the app reads it, and the app is metric
+// everywhere. A stored preference the UI ignores is worse than not asking — see the migration.
+//
+// DEL SEES IT ONCE TOO, by his own decision (22 Aug). His row predates the form: onboarded_at is
+// null and his date of birth was never recorded, only his age. So the gate is "no row OR
+// onboarded_at is null", and the form prefills from whatever the row already holds — he is not
+// retyping his own name and height to get past it.
+const ONBOARD_STEPS = [
+  {
+    key: 'display_name', type: 'text', required: true, placeholder: 'Name',
+    q: "First — what's your name?",
+    sub: 'It goes on the home screen, nowhere else.'
+  },
+  {
+    key: 'sex', type: 'chips',
+    q: 'Which of these fits?',
+    sub: 'Its only job is energy and protein maths later on. Nothing in the app reads it today.',
+    options: [['female', 'Female'], ['male', 'Male'], ['other', 'Other']]
+  },
+  {
+    key: 'dob', type: 'dob',
+    q: 'When were you born?',
+    sub: 'A date rather than an age — an age is a number that goes stale in a database.'
+  },
+  {
+    key: 'start_weight_kg', type: 'number', unit: 'kg', min: 20, max: 400,
+    q: 'What do you weigh today?',
+    sub: "This becomes today's weigh-in. Nearest 0.1 is fine."
+  },
+  {
+    key: 'height_cm', type: 'number', unit: 'cm', min: 100, max: 250,
+    q: 'How tall are you?',
+    sub: 'Centimetres — 5ft 8in is about 173.'
+  },
+  {
+    key: 'target_weight_kg', type: 'number', unit: 'kg', min: 20, max: 400,
+    q: 'Is there a weight you are aiming for?',
+    sub: "Leave it blank if there isn't. Nothing in the app nags you about this."
+  },
+  {
+    key: 'experience', type: 'chips',
+    q: 'How much lifting have you done?',
+    sub: 'This is what picks the programme you start on.',
+    options: [['beginner', 'New to it'], ['returning', 'Coming back'], ['intermediate', 'A year or two'], ['advanced', 'Years']]
+  },
+  {
+    key: 'training_days_per_week', type: 'chips',
+    q: 'How many days a week can you train?',
+    sub: 'Be honest — the programme is built around this number.',
+    options: [[2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6']]
+  }
+];
+
+const OB_DRAFT_PREFIX = 'dlog_onboard_draft:';
+let obStep = 0;
+let obAnswers = {};
+let obEditing = false;
+
+// Per account, because two people can share a phone and the second one is not onboarded just
+// because the first one was. The email is already in localStorage under dlog_session — this adds
+// no new exposure, it just needs something stable to key on.
+function onboardedKey() {
+  return `dlog_onboarded:${authSession?.email || ''}`;
+}
+
+// The half-finished form is per account for the same reason: Del abandoning the form on screen 3
+// must not hand his answers to whoever logs in on that phone next.
+function obDraftKey() {
+  return `${OB_DRAFT_PREFIX}${authSession?.email || ''}`;
+}
+
+// A missing profile row means "not onboarded" — but sb() also returns [] for a GET that FAILED, and
+// from here those two are indistinguishable. Without this cache, one trip to a gym with no signal
+// would open the onboarding form over a four-month-old account and ask Del his name again.
+//
+// So the row is the authority when it arrives, and this is the memory of the last time it did.
+function needsOnboarding() {
+  if (PROFILE && PROFILE.onboarded_at) return false;
+  try {
+    if (localStorage.getItem(onboardedKey()) === '1') return false;
+  } catch (e) {}
+  return true;
+}
+
+function markOnboarded() {
+  try { localStorage.setItem(onboardedKey(), '1'); } catch (e) {}
+}
+
+// Pure, so the rules can be tested without a DOM. Returns { value } or { error }; a blank answer on
+// an optional step is { value: null }, which is a real answer meaning "not recorded".
+function obValidate(step, raw) {
+  if (step.type === 'chips') {
+    return { value: (raw === undefined || raw === '' || raw === null) ? null : raw };
+  }
+  if (step.type === 'text') {
+    const v = String(raw ?? '').trim();
+    if (!v) return step.required ? { error: 'The app needs something to call you.' } : { value: null };
+    return { value: v.slice(0, 60) };
+  }
+  if (step.type === 'number') {
+    // A comma is what some locales' phone keypads give for a decimal point, and "68,4" parses as
+    // 68 without this — a silently wrong weigh-in rather than a visible error.
+    const s = String(raw ?? '').trim().replace(',', '.');
+    if (!s) return { value: null };
+    if (!/^\d+(\.\d+)?$/.test(s)) return { error: 'Numbers only.' };
+    const n = parseFloat(s);
+    if (n < step.min || n > step.max) return { error: `That should be between ${step.min} and ${step.max} ${step.unit}.` };
+    // Matches the numeric(5,1) / numeric(4,1) columns. Rounding here rather than letting Postgres
+    // do it means the number stored is the number the screen shows back.
+    return { value: Math.round(n * 10) / 10 };
+  }
+  if (step.type === 'dob') {
+    const d = String(raw && raw.d !== undefined ? raw.d : '').trim();
+    const m = String(raw && raw.m !== undefined ? raw.m : '').trim();
+    const y = String(raw && raw.y !== undefined ? raw.y : '').trim();
+    if (!d && !m && !y) return { value: null };
+    if (!d || !m || !y) return { error: 'Day, month and year — or leave all three blank.' };
+    if (!/^\d{1,2}$/.test(d) || !/^\d{1,2}$/.test(m) || !/^\d{4}$/.test(y)) {
+      return { error: 'Day, month, then a four-digit year.' };
+    }
+    const dd = parseInt(d, 10), mm = parseInt(m, 10), yy = parseInt(y, 10);
+    // Round-trip through Date rather than a days-in-month table: 31/02 constructs as 03/03 and
+    // comes back out with a different month, which is exactly the check.
+    const dt = new Date(yy, mm - 1, dd);
+    if (dt.getFullYear() !== yy || dt.getMonth() !== mm - 1 || dt.getDate() !== dd) {
+      return { error: "That date doesn't exist." };
+    }
+    const age = obAgeOn(dt, new Date());
+    if (age < 13 || age > 100) return { error: `That works out at ${age} — check the year.` };
+    const p = n => String(n).padStart(2, '0');
+    return { value: `${yy}-${p(mm)}-${p(dd)}` };
+  }
+  return { value: null };
+}
+
+// Whole years, birthday-aware. Not `(now - birth) / 365.25` — that is off by a day either side of a
+// birthday, which is exactly where an age check gets argued with.
+function obAgeOn(birth, now) {
+  const age = now.getFullYear() - birth.getFullYear();
+  const before = now.getMonth() < birth.getMonth()
+    || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate());
+  return before ? age - 1 : age;
+}
+
+// Every column the form owns, present on every save. A key left off the body is a column left
+// alone, which on an edit means clearing an answer would silently keep the old one.
+function obPayload(answers, nowIso) {
+  const row = {};
+  ONBOARD_STEPS.forEach(s => {
+    const v = answers[s.key];
+    row[s.key] = (v === undefined || v === '') ? null : v;
+  });
+  row.onboarded_at = nowIso;
+  return row;
+}
+
+function openOnboarding(edit = false) {
+  obEditing = !!edit;
+  obStep = 0;
+  obAnswers = {};
+  // Prefill from whatever the row already holds. PostgREST hands numerics back as strings, so the
+  // numbers go through numOrNull/intOrNull rather than being trusted raw.
+  ONBOARD_STEPS.forEach(s => {
+    const v = PROFILE ? PROFILE[s.key] : null;
+    if (v === null || v === undefined || v === '') return;
+    if (s.type === 'number') obAnswers[s.key] = numOrNull(v);
+    else if (s.key === 'training_days_per_week') obAnswers[s.key] = intOrNull(v);
+    else obAnswers[s.key] = v;
+  });
+  // A run abandoned halfway beats the row: it is the more recent set of answers. Not applied when
+  // the form was opened deliberately to edit — that starts from what is actually stored.
+  if (!obEditing) {
+    try {
+      const raw = localStorage.getItem(obDraftKey());
+      const draft = raw ? JSON.parse(raw) : null;
+      if (draft && draft.answers) {
+        obAnswers = { ...obAnswers, ...draft.answers };
+        obStep = Math.min(Math.max(0, draft.step | 0), ONBOARD_STEPS.length - 1);
+      }
+    } catch (e) {}
+  }
+  document.getElementById('ob-date').textContent =
+    new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  document.getElementById('onboarding').style.display = 'flex';
+  document.documentElement.classList.add('ob-active');
+  window.scrollTo(0, 0);
+  obRender();
+}
+
+function closeOnboarding() {
+  document.getElementById('onboarding').style.display = 'none';
+  document.documentElement.classList.remove('ob-active');
+}
+
+function obRender() {
+  const step = ONBOARD_STEPS[obStep];
+  const last = obStep === ONBOARD_STEPS.length - 1;
+  const answer = obAnswers[step.key];
+
+  document.getElementById('ob-rail').innerHTML =
+    ONBOARD_STEPS.map((_, i) => `<i class="${i <= obStep ? 'on' : ''}"></i>`).join('');
+  document.getElementById('ob-q').textContent = step.q;
+  document.getElementById('ob-sub').textContent = step.sub || '';
+  document.getElementById('ob-err').textContent = '';
+  document.getElementById('ob-count').textContent = `${obStep + 1} / ${ONBOARD_STEPS.length}`;
+  document.getElementById('ob-next').textContent = last ? (obEditing ? 'Save' : 'Finish') : 'Next';
+
+  const back = document.getElementById('ob-back');
+  back.textContent = obStep === 0 ? 'Cancel' : '← Back';
+  // Hidden, not removed: the footer keeps its shape, so Next does not jump sideways between
+  // screen 1 and screen 2.
+  back.style.visibility = (obStep === 0 && !obEditing) ? 'hidden' : 'visible';
+
+  document.getElementById('ob-field').innerHTML = obFieldHtml(step, answer);
+
+  const input = document.getElementById('ob-input') || document.getElementById('ob-dob-d');
+  // Called out of a tap on Next, so this is still inside a user gesture and iOS will open the
+  // keyboard. The whole point of one question per screen is not having to aim for the field.
+  if (input) { try { input.focus(); } catch (e) {} }
+}
+
+function obFieldHtml(step, answer) {
+  if (step.type === 'chips') {
+    return '<div class="ob-chips">' + step.options.map(([value, label]) => {
+      const arg = typeof value === 'number' ? String(value) : `'${esc(String(value))}'`;
+      return `<button type="button" class="ob-chip${answer === value ? ' on' : ''}" onclick="obChoose(${arg})">${esc(label)}</button>`;
+    }).join('') + '</div>';
+  }
+  if (step.type === 'dob') {
+    const parts = String(answer || '').split('-');
+    const y = parts[0] || '', m = parts[1] || '', d = parts[2] || '';
+    const box = (id, val, ph, len, cls) =>
+      `<input class="ob-big ${cls}" id="${id}" type="text" inputmode="numeric" maxlength="${len}" placeholder="${ph}" value="${esc(val)}" onkeydown="obKey(event)" />`;
+    return `<div class="ob-dob">${box('ob-dob-d', d, 'DD', 2, 'ob-dd')}<span class="ob-sep">/</span>${box('ob-dob-m', m, 'MM', 2, 'ob-dd')}<span class="ob-sep">/</span>${box('ob-dob-y', y, 'YYYY', 4, 'ob-yy')}</div>`;
+  }
+  const unit = step.unit ? `<span class="ob-unit">${step.unit}</span>` : '';
+  const mode = step.type === 'number' ? 'decimal' : 'text';
+  const cap = step.type === 'text' ? ' autocapitalize="words"' : '';
+  const shown = (answer === null || answer === undefined) ? '' : String(answer);
+  return `<div class="ob-row"><input class="ob-big" id="ob-input" type="text" inputmode="${mode}"${cap} placeholder="${esc(step.placeholder || '')}" value="${esc(shown)}" onkeydown="obKey(event)" />${unit}</div>`;
+}
+
+function obKey(e) {
+  if (e.key === 'Enter') { e.preventDefault(); obNext(); }
+}
+
+function obChoose(value) {
+  const step = ONBOARD_STEPS[obStep];
+  // Tapping the chosen chip again clears it — the only way back to "not answered" once one has been
+  // pressed, and every chip step is optional.
+  obAnswers[step.key] = obAnswers[step.key] === value ? undefined : value;
+  obRender();
+}
+
+function obReadRaw(step) {
+  const val = id => {
+    const el = document.getElementById(id);
+    return el ? el.value : '';
+  };
+  if (step.type === 'chips') return obAnswers[step.key];
+  if (step.type === 'dob') return { d: val('ob-dob-d'), m: val('ob-dob-m'), y: val('ob-dob-y') };
+  return val('ob-input');
+}
+
+// Keeps whatever is on screen if it is valid, so Back never costs an answer. Rejecting is Next's
+// job alone — a half-typed date must not block a step backwards.
+function obStash() {
+  const step = ONBOARD_STEPS[obStep];
+  if (step.type === 'chips') return;
+  const res = obValidate(step, obReadRaw(step));
+  if (res.error === undefined) obAnswers[step.key] = res.value;
+}
+
+function obSaveDraft() {
+  try {
+    localStorage.setItem(obDraftKey(), JSON.stringify({ step: obStep, answers: obAnswers }));
+  } catch (e) {}
+}
+
+function obBack() {
+  if (obStep === 0) {
+    closeOnboarding();   // Cancel. Only reachable in edit mode — see obRender().
+    return;
+  }
+  obStash();
+  obSaveDraft();
+  obStep--;
+  obRender();
+}
+
+function obNext() {
+  const step = ONBOARD_STEPS[obStep];
+  const res = obValidate(step, obReadRaw(step));
+  if (res.error) {
+    document.getElementById('ob-err').textContent = res.error;
+    return;
+  }
+  obAnswers[step.key] = res.value;
+  if (obStep < ONBOARD_STEPS.length - 1) {
+    obStep++;
+    obSaveDraft();
+    obRender();
+    return;
+  }
+  obFinish();
+}
+
+async function obFinish() {
+  const btn = document.getElementById('ob-next');
+  btn.disabled = true;
+  const row = obPayload(obAnswers, new Date().toISOString());
+  // One row per user and user_id defaults to auth.uid(), so insert-or-update on the primary key is
+  // the whole write — the client never says whose row this is.
+  const res = await sb('profiles?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true });
+  btn.disabled = false;
+  if (!res.ok) {
+    // Stays on the last screen with every answer intact. A form that closes on a failed save is the
+    // check-in bug all over again.
+    document.getElementById('ob-err').textContent = `Not saved (${res.status}) — try again.`;
+    return;
+  }
+  PROFILE = { ...(PROFILE || {}), ...row };
+  markOnboarded();
+  try { localStorage.removeItem(obDraftKey()); } catch (e) {}
+  if (row.start_weight_kg !== null) await obSaveFirstWeighIn(row.start_weight_kg);
+  const wasEditing = obEditing;
+  closeOnboarding();
+  showToast(wasEditing ? 'Details updated' : `You're set up, ${row.display_name}`, 'success');
+  showPage('home');
+}
+
+// "This becomes today's weigh-in" has to be true, or the first thing the app does is lie. Weight
+// lives in daily_logs, not on the profile — start_weight_kg is the point Stats measures from, the
+// weigh-in is the data point.
+//
+// An existing weight for today is never overwritten: someone who checked in this morning and then
+// opened the form has typed the same number twice, and the check-in is the one they meant.
+async function obSaveFirstWeighIn(kg) {
+  const date = todayStr();
+  const rows = await sb(`daily_logs?date=eq.${date}&select=id,weight_kg`, 'GET', null, { quiet: true });
+  const existing = rows && rows[0];
+  if (existing && existing.weight_kg !== null && existing.weight_kg !== undefined) return;
+  const res = existing
+    ? await sb(`daily_logs?date=eq.${date}`, 'PATCH', { weight_kg: kg }, { quiet: true })
+    : await sb('daily_logs', 'POST', { date, weight_kg: kg }, { quiet: true });
+  if (!res.ok) showToast("Details saved — today's weigh-in didn't", 'error');
+}
+
 // ─── MACRO TARGETS ────────────────────────────────────────
 // Added 11 Aug 2026. Before this the app had no targets, so every macro comparison in the UI was
 // "change since the previous check-in" — which read as a goal shortfall and caused real confusion
@@ -1439,6 +1805,10 @@ async function initApp(page = 'home') {
   buildSessionGrid();
   renderCheckinSummary();
   showPage(page);
+  // Last, and after showPage() on purpose: the overlay opens over an app that has already painted,
+  // so finishing the form reveals a Home that is ready rather than a blank frame. See
+  // needsOnboarding() for why a failed profile read does not count as "new account".
+  if (needsOnboarding()) openOnboarding();
 }
 
 // Local-timezone YYYY-MM-DD. Never use toISOString() for a date key — it converts to UTC first,

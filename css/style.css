@@ -826,3 +826,57 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .confirm-actions .btn { flex: 1; min-width: 0; }
 .confirm-yes-danger { background: var(--red); }
 .confirm-yes-danger:active { background: #8e3428; }
+
+/* ─── ONBOARDING (22 Aug 2026) ────────────────────────────────────────────────
+   Layout C off the contact sheet: one question a screen, the question set in Bebas at the size a
+   heading gets, and the answer on a single accent-underlined line rather than in a boxed field.
+   The box is what makes a form look like a form; this has to look like being asked something.
+
+   z-index 900, below #login-screen's 999. An expired token while the form is open must put the
+   login screen IN FRONT of it, not behind — see forceLogout(). */
+html.ob-active { overflow: hidden; }
+
+#onboarding { position: fixed; inset: 0; z-index: 900; background: var(--bg); display: flex; flex-direction: column; }
+.ob-top { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1.1rem; border-bottom: 1px solid var(--border); }
+.ob-brand { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 1px; color: var(--accent); }
+.ob-date { font-size: 11px; color: var(--muted); }
+/* max-width so it doesn't stretch on the PC tab Del checks at phone width via F12 — the column is
+   the same shape on both. */
+.ob-body { flex: 1; width: 100%; max-width: 420px; margin: 0 auto; min-height: 0; display: flex; flex-direction: column; gap: 0.75rem; padding: 1.1rem calc(1.1rem + env(safe-area-inset-left)) calc(1.1rem + env(safe-area-inset-bottom)); }
+.ob-rail { display: flex; gap: 6px; }
+.ob-rail i { height: 3px; flex: 1; border-radius: 2px; background: var(--border2); }
+.ob-rail i.on { background: var(--accent); }
+
+/* Centred in the slack rather than stacked at the top: on a tall phone a top-aligned single
+   question leaves two thirds of the screen empty and reads as a page that failed to load. */
+.ob-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 0.45rem; padding: 0 0.15rem; overflow-y: auto; }
+.ob-q { font-family: 'Bebas Neue', sans-serif; font-size: 31px; line-height: 1.02; letter-spacing: 0.4px; font-weight: 400; }
+.ob-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 0.4rem; }
+
+.ob-row { display: flex; align-items: baseline; }
+.ob-big { width: 100%; background: none; border: none; border-bottom: 2px solid var(--accent); border-radius: 0; padding: 6px 2px; font-family: 'Bebas Neue', sans-serif; font-size: 34px; line-height: 1.15; letter-spacing: 1px; color: var(--text); outline: none; }
+.ob-big::placeholder { color: var(--border2); letter-spacing: 1px; }
+.ob-unit { font-size: 15px; color: var(--muted); margin-left: 8px; flex: 0 0 auto; }
+
+.ob-dob { display: flex; align-items: baseline; gap: 0.35rem; }
+.ob-dob .ob-big { text-align: center; }
+.ob-dd { flex: 0 0 auto; width: 62px; }
+.ob-yy { flex: 0 0 auto; width: 104px; }
+.ob-sep { font-family: 'Bebas Neue', sans-serif; font-size: 26px; color: var(--muted); }
+
+.ob-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.4rem; }
+.ob-chip { border: 1px solid var(--border2); background: var(--bg3); border-radius: 8px; padding: 9px 14px; font-size: 13.5px; color: var(--muted2); font-family: 'DM Sans', sans-serif; cursor: pointer; }
+/* --accent, not --amber: this is "you can tap this / you tapped this", not identity. */
+.ob-chip.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+
+/* Reserves its line whether or not there is an error, so the question above never jumps when one
+   appears. */
+.ob-err { font-size: 12px; color: var(--red); min-height: 1.2em; margin-top: 0.6rem; }
+
+.ob-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.ob-foot-left { display: flex; align-items: center; gap: 0.4rem; }
+.ob-back { background: none; border: none; color: var(--muted); font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; padding: 10px 8px 10px 0; }
+.ob-count { font-family: 'DM Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; }
+.ob-next { background: var(--accent); border: none; border-radius: 8px; padding: 12px 26px; color: #fff; font-size: 14.5px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; }
+.ob-next:active { transform: scale(0.98); background: #933f1c; }
+.ob-next:disabled { opacity: 0.45; }
