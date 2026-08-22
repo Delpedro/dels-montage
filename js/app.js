@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-21-1846';
+const APP_BUILD = '2026-08-22-1527';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6103,23 +6103,6 @@ function swUnlockAudio() {
     // Always resume — cheap/idempotent if already running, essential if iOS suspended it
     if (swAudioCtx.state === 'suspended') swAudioCtx.resume();
   } catch (e) { /* device without audio */ }
-
-  // ── AND UNLOCK THE ELEMENT THE REST CUE PLAYS THROUGH ──────────────────────────────────────────
-  // One element, created once and reused forever, and that is the whole point rather than tidiness:
-  // iOS grants playback permission PER ELEMENT, to an element that has been played inside a gesture.
-  // swArmCue() runs from startRestAfter(), which is downstream of completeExercise()'s awaits and so
-  // is no longer a gesture — the same reason this function exists at all. Playing a silent frame here
-  // buys the permission now, and every later play() on this same element inherits it.
-  try {
-    if (!swCueEl) {
-      swCueEl = new Audio();
-      swCueEl.preload = 'auto';
-      // 0.05s of 8kHz silence — just enough for iOS to count this element as "played by the user"
-      swCueEl.src = URL.createObjectURL(swBuildCueWav(0.05, false));
-      const p = swCueEl.play();
-      if (p && p.then) p.then(() => swCueEl.pause()).catch(() => {});
-    }
-  } catch (e) { /* no media support — the render-tick beep still covers the in-app case */ }
 }
 
 // await the resume before scheduling oscillators — if iOS suspended the context
@@ -6142,113 +6125,25 @@ async function swBeep() {
   } catch (e) { /* silent fail */ }
 }
 
-// ─── THE REST CUE — a scheduled sound, not a timed one (21 Aug 2026) ─────────────────────────────
-// swBeep() above can only ever be heard with the app open, the screen on and the logger visible, and
-// on an iPhone that is the one moment you don't need it. Three separate reasons, all of them true at
-// once:
+// ─── WHY THERE IS NO SCHEDULED CUE (22 Aug 2026) ─────────────────────────────────────────────────
+// There was one, for a day. It handed iOS a WAV of N seconds of near-silence followed by the two
+// tones, so the beep arrived on wall-clock time with the screen locked and the app backgrounded —
+// the one case swBeep() above can never cover, because iOS suspends the AudioContext on lock and
+// setInterval is frozen by then anyway.
 //
-//   1. The beep is a side-effect of swRenderWatch(), which starts `if (!btn) return`. Walk to Home or
-//      Stats mid-rest and there is no watch button, so the crossing is never even tested.
-//   2. setInterval is throttled to a crawl and usually frozen outright once the tab is backgrounded,
-//      so the tick that would test it doesn't run.
-//   3. iOS suspends the AudioContext on screen lock and refuses to resume it outside a user gesture,
-//      which is exactly what swBeep()'s `await swAudioCtx.resume()` is. Screen off = silence, always.
+// It worked, and Del binned it after one session. A page playing audio holds the audio session for
+// as long as the file lasts, so Spotify stopped for the WHOLE rest rather than for the beep. iOS
+// picks duck-or-pause and a web page cannot ask for either, nor can it claim the session late. He
+// stopped using rest at all rather than put up with it, and a timer nobody starts records nothing.
 //
-// And navigator.vibrate does not exist in Safari, so swVibrate() has never once fired on Del's phone.
-// There was no fallback underneath any of this.
+// So the beep is swBeep() on the render tick again: app open, screen on, logger visible. The real
+// fix is a notification rather than audio — a chime off the notification channel fires with the
+// screen locked and hands Spotify straight back within the half-second. The web has no LOCAL
+// scheduled notification, so on iOS that means Web Push: VAPID keys, a subscription table, a push
+// handler in sw.js, an Edge Function that waits out the remaining seconds, and D-LOG installed to
+// the Home Screen (Safari tabs get no push, no exception). Queued as its own job on 22 Aug.
 //
-// So: stop trying to make a sound AT the right moment, and hand the OS a sound that already knows
-// when to arrive. The moment rest starts we build a WAV of `seconds` of silence followed by the two
-// tones and play it through a plain <audio> element. iOS keeps media elements playing with the screen
-// locked and the app backgrounded, and the beep lands on wall-clock time because CoreAudio is playing
-// a file — no JavaScript is involved by then, and none of the three failures above can touch it.
-//
-// The cost, and Del accepted it knowingly on 21 Aug: holding an audio session for the length of a
-// rest will duck or pause whatever he has playing. iOS decides which, a web page cannot ask.
-// The one persistent element, created once and reused forever — see swUnlockAudio() for why that
-// matters rather than being tidiness.
-let swCueEl = null;
-// Object URL of the WAV currently armed. Revoked on disarm: one of these per set, an hour a session.
-let swCueUrl = null;
-// True only once play() has actually resolved. This is what gates the fallback beep in swRenderWatch.
-let swCueArmed = false;
-
-// 880Hz needs 1760Hz to reproduce, so 8k is generous and keeps the blob small: ~1.8MB for a 2min rest.
-const SW_CUE_RATE = 8000;
-// The ✎ template editor takes free text, so "9999s" is reachable. Don't build a 20-minute buffer.
-const SW_CUE_MAX = 600;
-
-// Builds `seconds` of near-silence + the two 880Hz tones as a 16-bit mono WAV blob.
-//
-// The bed is a 50Hz tone at amplitude 2 of 32767 (-84dBFS) rather than true digital zero. It is
-// inaudible on any speaker, and it is there because iOS has a habit of tearing down an audio session
-// it decides is playing nothing at all — which would kill the beep that comes after it.
-function swBuildCueWav(seconds, withTone = true) {
-  const total = Math.ceil(SW_CUE_RATE * (Math.min(seconds, SW_CUE_MAX) + 0.4));
-  const pcm = new Int16Array(total);
-
-  for (let i = 0; i < total; i++) pcm[i] = Math.round(2 * Math.sin(2 * Math.PI * 50 * i / SW_CUE_RATE));
-
-  // The two tones, at the same offsets/shape swBeep() uses so it sounds like the same app.
-  // withTone=false is the unlock frame in swUnlockAudio() — that one must be SILENT, or buying the
-  // playback permission would itself beep in his ear the moment he taps the watch.
-  const toneStart = Math.ceil(SW_CUE_RATE * Math.min(seconds, SW_CUE_MAX));
-  if (withTone) [0, 0.18].forEach(offset => {
-    const from = toneStart + Math.round(offset * SW_CUE_RATE);
-    const len = Math.round(0.16 * SW_CUE_RATE);
-    for (let i = 0; i < len && from + i < total; i++) {
-      // Same exponential-ish decay as the oscillator version, so it doesn't click on the way out
-      const env = Math.sin(Math.PI * (i / len)) ** 0.5;
-      pcm[from + i] = Math.round(0.6 * 32767 * env * Math.sin(2 * Math.PI * 880 * i / SW_CUE_RATE));
-    }
-  });
-
-  const bytes = pcm.length * 2;
-  const buf = new ArrayBuffer(44 + bytes);
-  const view = new DataView(buf);
-  const ascii = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
-  ascii(0, 'RIFF');  view.setUint32(4, 36 + bytes, true);
-  ascii(8, 'WAVEfmt ');
-  view.setUint32(16, 16, true);            // PCM chunk size
-  view.setUint16(20, 1, true);             // format = PCM
-  view.setUint16(22, 1, true);             // mono
-  view.setUint32(24, SW_CUE_RATE, true);
-  view.setUint32(28, SW_CUE_RATE * 2, true);
-  view.setUint16(32, 2, true);             // block align
-  view.setUint16(34, 16, true);            // bits per sample
-  ascii(36, 'data'); view.setUint32(40, bytes, true);
-  new Int16Array(buf, 44).set(pcm);
-  return new Blob([buf], { type: 'audio/wav' });
-}
-
-// Arms the cue for a rest that started `alreadyElapsed` seconds ago. Disarms whatever was armed
-// first — a re-tap or a hand-over must never leave a second beep queued behind the new one.
-function swArmCue(targetSeconds, alreadyElapsed = 0) {
-  swDisarmCue();
-  const remaining = targetSeconds - alreadyElapsed;
-  if (!swCueEl || !(remaining > 0.5)) return;   // already past it: nothing left to announce
-  try {
-    swCueUrl = URL.createObjectURL(swBuildCueWav(remaining));
-    swCueEl.src = swCueUrl;   // setting src rewinds to 0 on its own; touching currentTime before
-                              // the new source has loaded throws, and would swallow the play() below
-    const p = swCueEl.play();
-    // swCueArmed gates the fallback beep in swRenderWatch, so it is only ever set on a play() that
-    // actually resolved. A rejection (desktop autoplay policy, no gesture yet) leaves it false and
-    // the old render-tick beep covers the in-app case exactly as it did before.
-    if (p && p.then) p.then(() => { swCueArmed = true; }).catch(() => { swCueArmed = false; });
-    else swCueArmed = true;
-  } catch (e) { swCueArmed = false; }
-}
-
-// Cancels a queued beep. Called from every path that ends or restarts a rest — the failure this
-// prevents is a beep going off thirty seconds into the next set.
-function swDisarmCue() {
-  swCueArmed = false;
-  try {
-    if (swCueEl) { swCueEl.pause(); swCueEl.removeAttribute('src'); swCueEl.load(); }
-  } catch (e) { /* element already gone */ }
-  if (swCueUrl) { URL.revokeObjectURL(swCueUrl); swCueUrl = null; }
-}
+// Do not reintroduce a long silent audio file. This is the trade, and it has already been refused.
 
 // ─── STOPWATCH STATE ──────────────────────────────────────
 // Computes elapsed seconds from swStartTimestamp — wall-clock based,
@@ -6293,11 +6188,9 @@ function swRenderWatch(exName) {
     // Replace the icon with the live time text
     inner.innerHTML = `<span class="ex-watch-time">${swFormat(secs)}</span>`;
 
-    // FALLBACK ONLY. When swCueArmed is true the OS is already playing a file that beeps on time,
-    // and firing here as well would double it. This branch is what's left for the cases the cue
-    // can't cover: a desktop browser that refused autoplay, or a rest restored across navigation
-    // (swRestoreFromStorage runs outside a gesture, so it cannot arm one). See swArmCue().
-    if (pct >= 1 && !swCompletionBeeped && !swCueArmed) {
+    // The beep, such as it is: only reachable with the logger on screen and the tab awake. That is
+    // the whole limitation, and the note above swElapsed() is why it cannot be fixed from in here.
+    if (pct >= 1 && !swCompletionBeeped) {
       swCompletionBeeped = true;
       swBeep();
       swVibrate([80, 60, 80]);
@@ -6334,10 +6227,6 @@ function swStart(exName, { save = true } = {}) {
     save: swSaveOnStop
   }));
 
-  // Armed here rather than on the crossing, because the crossing is exactly the moment this page
-  // may not be running. swStart() overwrites a timer already running for the same exercise without
-  // going through swStop(), so swArmCue() disarms first — otherwise a re-tap queues a second beep.
-  swArmCue(swTargetSeconds, 0);
 
   swVibrate(10);
   swRenderWatch(exName);
@@ -6359,7 +6248,6 @@ async function swStop() {
   swStartTimestamp = null;
   swActiveExercise = null;
   sessionStorage.removeItem('sw_state');
-  swDisarmCue();           // the rest is over — a queued beep would now go off mid-set
   swVibrate(10);
   swRenderWatch(exName);   // snap the ring back to idle now — don't wait on the network save below
 
@@ -6402,9 +6290,6 @@ function swHandOverWatch(toExName) {
   // Re-derived, not carried over: the new target can be shorter than the elapsed time (already past
   // it, don't beep again) or longer than it (not there yet, so the beep is still to come).
   swCompletionBeeped = swElapsed() >= swTargetSeconds;
-  // Re-armed against the NEW target for the time already served. swArmCue() no-ops when there is
-  // nothing left to announce, which is the shorter-target case swCompletionBeeped covers above.
-  swArmCue(swTargetSeconds, swElapsed());
   sessionStorage.setItem('sw_state', JSON.stringify({
     start: swStartTimestamp,
     target: swTargetSeconds,
@@ -6426,7 +6311,6 @@ function swReset() {
   swStartTimestamp = null;
   swActiveExercise = null;
   sessionStorage.removeItem('sw_state');
-  swDisarmCue();
   swVibrate([20, 40, 20]);
   if (exName) swRenderWatch(exName);
 }

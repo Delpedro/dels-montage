@@ -44,7 +44,7 @@ function el() {
 }
 
 const NOW = Date.now();
-const calls = { rendered: [], cleared: [], closedPickers: 0, armed: [], disarmed: 0 };
+const calls = { rendered: [], cleared: [], closedPickers: 0 };
 const store = {};
 let nextInterval = 10;
 let dom = {};
@@ -65,8 +65,6 @@ const app = load({
     swSaveOnStop: true,
     swInterval: null,
     swRenderWatch: n => calls.rendered.push(n),
-    swArmCue: (t, e) => calls.armed.push({ target: t, elapsed: e }),
-    swDisarmCue: () => { calls.disarmed++; },
     closeSupersetPickers: () => { calls.closedPickers++; },
     document: { getElementById: id => dom[id] || null },
     sessionStorage: {

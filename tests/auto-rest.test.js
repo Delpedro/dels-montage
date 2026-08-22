@@ -27,7 +27,7 @@ console.log('auto-start rest on Mark Done');
 // slicer doesn't take, so they're supplied as bindings instead. Assignments inside the real swStart()
 // land on these and the accessor reads the same bindings — a rename in the source would leave the
 // state frozen here and fail every assertion below, which is the protection that matters.
-const calls = { stop: 0, vibrate: [], render: [], cleared: [], unlocked: 0, armed: [], disarmed: 0 };
+const calls = { stop: 0, vibrate: [], render: [], cleared: [], unlocked: 0 };
 const store = {};
 let nextInterval = 1;
 
@@ -45,8 +45,6 @@ const app = load({
     swStop: () => { calls.stop++; },
     swUnlockAudio: () => { calls.unlocked++; },
     swVibrate: v => calls.vibrate.push(v),
-    swArmCue: (t, e) => calls.armed.push({ target: t, elapsed: e }),
-    swDisarmCue: () => { calls.disarmed++; },
     swRenderWatch: n => calls.render.push(n),
     sessionStorage: {
       setItem: (k, v) => { store[k] = v; },
@@ -78,7 +76,6 @@ const SESSION = {
 function fresh() {
   app.reset(SESSION);
   calls.stop = 0; calls.vibrate = []; calls.render = []; calls.cleared = []; calls.unlocked = 0;
-  calls.armed = []; calls.disarmed = 0;
   Object.keys(store).forEach(k => delete store[k]);
 }
 
