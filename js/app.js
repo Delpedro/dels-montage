@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1923';
+const APP_BUILD = '2026-08-23-1928';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5392,6 +5392,10 @@ async function loadStats() {
 
   // The macro card is the one group on the page that is not week-shaped: a rolling 7 days, the same
   // window Home uses, sliced off the rows already fetched above rather than asked for separately.
+  // After both faces have their content: the tile's height is the taller of the two, and neither is
+  // known until the week card has decided whether it exists.
+  sizeStatsFlip();
+
   const macroWinLabel = document.getElementById('stats-avg-window');
   if (macroWinLabel) macroWinLabel.textContent = `Last 7 days · ${statsWin.label}`;
   renderMacroAverages((allLogs || []).filter(l => l.date >= weekAgoStr));
@@ -5446,6 +5450,55 @@ try {
   if (STATS_RANGES.some(r => r.id === savedStatsRange)) statsRange = savedStatsRange;
 } catch (e) { /* private mode — the range just stops being remembered */ }
 
+// ─── The two-faced weight tile ────────────────────────────────────────────
+// Side A is the daily line, side B the week it sits in. One tile, spun by the dots underneath.
+let statsFlipFace = 0;
+
+function flipStats(face) {
+  const tile = document.getElementById('stats-flip');
+  const faces = [document.getElementById('stats-face-a'), document.getElementById('stats-face-b')];
+  if (!tile || !faces[0] || !faces[1]) return;
+  statsFlipFace = face ? 1 : 0;
+  tile.classList.toggle('flipped', statsFlipFace === 1);
+  faces.forEach((el, i) => {
+    el.classList.toggle('active', i === statsFlipFace);
+    // Hidden from the screen reader as well as from the pointer: backface-visibility only takes it
+    // off the screen, and a card read out twice is worse than a card that cannot be tapped.
+    el.setAttribute('aria-hidden', i === statsFlipFace ? 'false' : 'true');
+  });
+  document.querySelectorAll('#stats-flip-dots .flip-dot').forEach((d, i) => {
+    d.classList.toggle('active', i === statsFlipFace);
+  });
+}
+
+// Both faces are absolute, so nothing in the flow gives the tile a height — this does, at the taller
+// of the two. Called after every render that can change either face's height (the chart's range, the
+// week the arrows land on) and on resize, because the chart is fluid and the labels wrap.
+//
+// A hidden week card measures 0: on an account with no full week yet there is nothing to spin to, so
+// the dots go away rather than offering a blank second side.
+function sizeStatsFlip() {
+  const inner = document.getElementById('stats-flip-inner');
+  const a = document.getElementById('stats-face-a');
+  const b = document.getElementById('stats-face-b');
+  const dots = document.getElementById('stats-flip-dots');
+  if (!inner || !a || !b) return;
+  // Clear before measuring: a face carrying last render's height would measure that back out, and
+  // the tile could then only ever grow.
+  a.style.height = '';
+  b.style.height = '';
+  const hb = b.firstElementChild && b.firstElementChild.offsetParent !== null ? b.offsetHeight : 0;
+  const h = Math.max(a.offsetHeight, hb);
+  inner.style.height = `${h}px`;
+  if (dots) dots.style.display = hb ? 'flex' : 'none';
+  if (!hb && statsFlipFace === 1) flipStats(0);   // never strand anyone on a side that isn't there
+}
+
+window.addEventListener('resize', () => {
+  clearTimeout(window._statsFlipResize);
+  window._statsFlipResize = setTimeout(sizeStatsFlip, 150);
+});
+
 function statsRangeDef() {
   return STATS_RANGES.find(r => r.id === statsRange) ||
          STATS_RANGES.find(r => r.id === STATS_RANGE_DEFAULT);
@@ -5481,6 +5534,7 @@ function renderWeightRange() {
   renderStatsRangeNav(pts);
   renderWeightHero(pts, statsRangeEmptyNote(false));
   renderWeightChart(pts, statsRangeEmptyNote(pts.length === 1));
+  sizeStatsFlip();
 }
 
 // ‹ widens the window, › narrows it, and both stop at the end of the list rather than wrapping —
@@ -5822,7 +5876,11 @@ function stepWeeklyAverage(delta) {
   const i = _weekAvgs.findIndex(w => w.key === _weekAvgKey);
   if (i === -1) return;
   const next = _weekAvgs[i + delta];
-  if (next) showWeeklyAverage(next.key);
+  if (!next) return;
+  showWeeklyAverage(next.key);
+  // A week with no waist measurement drops a cell and reflows the 2×2 to one row, which changes the
+  // face's height — and with it the tile's.
+  sizeStatsFlip();
 }
 
 // The only comparison this card makes: the week you picked against the week you're in.

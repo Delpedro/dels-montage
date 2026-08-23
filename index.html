@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1923">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1928">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -256,6 +256,21 @@
     <div class="section-title">Stats</div>
 
     <div class="stats-section">Weight</div>
+
+    <!-- One tile, two faces (23 Aug 2026). Del's sketch: "its the same tile, but on interaction it
+         spins, and then we have page 1 then page 2". Side A is the daily line, side B is the week it
+         belongs to — the same subject at two resolutions, which is why they earn one tile between
+         them rather than two stacked cards carrying a set of arrows each.
+
+         Both faces are absolutely positioned and the wrapper's height comes from sizeStatsFlip(),
+         set to the taller of the two. Letting one face define the height in flow while the other is
+         absolute makes the tile resize mid-spin, and a rotated face cannot size its parent anyway.
+         The dots under it are the control: the faces themselves are full of arrows, so the tile
+         cannot be tap-to-flip without stealing taps meant for the range and the week. -->
+    <div class="flip-tile" id="stats-flip">
+      <div class="flip-inner" id="stats-flip-inner">
+        <div class="flip-face flip-a active" id="stats-face-a">
+          <div class="card stats-weight-card">
     <div class="stats-hero">
       <div class="stats-hero-val" id="stats-hero-weight">--<span class="stats-hero-unit">kg</span></div>
       <div class="stats-hero-sub" id="stats-hero-delta"></div>
@@ -273,6 +288,9 @@
       <button type="button" class="nav-arrow" id="stats-range-next" onclick="stepStatsRange(1)" aria-label="Narrower window">&rsaquo;</button>
     </div>
     <div class="stats-chart" id="stats-weight-chart"></div>
+          </div>
+        </div>
+        <div class="flip-face flip-b" id="stats-face-b" aria-hidden="true">
     <!-- Weekly average weight. Pick a week, get that week's average, compared to the week you're
          in now. Deliberately nothing else in this card — the daily chart above is noise by
          design (weight bounces day to day); this is the number that actually moves.
@@ -327,6 +345,13 @@
              showWeeklySplit() fills this OR the two per-cell notes above, never both. -->
         <div class="weekavg-split-note" id="weekavg-split-note"></div>
       </div>
+    </div>
+        </div>
+      </div>
+    </div>
+    <div class="flip-dots" id="stats-flip-dots" style="display:none;">
+      <button type="button" class="flip-dot active" onclick="flipStats(0)" aria-label="Show the daily line"></button>
+      <button type="button" class="flip-dot" onclick="flipStats(1)" aria-label="Show this week's averages"></button>
     </div>
 
     <div class="stats-section" id="stats-avg-window">Last 7 days</div>
@@ -676,6 +701,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-23-1923"></script>
+<script src="js/app.js?v=2026-08-23-1928"></script>
 </body>
 </html>

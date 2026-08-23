@@ -56,7 +56,10 @@ function harness(today) {
                 'dateStr', 'weekIndex'],
     decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey', '_weekWaists', '_weekSessions',
             '_weekSteps', '_weekCals'],
-    deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today }
+    // sizeStatsFlip is the two-faced tile re-measuring itself after the arrows move the week —
+    // stubbed here because this file tests the numbers on the card, not the card's height.
+    deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today,
+            sizeStatsFlip: () => {} }
   });
   return { app, els: dom.els, get: dom.get };
 }

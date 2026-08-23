@@ -623,6 +623,44 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    arrows — same 38px circles, same two-line centre — because they are the same control doing the
    same job on the same page, and the pills that were here first read as another app's furniture.
    Narrower than the week card's 260px body: it sits over a full-width chart. */
+/* The two-faced weight tile (23 Aug 2026). The perspective lives on the outer box and the rotation
+   on the inner one, which is the only arrangement where both faces share a vanishing point — put
+   the perspective on the rotating element itself and the back face swings through a different arc
+   from the front one, which reads as two cards rather than two sides of one.
+   Height is set in px by sizeStatsFlip(); see the note in index.html for why. */
+.flip-tile { perspective: 1400px; }
+.flip-inner { position: relative; width: 100%; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.25, 1); }
+.flip-tile.flipped .flip-inner { transform: rotateY(180deg); }
+/* top/left/width rather than inset:0 — a face stretched to all four edges takes its height FROM the
+   wrapper, and the wrapper takes its height from the faces, so sizeStatsFlip() would be measuring
+   its own output and the tile could never shrink again. Auto height keeps the measurement honest. */
+.flip-face { position: absolute; top: 0; left: 0; width: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+/* Pointer events follow the visible face, not the z-order. Without this the hidden face's arrows
+   still take taps through the front one — invisible buttons that work are worse than visible ones
+   that don't. */
+.flip-face { pointer-events: none; }
+.flip-face.active { pointer-events: auto; }
+.flip-b { transform: rotateY(180deg); }
+/* The tile's own card, so side A reads as the same object as the week card on side B rather than as
+   the page background with a chart drawn on it. */
+.stats-weight-card { padding: 0.875rem; }
+
+.flip-dots { display: flex; justify-content: center; gap: 8px; margin: 0.75rem 0 0.875rem; }
+.flip-dot {
+  position: relative;
+  width: 8px; height: 8px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border2); background: transparent;
+  cursor: pointer; transition: all 0.2s;
+}
+.flip-dot.active { background: var(--accent); border-color: var(--accent); }
+/* The tap target is the 8px dot plus the space around it — a dot you have to aim at is a dot nobody
+   presses twice. */
+.flip-dot::after { content: ''; position: absolute; width: 34px; height: 34px; margin: -13px 0 0 -13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flip-inner { transition: none; }
+}
+
 .stats-range-nav { max-width: 230px; margin: 0.75rem auto 0; text-align: center; }
 
 .stats-range-nav .nav-arrow { width: 32px; height: 32px; font-size: 19px; }
