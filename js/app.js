@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1236';
+const APP_BUILD = '2026-08-23-1249';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1263,9 +1263,11 @@ const ONBOARD_STEPS = [
   },
   {
     key: 'sex', type: 'chips',
-    q: 'Which of these fits?',
+    q: 'Are you male or female?',
+    // The column's CHECK still allows 'other' — a constraint is not worth a migration to narrow,
+    // and an old row carrying it must not start failing to save. The form just stops offering it.
     sub: 'Its only job is energy and protein maths later on. Nothing in the app reads it today.',
-    options: [['female', 'Female'], ['male', 'Male'], ['other', 'Other']]
+    options: [['male', 'Male'], ['female', 'Female']]
   },
   {
     key: 'dob', type: 'dob',

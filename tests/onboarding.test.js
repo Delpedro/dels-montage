@@ -216,8 +216,13 @@ console.log('Onboarding — the form that fills the profile in');
   eq(a.obValidate(sex, 'female').value, 'female', 'a pressed chip is its value');
   eq(a.obValidate(days, 3).value, 3, 'days per week stays a number, not "3"');
 
-  // These have to match the CHECK constraints exactly or the whole save 400s.
-  eq(sex.options.map(o => o[0]).join(','), 'female,male,other', "sex matches the column's check");
+  // These have to be accepted by the CHECK constraints or the whole save 400s. The form may offer
+  // FEWER values than the column allows — 'other' was dropped from the form on 23 Aug at Del's
+  // instruction and the constraint was deliberately left alone, so a row already carrying it still
+  // saves. What it must never do is offer a value the column would reject.
+  const sexAllowed = ['male', 'female', 'other'];
+  ok(sex.options.every(([v]) => sexAllowed.includes(v)), "every sex offered passes the column's check");
+  eq(sex.options.map(o => o[0]).join(','), 'male,female', 'the form asks male or female, in that order');
   eq(exp.options.map(o => o[0]).join(','), 'beginner,returning,intermediate,advanced',
     "experience matches the column's check, 'returning' included");
   ok(days.options.every(([v]) => Number.isInteger(v) && v >= 1 && v <= 7),
