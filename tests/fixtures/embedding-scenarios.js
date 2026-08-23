@@ -64,9 +64,12 @@ const SCENARIOS = {
   'fetchLastSessionSnapshot: sets only': async app =>
     app.fetchLastSessionSnapshot({ id: 'upper-a' }),
 
-  // The most recent *completed* lower-a is w4, which is the abandoned one — so the card gets a real
-  // date and no exercises. w7 is more recent but was never completed.
-  'fetchLastSessionSnapshot: a session with nothing logged in it': async app =>
+  // The most recent *completed* lower-a is w4, the abandoned one — opened, backed out of, nothing in
+  // it. Until 23 Aug 2026 the card took that row and rendered a real date with no exercises under it,
+  // which is how the Last time card arrived on Open Workout looking like it had never shipped. It now
+  // walks back past the empties to the last session that actually happened. w7 is more recent still
+  // but was never completed, so it is not a candidate either way.
+  'fetchLastSessionSnapshot: skips an abandoned session': async app =>
     app.fetchLastSessionSnapshot({ id: 'lower-a' }),
 
   'fetchLastSessionSnapshot: never trained': async app =>

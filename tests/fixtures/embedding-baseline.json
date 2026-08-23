@@ -131,11 +131,67 @@
       "cardio_logs?workout_id=eq.w6&select=activity,duration_mins,distance,floors,incline,speed_kmh"
     ]
   },
-  "fetchLastSessionSnapshot: a session with nothing logged in it": {
+  "fetchLastSessionSnapshot: skips an abandoned session": {
     "result": {
-      "date": "2026-08-06",
-      "exercises": {},
-      "cardio": []
+      "date": "2026-08-01",
+      "exercises": {
+        "Leg Press": [
+          {
+            "exercise": "Leg Press",
+            "set_number": 1,
+            "weight": 100,
+            "reps": 10,
+            "variation": null,
+            "rest_seconds": 90
+          },
+          {
+            "exercise": "Leg Press",
+            "set_number": 2,
+            "weight": 100,
+            "reps": 9,
+            "variation": null,
+            "rest_seconds": 95
+          },
+          {
+            "exercise": "Leg Press",
+            "set_number": 3,
+            "weight": 100,
+            "reps": 8,
+            "variation": null,
+            "rest_seconds": 0
+          }
+        ],
+        "Seated Calf Raise": [
+          {
+            "exercise": "Seated Calf Raise",
+            "set_number": 1,
+            "weight": 50,
+            "reps": 12,
+            "variation": "Old Mach",
+            "rest_seconds": 60
+          }
+        ],
+        "Single Leg Curl": [
+          {
+            "exercise": "Single Leg Curl",
+            "set_number": 1,
+            "weight": 10,
+            "reps": 12,
+            "variation": null,
+            "rest_seconds": 0
+          }
+        ]
+      },
+      "cardio": [
+        {
+          "activity": "Treadmill",
+          "duration_mins": 15,
+          "distance": null,
+          "floors": null,
+          "incline": 14,
+          "speed_kmh": 5
+        }
+      ]
     },
     "requests": [
       "workouts?session_type=eq.lower-a&completed_at=not.is.null&order=date.desc&limit=1&select=id,date",

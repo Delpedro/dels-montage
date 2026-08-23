@@ -82,7 +82,7 @@ const BUDGET = {
   'realWorkoutsBetween: bounded range': 1,
   'realWorkoutsBetween: nothing in range': 1,
   'fetchLastSessionSnapshot: sets only': 1,
-  'fetchLastSessionSnapshot: a session with nothing logged in it': 1,
+  'fetchLastSessionSnapshot: skips an abandoned session': 1,
   'fetchLastSessionSnapshot: never trained': 1,
   'loadHistory': 2,                                      // daily_logs is a separate table, not a child
 };
