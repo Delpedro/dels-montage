@@ -571,18 +571,18 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    Everything lives in a fixed-width column that is centred explicitly — the card is full-window
    width on a desktop browser, and relying on text-align alone left the number visibly off-centre. */
 .weekavg-body { max-width: 260px; margin: 0 auto; text-align: center; }
-.weekavg-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.weekavg-arrow {
+.weekavg-nav, .stats-range-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.nav-arrow {
   flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
   border: 1.5px solid var(--muted); background: var(--bg); color: var(--text);
   font-size: 22px; font-weight: 700; line-height: 1; font-family: 'DM Sans', sans-serif; cursor: pointer;
   display: flex; align-items: center; justify-content: center; transition: all 0.15s;
 }
-.weekavg-arrow:active { border-color: var(--accent); color: var(--accent); }
-.weekavg-arrow:disabled { opacity: 0.35; cursor: default; }
-.weekavg-wk { flex: 1 1 auto; min-width: 0; }
-.weekavg-wk-name { font-family: 'Bebas Neue', sans-serif; font-size: 23px; letter-spacing: 0.5px; line-height: 1; color: var(--text); }
-.weekavg-range { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; margin-top: 4px; white-space: nowrap; }
+.nav-arrow:active { border-color: var(--accent); color: var(--accent); }
+.nav-arrow:disabled { opacity: 0.35; cursor: default; }
+.weekavg-wk, .stats-range-mid { flex: 1 1 auto; min-width: 0; }
+.weekavg-wk-name, .stats-range-name { font-family: 'Bebas Neue', sans-serif; font-size: 23px; letter-spacing: 0.5px; line-height: 1; color: var(--text); }
+.weekavg-range, .stats-range-span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; margin-top: 4px; white-space: nowrap; }
 .weekavg-val { font-family: 'Bebas Neue', sans-serif; font-size: 56px; line-height: 1; letter-spacing: 1px; color: var(--accent); margin-top: 1rem; }
 .weekavg-unit { font-family: 'DM Sans', sans-serif; font-size: 15px; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
 .weekavg-cmp { font-size: 12.5px; font-weight: 600; margin-top: 5px; min-height: 18px; }
@@ -619,28 +619,14 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .weekavg-split-note { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); text-align: center; margin-top: 0.55rem; }
 .weekavg-split-note:empty { display: none; }
 
-/* Range pills over the weight chart (23 Aug 2026). Smaller and lighter than .history-tab on
-   purpose: those three are the History page's subject, these four are a control on a card that
-   already has a 54px hero above it. Same active treatment, so "selected" reads the same everywhere. */
-.stats-range { display: flex; gap: 6px; justify-content: center; margin-top: 0.75rem; }
-.stats-range-pill {
-  padding: 5px 13px;
-  background: var(--bg3);
-  border: 1px solid var(--border2);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  font-family: 'DM Sans', sans-serif;
-  letter-spacing: 0.5px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.stats-range-pill.active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-}
+/* The chart's range stepper (23 Aug 2026). It shares every rule below with the week card's own
+   arrows — same 38px circles, same two-line centre — because they are the same control doing the
+   same job on the same page, and the pills that were here first read as another app's furniture.
+   Narrower than the week card's 260px body: it sits over a full-width chart. */
+.stats-range-nav { max-width: 230px; margin: 0.75rem auto 0; text-align: center; }
+
+.stats-range-nav .nav-arrow { width: 32px; height: 32px; font-size: 19px; }
+.stats-range-name { font-size: 20px; }
 
 .stats-chart { position: relative; margin-top: 0.5rem; margin-bottom: 0.875rem; }
 .stats-chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }

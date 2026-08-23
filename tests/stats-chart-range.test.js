@@ -1,11 +1,12 @@
-// The Stats weight chart became interactive on 23 Aug 2026: range pills (7D/30D/90D/All) above it,
+// The Stats weight chart became interactive on 23 Aug 2026: a range stepper above it (‹ 30 DAYS ›,
+// the same control the week card uses — the pills it shipped with lasted an hour, "look cheap"),
 // and a drag/tap readout on the line itself.
 //
 // What this file guards is the half that can go quietly wrong — the windowing. The chart used to be
 // a fixed `date >= today-21` filter followed by `.slice(-12)`, and the loader no longer slices at
 // all: it hands over every weigh-in the account has and the range decides. Three ways that breaks:
 //
-//  · an off-by-one on the window edge — "7D" that quietly means 6 days or 8,
+//  · an off-by-one on the window edge — "7 days" that quietly means 6 or 8,
 //  · the hero delta and the chart drawn over different slices (the exact shape of the Home/Stats
 //    drift bug from 14 Aug), so the line shows a month and "▼ 0.2kg in 11 days" underneath it doesn't,
 //  · label thinning written for a 12-point chart being handed 120 points on "All".
@@ -27,7 +28,7 @@ function eq(actual, expected, label) {
   ok(actual === expected, `${label} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 
-// "Now" fixed at Sunday 23 August 2026, the day the pills shipped.
+// "Now" fixed at Sunday 23 August 2026, the day the stepper shipped.
 function dateAt(iso) {
   return class extends Date {
     constructor(...args) {
@@ -52,8 +53,9 @@ function daily(from, to) {
 
 function ranger(points, range = '30d') {
   const api = load({
-    functions: ['pointsForStatsRange', 'statsRangeDef', 'setStatsRange', 'dateStr', 'statsRangeEmptyNote'],
-    decls: ['STATS_RANGES', 'STATS_RANGE_STORE', 'statsRange', 'statsWeightPoints'],
+    functions: ['pointsForStatsRange', 'statsRangeDef', 'setStatsRange', 'stepStatsRange',
+                'dateStr', 'statsRangeEmptyNote', 'dateSpanLabel'],
+    decls: ['STATS_RANGES', 'STATS_RANGE_STORE', 'STATS_RANGE_DEFAULT', 'statsRange', 'statsWeightPoints'],
     deps: {
       Date: dateAt('2026-08-23T12:00:00'),
       localStorage: { getItem: () => null, setItem: () => {} },
@@ -69,22 +71,22 @@ function ranger(points, range = '30d') {
   return api;
 }
 
-// ── 1. each pill means the number of days on its label ─────────────────────
+// ── 1. each range means the number of days on its label ────────────────────
 {
-  console.log('the pills window exactly what they say');
+  console.log('the ranges window exactly what they say');
 
   // 100 consecutive weigh-ins ending today, so a window of N days holds exactly N points.
   const pts = daily('2026-05-16', '2026-08-23');
   eq(pts[pts.length - 1].date, '2026-08-23', 'the run ends today');
 
-  eq(ranger(pts, '7d').pointsForStatsRange().length, 7, '7D holds seven days');
-  eq(ranger(pts, '30d').pointsForStatsRange().length, 30, '30D holds thirty');
-  eq(ranger(pts, '90d').pointsForStatsRange().length, 90, '90D holds ninety');
-  eq(ranger(pts, 'all').pointsForStatsRange().length, pts.length, 'All holds the lot');
+  eq(ranger(pts, '7d').pointsForStatsRange().length, 7, '7 days holds seven');
+  eq(ranger(pts, '30d').pointsForStatsRange().length, 30, '30 days holds thirty');
+  eq(ranger(pts, '90d').pointsForStatsRange().length, 90, '90 days holds ninety');
+  eq(ranger(pts, 'all').pointsForStatsRange().length, pts.length, 'All Time holds the lot');
 
   // The edge itself: 7D run on Sunday 23rd starts on Monday 17th, and the Sunday before is out.
   const week = ranger(pts, '7d').pointsForStatsRange();
-  eq(week[0].date, '2026-08-17', '7D reaches back six days, not seven — today is one of the seven');
+  eq(week[0].date, '2026-08-17', '7 days reaches back six, not seven — today is one of the seven');
   eq(week[week.length - 1].date, '2026-08-23', 'and it runs up to today');
 
   // Ordering is the loader's, and the chart draws left-to-right off it.
@@ -97,8 +99,8 @@ function ranger(points, range = '30d') {
   console.log('a range wider than the data is just the data');
 
   const pts = daily('2026-08-20', '2026-08-23');   // four weigh-ins, all of them this week
-  eq(ranger(pts, '90d').pointsForStatsRange().length, 4, '90D on a four-day run shows four points');
-  eq(ranger(pts, 'all').pointsForStatsRange().length, 4, 'and so does All');
+  eq(ranger(pts, '90d').pointsForStatsRange().length, 4, '90 days on a four-day run shows four points');
+  eq(ranger(pts, 'all').pointsForStatsRange().length, 4, 'and so does All Time');
   eq(ranger([], 'all').pointsForStatsRange().length, 0, 'no weigh-ins at all is an empty slice, not a throw');
 }
 
@@ -137,14 +139,14 @@ function ranger(points, range = '30d') {
   console.log('the hero delta and the line agree on their window');
 
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'app.js'), 'utf8');
-  const fn = src.slice(src.indexOf('function renderWeightRange('), src.indexOf('function renderStatsRangePills('));
+  const fn = src.slice(src.indexOf('function renderWeightRange('), src.indexOf('function stepStatsRange('));
 
   eq((fn.match(/pointsForStatsRange\(\)/g) || []).length, 1,
     'renderWeightRange() slices once — two calls is how the two halves drift apart');
   ok(/renderWeightHero\(pts/.test(fn) && /renderWeightChart\(pts/.test(fn),
     'and passes that one slice to both the hero and the chart');
 
-  // The loader must not pre-slice any more, or the pills can only ever narrow a fixed window.
+  // The loader must not pre-slice any more, or the stepper can only ever narrow a fixed window.
   const loader = src.slice(src.indexOf('async function loadStats('), src.indexOf('function renderWeightHero('));
   ok(!loader.includes('.slice(-12)'), 'loadStats no longer caps the chart at 12 points');
   ok(loader.includes('statsWeightPoints ='), 'it hands the whole run to the range instead');
@@ -175,6 +177,47 @@ function ranger(points, range = '30d') {
   ok(chart.includes('Math.ceil(points.length / 6)'), 'the source still thins to ~6 labels');
   ok(chart.includes('points.length <= 24'), 'and drops the per-point dots once they would merge');
   ok(chart.includes('spanDays > 45'), 'a wide window names the month on the axis');
+}
+
+// ── 7. the arrows step, and stop ───────────────────────────────────────────
+{
+  console.log('the stepper walks the list without wrapping');
+
+  // Del rejected the pills — "look cheap" — for the same ‹ › control the week card uses, so the
+  // list is ordered widest-first and ‹ means "show me more", the direction it means down there too.
+  const pts = daily('2026-05-16', '2026-08-23');
+  const api = ranger(pts, '30d');
+
+  api.stepStatsRange(-1);
+  eq(api.current(), '90d', '‹ widens the window');
+  api.stepStatsRange(-1);
+  eq(api.current(), 'all', 'and again');
+  api.stepStatsRange(-1);
+  eq(api.current(), 'all', 'and stops at All rather than wrapping round to 7 days');
+
+  api.stepStatsRange(1);
+  eq(api.current(), '90d', '› narrows it');
+  api.stepStatsRange(1); api.stepStatsRange(1);
+  eq(api.current(), '7d', 'down to the narrowest');
+  api.stepStatsRange(1);
+  eq(api.current(), '7d', 'where it stops');
+
+  // Every range carries the name the stepper prints, and 30 days is still where a new install lands.
+  const named = ranger(pts, '30d');
+  eq(named.statsRangeDef().name, '30 DAYS', 'the middle of the control names the window');
+  eq(ranger(pts, 'all').statsRangeDef().name, 'ALL TIME', 'including the widest');
+}
+
+// ── 8. one date-span string for the whole page ─────────────────────────────
+{
+  console.log('the span under the arrows reads like the week card');
+
+  const { dateSpanLabel } = ranger([], 'all');
+
+  eq(dateSpanLabel('2026-08-17', '2026-08-23'), '17 – 23 Aug', 'one month, printed once');
+  eq(dateSpanLabel('2026-07-28', '2026-08-03'), '28 Jul – 3 Aug', 'across a month boundary, printed twice');
+  eq(dateSpanLabel('2026-08-23', '2026-08-23'), '23 Aug', 'a single day is a date, not a range of one');
+  eq(dateSpanLabel('2025-08-13', '2026-08-09'), '13 Aug – 9 Aug', 'a year apart in the same month stays two dates');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

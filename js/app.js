@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1343';
+const APP_BUILD = '2026-08-23-1353';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5364,17 +5364,20 @@ function renderWeightHero(points, emptyNote) {
 // ─── Weight chart ────────────────────────────────────────
 // The window the chart and the hero above it are drawn over. Not a fetch window — loadStats()
 // already holds every weigh-in — so switching range is instant and costs no request.
+// Widest first, because the arrows below step through this list by index and ‹ has to mean "show me
+// more", the same direction ‹ means on the week card — back through time, not down a menu.
 const STATS_RANGES = [
-  { id: '7d',  label: '7D',  days: 7,  note: 'the last 7 days' },
-  { id: '30d', label: '30D', days: 30, note: 'the last 30 days' },
-  { id: '90d', label: '90D', days: 90, note: 'the last 90 days' },
-  { id: 'all', label: 'All', days: null, note: 'yet' },
+  { id: 'all', name: 'ALL TIME',  days: null, note: 'yet' },
+  { id: '90d', name: '90 DAYS',   days: 90,   note: 'the last 90 days' },
+  { id: '30d', name: '30 DAYS',   days: 30,   note: 'the last 30 days' },
+  { id: '7d',  name: '7 DAYS',    days: 7,    note: 'the last 7 days' },
 ];
 const STATS_RANGE_STORE = 'dlog_stats_range';
 
-// 30D is the default because it is closest to the fixed 21-day / last-12-points window the chart
-// had before the pills existed — an update shouldn't move the chart under someone.
-let statsRange = '30d';
+// 30 days is the default because it is closest to the fixed 21-day / last-12-points window the
+// chart had before it could be stepped — an update shouldn't move the chart under someone.
+const STATS_RANGE_DEFAULT = '30d';
+let statsRange = STATS_RANGE_DEFAULT;
 let statsWeightPoints = [];   // every weigh-in, ascending; sliced per range at render time
 
 try {
@@ -5383,7 +5386,8 @@ try {
 } catch (e) { /* private mode — the range just stops being remembered */ }
 
 function statsRangeDef() {
-  return STATS_RANGES.find(r => r.id === statsRange) || STATS_RANGES[1];
+  return STATS_RANGES.find(r => r.id === statsRange) ||
+         STATS_RANGES.find(r => r.id === STATS_RANGE_DEFAULT);
 }
 
 function pointsForStatsRange() {
@@ -5412,19 +5416,35 @@ function statsRangeEmptyNote(one) {
 // about their window once already (the Home/Stats drift, 14 Aug), and this is the one place that
 // can stop it recurring: "▼ 0.2kg in 11 days" now means the *selected* range, not a fixed 21 days.
 function renderWeightRange() {
-  renderStatsRangePills();
   const pts = pointsForStatsRange();
+  renderStatsRangeNav(pts);
   renderWeightHero(pts, statsRangeEmptyNote(false));
   renderWeightChart(pts, statsRangeEmptyNote(pts.length === 1));
 }
 
-function renderStatsRangePills() {
-  const box = document.getElementById('stats-range');
-  if (!box) return;
-  box.innerHTML = STATS_RANGES.map(r =>
-    `<button type="button" class="stats-range-pill${statsRange === r.id ? ' active' : ''}" ` +
-    `aria-pressed="${statsRange === r.id}" onclick="setStatsRange('${r.id}')">${r.label}</button>`
-  ).join('');
+// ‹ widens the window, › narrows it, and both stop at the end of the list rather than wrapping —
+// a control that silently jumps from 7 days to all time is a control you have to watch.
+function stepStatsRange(delta) {
+  const i = STATS_RANGES.findIndex(r => r.id === statsRange);
+  const next = STATS_RANGES[i + delta];
+  if (next) setStatsRange(next.id);
+}
+
+// The dates under the range name are the ones actually drawn, not the ones the range asked for: on
+// "90 days" against a run that starts in July, "13 Jul – 23 Aug" is the honest label and 25 May is
+// not. It also does the job the axis can't at that width — naming the months only once.
+function renderStatsRangeNav(pts) {
+  const nameEl = document.getElementById('stats-range-name');
+  const spanEl = document.getElementById('stats-range-span');
+  if (!nameEl || !spanEl) return;
+  nameEl.textContent = statsRangeDef().name;
+  spanEl.textContent = pts.length ? dateSpanLabel(pts[0].date, pts[pts.length - 1].date) : 'No weigh-ins';
+
+  const i = STATS_RANGES.findIndex(r => r.id === statsRange);
+  const prevBtn = document.getElementById('stats-range-prev');
+  const nextBtn = document.getElementById('stats-range-next');
+  if (prevBtn) prevBtn.disabled = i <= 0;
+  if (nextBtn) nextBtn.disabled = i === -1 || i >= STATS_RANGES.length - 1;
 }
 
 // Hand-rolled SVG rather than Chart.js so every point can carry its own value label — and so the
@@ -5617,13 +5637,23 @@ function weeksBetween(mondayA, mondayB) {
 // twice when it actually changes.
 function weekRangeLabel(mondayIso) {
   const [y, m, d] = mondayIso.split('-').map(Number);
-  const mon = new Date(y, m - 1, d);
-  const sun = new Date(y, m - 1, d + 6);
+  return dateSpanLabel(mondayIso, dateStr(new Date(y, m - 1, d + 6)));
+}
+
+// "17 – 23 Aug", "28 Jul – 3 Aug", "13 Jul – 23 Aug". Written out of weekRangeLabel when the chart's
+// range stepper needed the same string for a span that isn't a week — two functions formatting a
+// date range two ways on one screen is how a page starts looking assembled rather than designed.
+// The month is printed once when both ends share it, and the year is checked as well as the month
+// so a span that crosses into the same month a year later can't collapse to "13 – 9 Aug".
+function dateSpanLabel(fromIso, toIso) {
+  const parse = iso => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
+  const a = parse(fromIso), b = parse(toIso);
   const day = dt => String(dt.getDate());
   const mth = dt => dt.toLocaleDateString('en-GB', { month: 'short' });
-  return mon.getMonth() === sun.getMonth()
-    ? `${day(mon)} – ${day(sun)} ${mth(sun)}`
-    : `${day(mon)} ${mth(mon)} – ${day(sun)} ${mth(sun)}`;
+  if (fromIso === toIso) return `${day(a)} ${mth(a)}`;
+  return a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()
+    ? `${day(a)} – ${day(b)} ${mth(b)}`
+    : `${day(a)} ${mth(a)} – ${day(b)} ${mth(b)}`;
 }
 
 let _weekAvgs = [];

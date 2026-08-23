@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1343">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1353">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -260,10 +260,18 @@
       <div class="stats-hero-val" id="stats-hero-weight">--<span class="stats-hero-unit">kg</span></div>
       <div class="stats-hero-sub" id="stats-hero-delta"></div>
     </div>
-    <!-- Range pills. The chart holds every weigh-in the account has; these pick which slice of it
-         is drawn, and the hero delta above follows the same choice. Rendered by
-         renderStatsRangePills() so the selected one survives a reload. -->
-    <div class="stats-range" id="stats-range"></div>
+    <!-- Which slice of the run the chart draws, and with it the hero delta above. The same stepper
+         as the week card below rather than a row of pills (23 Aug 2026, Del: "look cheap") — this
+         page already had one way of moving through time and now it only has one. Filled by
+         renderStatsRangeNav(); the choice survives a reload. -->
+    <div class="stats-range-nav">
+      <button type="button" class="nav-arrow" id="stats-range-prev" onclick="stepStatsRange(-1)" aria-label="Wider window">&lsaquo;</button>
+      <div class="stats-range-mid">
+        <div class="stats-range-name" id="stats-range-name">--</div>
+        <div class="stats-range-span" id="stats-range-span"></div>
+      </div>
+      <button type="button" class="nav-arrow" id="stats-range-next" onclick="stepStatsRange(1)" aria-label="Narrower window">&rsaquo;</button>
+    </div>
     <div class="stats-chart" id="stats-weight-chart"></div>
     <!-- Weekly average weight. Pick a week, get that week's average, compared to the week you're
          in now. Deliberately nothing else in this card — the daily chart above is noise by
@@ -274,12 +282,12 @@
     <div class="card weekavg-card" id="weekavg-card" style="display:none;">
       <div class="weekavg-body">
         <div class="weekavg-nav">
-          <button type="button" class="weekavg-arrow" id="weekavg-prev" onclick="stepWeeklyAverage(-1)" aria-label="Earlier week">&lsaquo;</button>
+          <button type="button" class="nav-arrow" id="weekavg-prev" onclick="stepWeeklyAverage(-1)" aria-label="Earlier week">&lsaquo;</button>
           <div class="weekavg-wk">
             <div class="weekavg-wk-name" id="weekavg-wk-name">--</div>
             <div class="weekavg-range" id="weekavg-range"></div>
           </div>
-          <button type="button" class="weekavg-arrow" id="weekavg-next" onclick="stepWeeklyAverage(1)" aria-label="Later week">&rsaquo;</button>
+          <button type="button" class="nav-arrow" id="weekavg-next" onclick="stepWeeklyAverage(1)" aria-label="Later week">&rsaquo;</button>
         </div>
         <div class="weekavg-val" id="weekavg-val">--<span class="weekavg-unit">kg</span></div>
         <div class="weekavg-cmp" id="weekavg-cmp"></div>
@@ -668,6 +676,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-23-1343"></script>
+<script src="js/app.js?v=2026-08-23-1353"></script>
 </body>
 </html>

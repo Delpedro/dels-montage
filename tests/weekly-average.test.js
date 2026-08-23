@@ -49,7 +49,7 @@ function fakeDom() {
 function harness(today) {
   const dom = fakeDom();
   const app = load({
-    functions: ['mondayOf', 'weeksBetween', 'weekRangeLabel',
+    functions: ['mondayOf', 'weeksBetween', 'weekRangeLabel', 'dateSpanLabel',
                 'renderWeeklyAverage', 'showWeeklyAverage', 'showWeeklyWaist', 'showWeeklySplit',
                 'weeklyMeans', 'weekHalf',
                 'stepWeeklyAverage', 'weekSpanNote', 'setSpanNote', 'numOrNull',
