@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1142';
+const APP_BUILD = '2026-08-23-1149';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6812,11 +6812,14 @@ function swRenderWatch(exName) {
       swVibrate([80, 60, 80]);
       // The cue has landed — the screen has no further job to do, so give the battery back.
       swReleaseWakeLock();
-      // He has already been told, with the app in front of him. Calling off the push here is what
-      // keeps the normal case — phone on the bench, screen held awake — to ONE cue instead of a
-      // beep and a notification a moment apart. The pocket case never reaches this line, which is
-      // exactly why the push still exists.
-      cancelRestAlert();
+      // ── THE BEEP DOES NOT CALL OFF THE NOTIFICATION (23 Aug 2026) ──────────────────────────────
+      // It used to, for half a morning, on the reasoning that being told twice is worse than being
+      // told once. That was wrong for this phone. The notification lands on Del's Apple Watch, and
+      // the wake lock above now holds the screen on for the whole rest — so the beep fires nearly
+      // every time, and cancelling here meant the wrist tap essentially never arrived. A phone beep
+      // in a loud gym with Spotify playing is the cue most likely to be missed; the wrist tap is the
+      // one least likely to be. So both fire, and the redundant one is the cheap one.
+      // Stopping a rest early still cancels — see swStop(). That is the case the token exists for.
     }
   } else {
     btn.classList.remove('done');
