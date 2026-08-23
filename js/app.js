@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1426';
+const APP_BUILD = '2026-08-23-1921';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3766,10 +3766,21 @@ async function fetchLastSessionSnapshot(session) {
   // under-reports the session — and both now ride back embedded in the workout that owns them.
   // rest_seconds joins the select so the card can answer "how long did I rest last time" — the
   // number this app records and then never showed you anywhere you'd be standing when you need it.
-  const last = await sb(`workouts?session_type=eq.${session.id}&completed_at=not.is.null&order=date.desc&limit=1`
+  // limit=8, not 1 (23 Aug 2026). "The most recent row" is not the same thing as "the last time I
+  // trained this": an opened-and-backed-out session leaves a completed row with nothing in it, and
+  // taking the top row blind lands the card on that blank and renders nothing at all. Del hit it the
+  // hour the card shipped on Open Workout — "open workout looks exactly the same" — and the reason
+  // it bites there worst is that Open Workout is the easiest session to open by accident: 9 of his
+  // 18 open rows hold sets, and the five most recent hold none.
+  //
+  // The empties are not deleted here. Whether a ghost row should exist at all is a separate question
+  // with its own test file (ghost-workout-row.test.js); this function's job is only to answer "what
+  // did I actually do last time", and a row with no sets and no cardio is not an answer to that.
+  const last = await sb(`workouts?session_type=eq.${session.id}&completed_at=not.is.null&order=date.desc&limit=8`
     + `&select=id,date,workout_sets(exercise,set_number,weight,reps,variation,rest_seconds),cardio_logs(activity,duration_mins,distance,floors,incline,speed_kmh)`
     + `&workout_sets.order=set_number.asc`);
-  const candidates = (last || []).filter(w => w.id !== currentWorkoutId);
+  const candidates = (last || []).filter(w =>
+    w.id !== currentWorkoutId && ((w.workout_sets || []).length || (w.cardio_logs || []).length));
   if (!candidates.length) return null;
   const workout = candidates[0];
   const byExercise = {};

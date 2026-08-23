@@ -139,6 +139,55 @@ console.log('Open Workout — last session, and one tap to repeat it');
   await api.loadLastOpenExercises();
   eq(added.length, 0, 'a first-ever open session loads nothing and throws nothing');
 
+  // ── 4b. the card must land on a session that happened ─────────────────────
+  // The bug Del found within the hour: the card shipped, and Open Workout looked exactly as before.
+  // Not a cache and not the card — fetchLastSessionSnapshot() took the single most recent completed
+  // row, and his five most recent Open Workout rows are empties left by opening the session and
+  // backing out. A blank snapshot renders as no card at all, which is indistinguishable from the
+  // feature never having shipped.
+  {
+    const rows = [
+      { id: 'ghost-1', date: '2026-08-23', workout_sets: [], cardio_logs: [] },
+      { id: 'ghost-2', date: '2026-08-18', workout_sets: [], cardio_logs: [] },
+      { id: 'real-1',  date: '2026-08-13', workout_sets: [{ exercise: 'Cable Fly', set_number: 1, weight: 12.5, reps: 12 }], cardio_logs: [] },
+      { id: 'real-0',  date: '2026-08-11', workout_sets: [{ exercise: 'Lat Raise', set_number: 1, weight: 7.5, reps: 15 }], cardio_logs: [] },
+    ];
+    let asked = '';
+    const snap = load({
+      functions: ['fetchLastSessionSnapshot'],
+      decls: ['currentWorkoutId'],
+      deps: { sb: async path => { asked = path; return rows; } },
+      accessors: { setCurrent: '(id) => { currentWorkoutId = id; }' },
+    });
+
+    const got = await snap.fetchLastSessionSnapshot({ id: 'open' });
+    eq(got && got.date, '2026-08-13', 'the card skips the empty rows and lands on the last session that happened');
+    eq(Object.keys(got.exercises).join(','), 'Cable Fly', 'and carries that session\'s exercises');
+    ok(asked.includes('limit=8'), 'which needs more than one row fetched — limit=1 could only ever see the ghost');
+
+    // A cardio-only open session is a real session: half of them are the bike and nothing else.
+    const cardioOnly = load({
+      functions: ['fetchLastSessionSnapshot'],
+      decls: ['currentWorkoutId'],
+      deps: { sb: async () => [{ id: 'c1', date: '2026-08-20', workout_sets: [], cardio_logs: [{ activity: 'bike', duration_mins: 20 }] }] },
+    });
+    const cardioSnap = await cardioOnly.fetchLastSessionSnapshot({ id: 'open' });
+    ok(cardioSnap && cardioSnap.cardio.length === 1, 'a session that was only cardio still counts as last time');
+
+    // The session you are standing in is never its own "last time", empty or not.
+    snap.setCurrent('real-1');
+    const skipped = await snap.fetchLastSessionSnapshot({ id: 'open' });
+    eq(skipped && skipped.date, '2026-08-11', 'the workout in progress is skipped even when it has sets');
+
+    const nothing = load({
+      functions: ['fetchLastSessionSnapshot'],
+      decls: ['currentWorkoutId'],
+      deps: { sb: async () => [{ id: 'g', date: '2026-08-23', workout_sets: [], cardio_logs: [] }] },
+    });
+    eq(await nothing.fetchLastSessionSnapshot({ id: 'open' }), null,
+      'nothing but ghosts is null — the prompt comes back, rather than an empty card');
+  }
+
   // ── 5 ──
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
   const logger = src.slice(src.indexOf('async function buildWorkoutLogger'), src.indexOf('function renderAddExerciseRow'));
