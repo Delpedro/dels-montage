@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1133';
+const APP_BUILD = '2026-08-23-1142';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1882,6 +1882,11 @@ async function loadHomePage() {
 
   const buildTag = document.getElementById('build-tag');
   if (buildTag) buildTag.textContent = `build ${APP_BUILD}`;
+
+  // Reads localStorage and Notification.permission only — no network, so the label is honest even
+  // on gym Wi-Fi that can't reach Supabase, and it corrects itself if permission was revoked in
+  // iPhone Settings since the last visit.
+  paintRestAlertsButton();
 
   // Before the awaits below — this one needs no network, so it still appears on gym Wi-Fi that
   // can't reach Supabase, which is the trip most likely to be far from the PC that runs the other
@@ -6439,6 +6444,202 @@ function swFormat(s) {
 // Phone buzz helper — silently ignored on devices without vibration
 function swVibrate(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
 
+// ─── REST ALERTS — THE HALF THAT REACHES A POCKET (23 Aug 2026) ──────────────────────────────────
+// A Web Push notification, sent by the rest-alert Edge Function, which is called when a rest starts
+// and sleeps out the remaining seconds before pushing. This is the only cue that survives a locked
+// screen: the wake lock below keeps the beep alive while the app is in front, and this covers the
+// case where it isn't.
+//
+// Three things it depends on, none of them optional:
+//   1. D-LOG installed to the Home Screen. iOS gives Safari tabs no push at all, no exception.
+//      Confirmed 23 Aug that Del runs it installed.
+//   2. Permission, granted from a real tap. Asking on load is how you get a permanent "denied".
+//   3. A subscription row per device, which is what the function sends to.
+//
+// The VAPID public key is public by design — it is handed to the push service on every subscribe.
+// The private half is a Supabase function secret and is NOT in this repo, which is public.
+const VAPID_PUBLIC_KEY = 'BPtOJx_GRiD6-hM_a9HnBFMd7vSinxPv_kzfqyu0MRPBCx0vLZWWs7mmwgVRtnhPY5NDRkKQfN_d9nEuoeJgijU';
+const REST_ALERTS_STORE = 'dlog_rest_alerts';
+
+// The token for the rest currently being counted. The Edge Function re-reads rest_alerts after
+// sleeping and stays silent unless the token still matches, which is what stops a rest you ended
+// early from buzzing you two minutes later in the middle of the next set.
+let restAlertToken = null;
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+// Both halves have to be true. The localStorage flag alone would keep claiming alerts are on after
+// permission was revoked in Settings; permission alone would turn them back on for someone who
+// deliberately switched them off in the app.
+function restAlertsOn() {
+  if (!pushSupported()) return false;
+  try {
+    return Notification.permission === 'granted' && localStorage.getItem(REST_ALERTS_STORE) === '1';
+  } catch (e) { return false; }
+}
+
+// The applicationServerKey has to be raw bytes, and VAPID keys travel as base64url.
+function urlB64ToUint8Array(base64) {
+  const padded = (base64 + '='.repeat((4 - base64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(padded);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+function b64FromBuffer(buf) {
+  return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)));
+}
+
+// Must be called from inside a tap — see note 2 above.
+async function enableRestAlerts() {
+  if (!pushSupported()) {
+    showToast('This phone has no notification support', 'error');
+    return false;
+  }
+  let permission;
+  try { permission = await Notification.requestPermission(); } catch (e) { permission = 'denied'; }
+  if (permission !== 'granted') {
+    // iOS only shows the system prompt once ever. After a refusal the only way back is Settings, so
+    // say that rather than letting a second tap look broken.
+    showToast('Notifications are off — turn them on in iPhone Settings › D-LOG', 'error');
+    return false;
+  }
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    const row = {
+      endpoint: sub.endpoint,
+      p256dh: b64FromBuffer(sub.getKey('p256dh')),
+      auth: b64FromBuffer(sub.getKey('auth')),
+      user_agent: navigator.userAgent.slice(0, 300),
+    };
+    // user_id defaults to auth.uid(), same as profiles — the client never says whose row this is.
+    const res = await sb('push_subscriptions?on_conflict=endpoint', 'POST', row, { upsert: true, quiet: true });
+    if (!res.ok) {
+      showToast(`Couldn't save the subscription (${res.status})`, 'error');
+      return false;
+    }
+    localStorage.setItem(REST_ALERTS_STORE, '1');
+    paintRestAlertsButton();
+    return true;
+  } catch (e) {
+    console.error('enableRestAlerts', e);
+    showToast("Couldn't turn rest alerts on", 'error');
+    return false;
+  }
+}
+
+async function disableRestAlerts() {
+  try { localStorage.setItem(REST_ALERTS_STORE, '0'); } catch (e) {}
+  paintRestAlertsButton();
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await sb(`push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}`, 'DELETE', null, { quiet: true });
+      await sub.unsubscribe();
+    }
+  } catch (e) { /* the flag is off either way, which is what the user asked for */ }
+}
+
+async function toggleRestAlerts() {
+  if (restAlertsOn()) {
+    await disableRestAlerts();
+    showToast('Rest alerts off');
+    return;
+  }
+  const ok = await enableRestAlerts();
+  if (ok) showToast('Rest alerts on — try Test alert', 'success');
+}
+
+function paintRestAlertsButton() {
+  const btn = document.getElementById('rest-alerts-btn');
+  if (!btn) return;
+  if (!pushSupported()) {
+    btn.textContent = 'Rest alerts — not supported';
+    btn.disabled = true;
+    return;
+  }
+  btn.textContent = restAlertsOn() ? 'Rest alerts: on' : 'Rest alerts: off';
+}
+
+// Books the notification for a rest that has just started. Fire-and-forget on purpose: a rest must
+// start the instant the watch is tapped, and in a gym basement both calls below simply fail. The
+// beep and the wake lock are unaffected by that — this is an addition to the cue, never the cue.
+async function scheduleRestAlert(exName, seconds) {
+  if (!restAlertsOn() || !(seconds >= 1)) return;
+  const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  restAlertToken = token;
+  try {
+    const row = {
+      token,
+      due_at: new Date(Date.now() + seconds * 1000).toISOString(),
+      exercise: exName || null,
+      updated_at: new Date().toISOString(),
+    };
+    const res = await sb('rest_alerts?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true });
+    if (!res.ok) return;
+    const jwt = await validAccessToken();
+    if (!jwt) return;
+    // Not awaited beyond the dispatch — this request stays open for the whole rest by design.
+    netFetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds, token, exercise: exName || '' }),
+    }).catch(() => {});
+  } catch (e) { /* no signal — the beep and the wake lock still stand */ }
+}
+
+// Called when a rest ends by any route: stopped, reset, or already announced by the in-app beep.
+// Deleting the row is what makes the sleeping function stay quiet.
+async function cancelRestAlert() {
+  if (!restAlertToken) return;
+  restAlertToken = null;
+  if (!restAlertsOn()) return;
+  try { await sb('rest_alerts', 'DELETE', null, { quiet: true }); } catch (e) {}
+}
+
+// The whole point of shipping this on a Sunday: Del can prove the route works from his sofa instead
+// of finding out mid-session. Five seconds is long enough to lock the phone and put it down.
+async function testRestAlert() {
+  const btn = document.getElementById('rest-alerts-test');
+  if (!restAlertsOn()) {
+    const ok = await enableRestAlerts();
+    if (!ok) return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  const token = `test-${Date.now()}`;
+  restAlertToken = token;
+  try {
+    const row = { token, due_at: new Date(Date.now() + 5000).toISOString(), exercise: 'Test', updated_at: new Date().toISOString() };
+    const res = await sb('rest_alerts?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true });
+    const jwt = await validAccessToken();
+    if (!res.ok || !jwt) {
+      showToast('Test failed — no connection', 'error');
+    } else {
+      netFetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seconds: 5, token, exercise: 'Test' }),
+      }).catch(() => {});
+      showToast('Lock your phone — it should buzz in 5s', 'success');
+    }
+  } catch (e) {
+    showToast('Test failed', 'error');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Test alert'; }
+}
+
 // ─── SCREEN WAKE LOCK — THE HALF THAT NEEDS NO NETWORK (23 Aug 2026) ─────────────────────────────
 // swBeep() can only fire while the page is still rendering: screen on, app in front, logger visible.
 // Four months of gym use say that is precisely when it isn't — the phone goes in a pocket and the
@@ -6611,6 +6812,11 @@ function swRenderWatch(exName) {
       swVibrate([80, 60, 80]);
       // The cue has landed — the screen has no further job to do, so give the battery back.
       swReleaseWakeLock();
+      // He has already been told, with the app in front of him. Calling off the push here is what
+      // keeps the normal case — phone on the bench, screen held awake — to ONE cue instead of a
+      // beep and a notification a moment apart. The pocket case never reaches this line, which is
+      // exactly why the push still exists.
+      cancelRestAlert();
     }
   } else {
     btn.classList.remove('done');
@@ -6647,6 +6853,9 @@ function swStart(exName, { save = true } = {}) {
   }));
 
 
+  // Book the notification for this rest. Fire-and-forget — see scheduleRestAlert().
+  scheduleRestAlert(exName, swTargetSeconds);
+
   swVibrate(10);
   swRenderWatch(exName);
 
@@ -6668,6 +6877,7 @@ async function swStop() {
   swActiveExercise = null;
   sessionStorage.removeItem('sw_state');
   swReleaseWakeLock();
+  cancelRestAlert();
   swVibrate(10);
   swRenderWatch(exName);   // snap the ring back to idle now — don't wait on the network save below
 
@@ -6732,6 +6942,7 @@ function swReset() {
   swActiveExercise = null;
   sessionStorage.removeItem('sw_state');
   swReleaseWakeLock();
+  cancelRestAlert();
   swVibrate([20, 40, 20]);
   if (exName) swRenderWatch(exName);
 }

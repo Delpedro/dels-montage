@@ -12,7 +12,7 @@
 // on the way out and refreshes it on the way back. Combined with the ?v= build stamp on the asset
 // URLs in index.html and the version.json check in app.js, there is no longer any layer that can
 // hold a stale build.
-const CACHE_NAME = 'dlog-2026-08-23-1133';
+const CACHE_NAME = 'dlog-2026-08-23-1142';
 const APP_SHELL = [
   './',
   './index.html',
@@ -79,6 +79,44 @@ self.addEventListener('fetch', (event) => {
           .then((hit) => hit || offlineResponse(request))
       )
   );
+});
+
+// ─── REST ALERTS (23 Aug 2026) ───────────────────────────────────────────────────────────────────
+// The only cue that reaches a locked phone. The in-app beep needs a render tick, which a locked
+// screen doesn't give, and the 21 Aug attempt to fix that with a long silent WAV was binned because
+// holding the iOS audio session stopped Spotify for the whole rest. A notification chimes off the
+// notification channel and gives the audio session straight back.
+//
+// The push is sent by the rest-alert Edge Function, which sleeps out the remaining rest and then
+// posts here. Everything this handler needs is in the payload — it must never fetch, because the
+// phone that most needs this notification is the one in a gym basement.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { data = {}; }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Rest over', {
+      body: data.body || 'Next set',
+      // One tag for every rest alert, so a second rest REPLACES the first notification instead of
+      // stacking a column of them down the lock screen. renotify makes the replacement still chime.
+      tag: data.tag || 'rest-alert',
+      renotify: true,
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+    })
+  );
+});
+
+// Tapping the notification should land on the workout that is already open, not a second copy of it.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of open) {
+      if ('focus' in client) return client.focus();
+    }
+    if (self.clients.openWindow) return self.clients.openWindow('./');
+  })());
 });
 
 // Last resort when the network failed and nothing is cached. Navigations get a readable page rather

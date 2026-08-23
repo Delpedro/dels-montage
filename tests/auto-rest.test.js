@@ -27,7 +27,7 @@ console.log('auto-start rest on Mark Done');
 // slicer doesn't take, so they're supplied as bindings instead. Assignments inside the real swStart()
 // land on these and the accessor reads the same bindings — a rename in the source would leave the
 // state frozen here and fail every assertion below, which is the protection that matters.
-const calls = { stop: 0, vibrate: [], render: [], cleared: [], unlocked: 0, locked: 0 };
+const calls = { stop: 0, vibrate: [], render: [], cleared: [], unlocked: 0, locked: 0, scheduled: [] };
 const store = {};
 let nextInterval = 1;
 
@@ -45,6 +45,7 @@ const app = load({
     swStop: () => { calls.stop++; },
     swUnlockAudio: () => { calls.unlocked++; },
     swAcquireWakeLock: () => { calls.locked++; },
+    scheduleRestAlert: (name, secs) => calls.scheduled.push([name, secs]),
     swVibrate: v => calls.vibrate.push(v),
     swRenderWatch: n => calls.render.push(n),
     sessionStorage: {
@@ -77,7 +78,7 @@ const SESSION = {
 function fresh() {
   app.reset(SESSION);
   calls.stop = 0; calls.vibrate = []; calls.render = []; calls.cleared = []; calls.unlocked = 0;
-  calls.locked = 0;
+  calls.locked = 0; calls.scheduled = [];
   Object.keys(store).forEach(k => delete store[k]);
 }
 
@@ -99,6 +100,11 @@ function fresh() {
   // The screen has to stay awake or the render tick that owns the beep stops before the rest ends —
   // the auto-started timer is the one most likely to run with the phone already face-down.
   eq(calls.locked, 1, 'the screen wake lock is taken when the rest starts');
+  // The push has to be booked with the target the timer actually adopted, not the one the caller
+  // guessed — a notification for 90s on a 180s rest is worse than no notification.
+  eq(calls.scheduled.length, 1, 'the rest alert is booked once when the rest starts');
+  eq(calls.scheduled[0][0], 'Bench Press', 'and it names the exercise being rested from');
+  eq(calls.scheduled[0][1], 180, "and it is booked for the target the timer actually took");
 
   // The 14 Aug correction. Mark Done is tapped when the exercise is over, so this timer measures the
   // walk to the next machine — swStop() would have hung it on the last set as a "rest" (166s onto Leg

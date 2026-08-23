@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1133">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1142">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -126,6 +126,10 @@
              height entered in inches, is permanent: onboarded_at gates the form and nothing else
              writes the profiles row. -->
         <button type="button" class="account-link" onclick="openOnboarding(true)">Your details</button>
+        <!-- The only rest cue that survives a locked screen. Off until tapped, because iOS shows the
+             permission prompt once ever and a refusal can only be undone in Settings. -->
+        <button type="button" class="account-link" id="rest-alerts-btn" onclick="toggleRestAlerts()">Rest alerts: off</button>
+        <button type="button" class="account-link" id="rest-alerts-test" onclick="testRestAlert()">Test alert</button>
       </div>
       <!-- Which build the phone is actually running. Read this out before reporting a missing feature. -->
       <div class="build-tag" id="build-tag" onclick="checkForUpdate(true)"></div>
@@ -648,6 +652,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-23-1133"></script>
+<script src="js/app.js?v=2026-08-23-1142"></script>
 </body>
 </html>
