@@ -614,6 +614,11 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .weekavg-half-val { font-family: 'Bebas Neue', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
 .weekavg-half-days { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); margin-top: 2px; }
 .weekavg-half-name { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 3px; }
+/* The shared day-span note (23 Aug 2026). Under the whole split rather than under two of the three
+   columns, so the three labels keep a common baseline and the words fit on one line. Empty on a
+   full week and whenever calories and steps disagree — see showWeeklySplit(). */
+.weekavg-split-note { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); text-align: center; margin-top: 0.55rem; }
+.weekavg-split-note:empty { display: none; }
 
 .stats-chart { margin-top: 0.75rem; margin-bottom: 0.875rem; }
 .stats-chart svg { width: 100%; height: auto; display: block; }

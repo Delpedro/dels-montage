@@ -42,7 +42,7 @@ function fakeDom() {
    'weekavg-prev', 'weekavg-next',
    'weekavg-waist', 'weekavg-waist-val', 'weekavg-waist-cmp',
    'weekavg-sessions', 'weekavg-steps', 'weekavg-steps-days',
-   'weekavg-cals', 'weekavg-cals-days'].forEach(get);
+   'weekavg-cals', 'weekavg-cals-days', 'weekavg-split-note'].forEach(get);
   return { els, get, document: { getElementById: id => get(id) } };
 }
 
@@ -52,7 +52,7 @@ function harness(today) {
     functions: ['mondayOf', 'weeksBetween', 'weekRangeLabel',
                 'renderWeeklyAverage', 'showWeeklyAverage', 'showWeeklyWaist', 'showWeeklySplit',
                 'weeklyMeans', 'weekHalf',
-                'stepWeeklyAverage', 'stepsSpanLabel', 'numOrNull',
+                'stepWeeklyAverage', 'weekSpanNote', 'setSpanNote', 'numOrNull',
                 'dateStr', 'weekIndex'],
     decls: ['WEEKAVG_RUN_GAP', '_weekAvgs', '_weekAvgKey', '_weekWaists', '_weekSessions',
             '_weekSteps', '_weekCals'],
@@ -353,8 +353,12 @@ console.log('Weekly average weight');
      'and its own step average — the mean of the days that HAVE a figure, not a divide by seven');
   eq(h.els['weekavg-cals'].textContent, '2,000',
      'and its own calorie average, on the same two-days-logged basis');
-  eq(h.els['weekavg-cals-days'].textContent, 'Mon–Wed · 2 days',
+  // Both columns averaged the same two days, so the span is stated once under the whole split
+  // rather than twice under two of the three columns.
+  eq(h.els['weekavg-split-note'].textContent, 'Averaged over Mon–Wed · 2 days',
      'which names the days it averaged, so it can differ from Home without looking wrong');
+  eq(h.els['weekavg-cals-days'].textContent, '', 'and does not repeat itself per column');
+  eq(h.els['weekavg-steps-days'].textContent, '', 'under either of them');
 
   h.app.showWeeklyAverage('2026-08-17');
   eq(h.els['weekavg-sessions'].textContent, 1, 'arrowing to this week repaints the session count');
@@ -368,6 +372,7 @@ console.log('Weekly average weight');
   eq(h.els['weekavg-steps'].textContent, '--', 'a week with no steps recorded prints a dash, not 0');
   eq(h.els['weekavg-cals'].textContent, '--', 'and a week with no food logged prints a dash, not 0');
   eq(h.els['weekavg-cals-days'].textContent, '', 'with no day-span note under a dash');
+  eq(h.els['weekavg-split-note'].textContent, '', 'and none under the split either');
 
   // The card renders for people who have never logged either — it predates both.
   const bare = harness('2026-08-17');
@@ -389,6 +394,23 @@ console.log('Weekly average weight');
   eq(split.els['weekavg-steps-days'].textContent, 'Mon–Tue · 2 days', 'and say so');
   eq(split.els['weekavg-cals'].textContent, '2,000', 'calories average only the day that has one');
   eq(split.els['weekavg-cals-days'].textContent, 'Mon · 1 day', 'and say so separately');
+  eq(split.els['weekavg-split-note'].textContent, '',
+     'and the shared note stands down when the two columns genuinely disagree');
+
+  // A full week explains nothing: "7 days" under a figure already labelled "Avg cals" was the
+  // reader's default assumption, so the note goes away entirely rather than stating it.
+  const full = harness('2026-08-17');
+  full.app.renderWeeklyAverage(weights, [], [
+    { date: '2026-08-17', steps: 7000, calories: 2000 }, { date: '2026-08-18', steps: 7000, calories: 2000 },
+    { date: '2026-08-19', steps: 7000, calories: 2000 }, { date: '2026-08-20', steps: 7000, calories: 2000 },
+    { date: '2026-08-21', steps: 7000, calories: 2000 }, { date: '2026-08-22', steps: 7000, calories: 2000 },
+    { date: '2026-08-23', steps: 7000, calories: 2000 }
+  ], []);
+  full.app.showWeeklyAverage('2026-08-17');
+  eq(full.els['weekavg-steps'].textContent, '7,000', 'a full week still averages');
+  eq(full.els['weekavg-split-note'].textContent, '', 'but says nothing about its day span');
+  eq(full.els['weekavg-cals-days'].textContent, '', 'and neither does the calorie column');
+  eq(full.els['weekavg-steps-days'].textContent, '', 'nor the step column');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

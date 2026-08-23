@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1253';
+const APP_BUILD = '2026-08-23-1320';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5639,25 +5639,40 @@ function showWeeklyAverage(key) {
 function showWeeklySplit(key) {
   const sessEl = document.getElementById('weekavg-sessions');
   if (sessEl) sessEl.textContent = _weekSessions[key] || 0;
-  weekHalf('weekavg-cals', _weekCals[key]);
-  weekHalf('weekavg-steps', _weekSteps[key]);
+  const cals = _weekCals[key], steps = _weekSteps[key];
+  weekHalf('weekavg-cals', cals);
+  weekHalf('weekavg-steps', steps);
+
+  // Where the day-span note goes, decided here because this is the only place that can see both
+  // columns at once (23 Aug 2026). The note only ever earned its place by explaining a figure that
+  // disagrees with Home's seven-day one, and on most weeks it explained the same thing twice:
+  // calories and steps come off the same days, so "MON–SAT · 6 DAYS" printed under both columns,
+  // wrapped to two lines in each, and knocked the three labels off a shared baseline. Now it is one
+  // line under the pair when the spans match, per column only when they genuinely differ, and
+  // nothing at all on a full week — "7 days" under a figure already labelled "Avg cals" is the
+  // reader's default assumption, not news.
+  const cLab = weekSpanNote(cals), sLab = weekSpanNote(steps);
+  const shared = cLab && cLab === sLab;
+  setSpanNote('weekavg-cals-days', shared ? '' : cLab);
+  setSpanNote('weekavg-steps-days', shared ? '' : sLab);
+  setSpanNote('weekavg-split-note', shared ? `Averaged over ${cLab}` : '');
 }
 
-// One averaged column of the split: the number, and under it the days it was averaged over.
-// "MON–WED · 3 DAYS" is the whole reason these can differ from Home's seven-day figures, and
-// until it was written down the two just looked wrong. Calories and steps carry their own span
-// each, because a day can hold one without the other — a walk with no food logged against it.
+// One averaged column of the split: just the number. Its day-span note is set by showWeeklySplit.
 function weekHalf(id, m) {
   const el = document.getElementById(id);
-  const note = document.getElementById(id + '-days');
   if (el) el.textContent = m === undefined ? '--' : m.avg.toLocaleString();
-  if (note) note.textContent = m === undefined ? '' : stepsSpanLabel(m);
 }
 
-// "Mon–Wed · 3 days", or "Mon · 1 day" when there is only one, or "7 days" for a full week where
-// naming the ends adds nothing.
-function stepsSpanLabel(st) {
-  if (st.days >= 7) return '7 days';
+function setSpanNote(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+// "Mon–Wed · 3 days", or "Mon · 1 day" when there is only one. Empty for a full week and for a
+// column with no figure at all: in both of those there is nothing for the note to explain.
+function weekSpanNote(st) {
+  if (st === undefined || st.days >= 7) return '';
   const wd = iso => {
     const [y, m, d] = iso.split('-').map(Number);
     return new Date(y, m - 1, d).toLocaleDateString('en-GB', { weekday: 'short' });

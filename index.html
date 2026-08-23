@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1253">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1320">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -307,6 +307,10 @@
           <div class="weekavg-half-days" id="weekavg-steps-days"></div>
         </div>
       </div>
+      <!-- The day-span note in its usual home: one line under all three columns, because calories
+           and steps almost always average the same days and saying it twice wrapped both labels.
+           showWeeklySplit() fills this OR the two per-column notes above, never both. -->
+      <div class="weekavg-split-note" id="weekavg-split-note"></div>
     </div>
 
     <div class="stats-section" id="stats-avg-window">Last 7 days</div>
@@ -656,6 +660,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-23-1253"></script>
+<script src="js/app.js?v=2026-08-23-1320"></script>
 </body>
 </html>
