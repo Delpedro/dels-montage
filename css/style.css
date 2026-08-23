@@ -862,7 +862,10 @@ html.ob-active #app { display: none; }
    designed flow rather than eight pages. */
 .ob-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; gap: 0.45rem; padding: 1.5rem 0.15rem 0; overflow-y: auto; }
 .ob-q { font-family: 'Bebas Neue', sans-serif; font-size: 31px; line-height: 1.02; letter-spacing: 0.4px; font-weight: 400; }
-.ob-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 0.4rem; }
+.ob-sub { font-size: 12.5px; color: var(--muted); }
+/* The live conversion under the question. --muted2, not --accent: it is a readout, not something
+   you can tap, and --accent has one job (see the palette note at the top of this file). */
+.ob-conv { font-family: 'DM Mono', monospace; font-size: 11.5px; letter-spacing: 0.04em; color: var(--muted2); min-height: 1.2em; margin-bottom: 0.4rem; font-variant-numeric: tabular-nums; }
 
 .ob-row { display: flex; align-items: baseline; }
 .ob-big { width: 100%; background: none; border: none; border-bottom: 2px solid var(--accent); border-radius: 0; padding: 6px 2px; font-family: 'Bebas Neue', sans-serif; font-size: 34px; line-height: 1.15; letter-spacing: 1px; color: var(--text); outline: none; }

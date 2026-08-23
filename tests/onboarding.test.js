@@ -56,7 +56,7 @@ function app({ store = memStore(), email = 'del@example.com', now = new Date(202
   return load({
     decls: ['PROFILE', 'OB_DRAFT_PREFIX', 'ONBOARD_STEPS', 'OB_WHEEL', 'OB_ITEM'],
     functions: ['obValidate', 'obAgeOn', 'obPayload', 'needsOnboarding', 'markOnboarded',
-                'onboardedKey', 'obDraftKey'],
+                'onboardedKey', 'obDraftKey', 'obCmToFtIn', 'obKgToStLb', 'obConversion'],
     // authSession is passed rather than lifted: its declaration carries a trailing comment, which
     // extract.js cannot slice (see the note in TDLR.md).
     deps: { Date: Fixed, localStorage: store, authSession: email ? { email } : null },
@@ -203,6 +203,36 @@ console.log('Onboarding — the form that fills the profile in');
   eq(a.obAgeOn(new Date(1978, 7, 22), new Date(2026, 7, 22)), 48, 'on the birthday you are the new age');
   eq(a.obAgeOn(new Date(1978, 7, 23), new Date(2026, 7, 22)), 47, 'the day before, you are not');
   eq(a.obAgeOn(new Date(1978, 8, 1), new Date(2026, 7, 22)), 47, 'a later month in the year counts down');
+}
+
+// ── 4b. the live conversion (23 Aug) ──────────────────────────────────────────────────────────
+// Everything is still STORED metric. This is a readout under the question so someone who thinks in
+// feet or stone can spin to their own number rather than doing the sum first.
+{
+  const a = app();
+  eq(a.obCmToFtIn(186), '6ft 1in', '186 cm is 6ft 1in');
+  eq(a.obCmToFtIn(173), '5ft 8in', "5ft 8in is 173 — the example that was hard-coded in the old sub line");
+  eq(a.obCmToFtIn(183), '6ft 0in', 'a whole number of feet still says the inches, so the line never changes shape');
+  eq(a.obCmToFtIn(120), '3ft 11in', 'the bottom of the wheel');
+  eq(a.obCmToFtIn(220), '7ft 3in', 'the top of the wheel');
+
+  // Rounded to whole pounds first, then split. The other way round, 13.6 lb rounds up into a
+  // fourteenth pound and prints "12 st 14 lb", which is not a weight anybody says out loud.
+  eq(a.obKgToStLb(79.7), '12st 8lb · 176lb', "Del's own weight");
+  eq(a.obKgToStLb(76.2), '12st 0lb · 168lb', 'an exact stone reads 0 lb, not 14 lb of the one below');
+  ok(!/1[4-9]lb|2\dlb/.test(a.obKgToStLb(76.15)), 'no split ever prints fourteen or more pounds');
+  for (let kg = 30; kg <= 250; kg += 0.1) {
+    const lb = Number(/(\d+)st (\d+)lb/.exec(a.obKgToStLb(Math.round(kg * 10) / 10))[2]);
+    if (lb > 13) { ok(false, `${kg} kg split into ${lb} lb`); break; }
+  }
+  ok(true, 'every tenth of a kilo on the wheel splits into 0-13 lb');
+
+  eq(a.obConversion('height_cm', 186), 'about 6ft 1in', 'the height screen gets feet and inches');
+  eq(a.obConversion('start_weight_kg', 79.7), 'about 12st 8lb · 176lb', 'the weight screen gets stone and pounds');
+  eq(a.obConversion('target_weight_kg', 70), 'about 11st 0lb · 154lb', 'so does the target');
+  eq(a.obConversion('dob', 1978), '', 'nothing else converts');
+  eq(a.obConversion('height_cm', null), '', 'an unanswered wheel converts to nothing, not to "NaNft"');
+  eq(a.obConversion('height_cm', undefined), '', 'and neither does an undefined one');
 }
 
 // ── 5. chips ──────────────────────────────────────────────────────────────────────────────────

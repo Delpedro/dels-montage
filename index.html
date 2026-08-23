@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1249">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1253">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -637,6 +637,10 @@
     <div class="ob-wrap">
       <h2 class="ob-q" id="ob-q"></h2>
       <p class="ob-sub" id="ob-sub"></p>
+      <!-- Live under the question: 186 cm reads back as 6ft 1in while the wheel turns. Storage is
+           metric regardless — this exists so someone who thinks in feet or stone can find their own
+           number without doing the sum first. -->
+      <p class="ob-conv" id="ob-conv"></p>
       <div id="ob-field"></div>
       <div class="ob-err" id="ob-err"></div>
     </div>
@@ -652,6 +656,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-23-1249"></script>
+<script src="js/app.js?v=2026-08-23-1253"></script>
 </body>
 </html>

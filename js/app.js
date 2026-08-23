@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1249';
+const APP_BUILD = '2026-08-23-1253';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1282,7 +1282,7 @@ const ONBOARD_STEPS = [
   {
     key: 'height_cm', type: 'number', unit: 'cm', min: 100, max: 250,
     q: 'How tall are you?',
-    sub: 'Centimetres — 5ft 8in is about 173.'
+    sub: 'Centimetres. Spin until the feet and inches underneath match.'
   },
   {
     key: 'target_weight_kg', type: 'number', unit: 'kg', min: 20, max: 400,
@@ -1518,6 +1518,8 @@ function obRender() {
     ONBOARD_STEPS.map((_, i) => `<i class="${i <= obStep ? 'on' : ''}"></i>`).join('');
   document.getElementById('ob-q').textContent = step.q;
   document.getElementById('ob-sub').textContent = step.sub || '';
+  // Cleared on every step; only the number screens fill it, from obMountNumber().
+  document.getElementById('ob-conv').textContent = '';
   document.getElementById('ob-err').textContent = '';
   document.getElementById('ob-count').textContent = `${obStep + 1} / ${ONBOARD_STEPS.length}`;
   document.getElementById('ob-next').textContent = last ? (obEditing ? 'Save' : 'Finish') : 'Next';
@@ -1606,6 +1608,29 @@ function obWheel(el, labels, index, onSettle, onTouch) {
   mark();
 }
 
+// Everything is stored metric — the columns are height_cm and *_weight_kg and that does not change.
+// This is a live readout under the question so someone who thinks in feet and stone can spin to
+// their own number instead of doing the arithmetic first. Del, 23 Aug: "is there a way of a user
+// uses 186cm it gives a hint under main heading is about 6ft 3in".
+function obCmToFtIn(cm) {
+  const totalIn = Math.round(cm / 2.54);
+  return `${Math.floor(totalIn / 12)}ft ${totalIn % 12}in`;
+}
+
+// Rounded to whole pounds FIRST, then split. Splitting first lets 13.6 lb round up to a fourteenth
+// pound and print "12 st 14 lb", which is not a weight anybody says out loud.
+function obKgToStLb(kg) {
+  const lb = Math.round(kg * 2.2046226218);
+  return `${Math.floor(lb / 14)}st ${lb % 14}lb · ${lb}lb`;
+}
+
+function obConversion(key, value) {
+  if (value === null || value === undefined || isNaN(value)) return '';
+  if (key === 'height_cm') return `about ${obCmToFtIn(value)}`;
+  if (key === 'start_weight_kg' || key === 'target_weight_kg') return `about ${obKgToStLb(value)}`;
+  return '';
+}
+
 function obDaysIn(m, y) {
   return new Date(y, m, 0).getDate();   // m is 1-based here, so day 0 of m+0 is the last of m
 }
@@ -1650,6 +1675,10 @@ function obMountNumber(step, answer) {
     const t = (w.dec && dEl) ? Math.round(dEl.scrollTop / OB_ITEM) : 0;
     const val = Math.min(w.hi, Math.max(w.lo, n)) + (w.dec ? t / 10 : 0);
     if (obTouch[step.key]) obAnswers[step.key] = Math.round(val * 10) / 10;
+    // Follows the wheel whether or not it has been touched — it is a readout, not an answer, and
+    // the whole point is to let someone who thinks in feet and stone find their own number.
+    const conv = document.getElementById('ob-conv');
+    if (conv) conv.textContent = obConversion(step.key, Math.round(val * 10) / 10);
   };
   // A tap without a drag still counts: the wheel goes full-colour, so it has to commit the value
   // it is showing or the screen would claim an answer it never recorded.
@@ -1657,6 +1686,9 @@ function obMountNumber(step, answer) {
 
   obWheel(document.getElementById('ob-w-whole'), obRange(w.lo, w.hi), whole - w.lo, read, touch);
   if (w.dec) obWheel(document.getElementById('ob-w-dec'), obRange(0, 9, i => '.' + i), tenth, read, touch);
+  // The conversion has to be on screen before the first flick. Opening the wheel on index 0 moves
+  // nothing, so waiting for a scroll event would leave the line blank on exactly the lightest user.
+  read();
 }
 
 function obMountDob(step, answer) {
