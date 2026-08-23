@@ -12,7 +12,7 @@
 // on the way out and refreshes it on the way back. Combined with the ?v= build stamp on the asset
 // URLs in index.html and the version.json check in app.js, there is no longer any layer that can
 // hold a stale build.
-const CACHE_NAME = 'dlog-2026-08-23-1353';
+const CACHE_NAME = 'dlog-2026-08-23-1426';
 const APP_SHELL = [
   './',
   './index.html',

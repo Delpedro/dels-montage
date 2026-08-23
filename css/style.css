@@ -796,6 +796,9 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .last-time-rest { color: var(--muted); font-size: 10px; margin-top: 1px; }
 /* Cardio rows in the "Last time" card sit under the lifts, dimmed to read as a different kind of work */
 .last-time-cardio .last-time-ex { color: var(--muted2); }
+/* The repeat button, Open Workout only (23 Aug 2026). Outline rather than accent: it is an offer,
+   and the accent on this screen belongs to Save Workout at the bottom. */
+.last-time-load { margin-top: 0.75rem; }
 
 /* ─── SUPERSETS (11 Aug 2026) ─────────────────────────────── */
 /* The ⇄ button at the foot of each exercise block opens a picker of what to superset it with. */

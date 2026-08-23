@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1353';
+const APP_BUILD = '2026-08-23-1426';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3097,15 +3097,12 @@ function showWorkoutView(mode, sessionName = '') {
   document.getElementById('workout-logger').style.display = mode === 'logger' ? 'block' : 'none';
   document.getElementById('conditioning-form').style.display = mode === 'conditioning' ? 'block' : 'none';
   document.getElementById('workout-opening').style.display = mode === 'opening' ? 'block' : 'none';
-  // The subtitle is the picker's caption — "Choose your session" — and buildSessionGrid() rewrites
-  // it a moment after 'opening' goes up, so there is no point setting different text here. Hide it:
-  // an instruction to choose, sitting directly above a panel saying the choice is already made, is
-  // the same contradiction in words that the visible picker was in pixels.
-  //
-  // NOTE it is only hidden for 'opening'. It is also visibly wrong in 'logger' and 'conditioning' —
-  // "Choose your session" stays on screen above an open logger — but that is older than this change
-  // and Del has not been asked about it. Flagged in TDLR.md, not fixed here.
-  document.getElementById('workout-subtitle').style.display = mode === 'opening' ? 'none' : 'block';
+  // The subtitle is the picker's caption — "Choose your training programme" — so it belongs to the
+  // grid and to nothing else. An instruction to choose, sitting directly above a panel saying the
+  // choice is already made, is the same contradiction in words that the visible picker was in
+  // pixels. It was hidden for 'opening' on 21 Aug and left showing over the logger; Del read that
+  // screen back on 23 Aug and it was the first line his eye landed on.
+  document.getElementById('workout-subtitle').style.display = grid ? 'block' : 'none';
   if (!grid) document.getElementById('session-pill-name').textContent = sessionName;
 }
 
@@ -3795,7 +3792,15 @@ function lastTimeRestLabel(sets) {
   return `rest ${fmtRest(Math.round(avg / 5) * 5)} avg`;
 }
 
-function renderLastTimeCard(snapshot, session) {
+// The snapshot behind the repeat button, held here because that button is drawn inside an innerHTML
+// string and has nothing to close over.
+let lastOpenSnapshot = null;
+
+// opts.repeatable — Open Workout only: adds the button that loads last time's exercises back in, and
+// opens the card by default. On a fixed session this card is reference material beside a logger that
+// is already full; on Open Workout it is the only thing on the screen, and collapsed it would be one
+// more line of grey text in the space Del just called too empty.
+function renderLastTimeCard(snapshot, session, opts = {}) {
   if (!snapshot) return '';
   const dateStr = new Date(snapshot.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
   const restSpan = sets => {
@@ -3823,13 +3828,38 @@ function renderLastTimeCard(snapshot, session) {
     rows += `<div class="last-time-row last-time-cardio"><span class="last-time-ex">${esc(cardioDisplayName(c.activity))}</span><span class="last-time-sets">${esc(detail)}</span></div>`;
   });
   if (!rows) return '';
-  return `<div class="card last-time-card" id="last-time-card">
+  const names = Object.keys(snapshot.exercises);
+  const repeat = opts.repeatable && names.length
+    ? `<button type="button" class="btn btn-outline btn-full last-time-load" onclick="loadLastOpenExercises()">` +
+      `Load ${names.length === 1 ? 'this exercise' : `these ${names.length} exercises`}</button>`
+    : '';
+  return `<div class="card last-time-card${opts.repeatable ? ' expanded' : ''}" id="last-time-card">
     <div class="last-time-header" onclick="document.getElementById('last-time-card').classList.toggle('expanded')">
-      <span>📅 Last time — ${dateStr}</span>
+      <span>📅 ${opts.open ? 'Last open workout' : 'Last time'} — ${dateStr}</span>
       <span class="last-time-chevron">▾</span>
     </div>
-    <div class="last-time-body">${rows}</div>
+    <div class="last-time-body">${rows}${repeat}</div>
   </div>`;
+}
+
+// Repeat last session's exercise list in one tap. Open Workout has no template, so a repeat meant
+// picking every one of them back out of a dropdown of the whole library — the biggest piece of
+// friction on the screen, and the reason this card earns its place here more than anywhere else.
+//
+// Sequential, not Promise.all: addOpenExercise() fetches that exercise's previous sets and splices
+// its block in above the add row, and five of those at once race on both.
+async function loadLastOpenExercises() {
+  const names = Object.keys(lastOpenSnapshot?.exercises || {});
+  if (!names.length) return;
+  const btn = document.querySelector('.last-time-load');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  for (const name of names) await addOpenExercise(name);
+  if (btn) btn.remove();
+  // Collapse on the way out: what was the whole screen a second ago is now reference material above
+  // five exercise blocks, and it should take up the room it takes on every other session.
+  const card = document.getElementById('last-time-card');
+  if (card) card.classList.remove('expanded');
+  showToast(names.length === 1 ? '1 exercise loaded' : `${names.length} exercises loaded`);
 }
 
 // Reads any exercises an in-progress session's draft added but hadn't Mark-Done'd yet (so a refresh
@@ -3934,15 +3964,35 @@ async function buildWorkoutLogger(session) {
   await loadPreviousSetsForSession(session);
 
   let html = '';
-  if (session.id !== 'open' && !session.cardio) {
-    html += `<div class="edit-template-link" onclick="openSessionEditor('${jsAttr(session.id)}')">✎ Reorder / add / remove exercises for this session</div>`;
+  let lastTimeHtml = '';
+  if (!session.cardio) {
+    // The ✎ link stays off Open Workout — there is no template to reorder. The card does not: as of
+    // 23 Aug 2026 the one session type with no template is no longer the one that arrives with no
+    // idea what you did last time. renderLastTimeCard() needed nothing for this beyond being
+    // called: an empty session.exercises sends every logged exercise down its "not in the template"
+    // path, which is exactly the right list for a session that has no template.
+    if (session.id !== 'open') {
+      html += `<div class="edit-template-link" onclick="openSessionEditor('${jsAttr(session.id)}')">✎ Reorder / add / remove exercises for this session</div>`;
+    }
     const lastTimeSnapshot = await fetchLastSessionSnapshot(session);
-    html += renderLastTimeCard(lastTimeSnapshot, session);
+    lastOpenSnapshot = session.id === 'open' ? lastTimeSnapshot : null;
+    // Repeatable only while the session is still empty: a resumed Open Workout already has its
+    // blocks on screen, and an open card offering to load them again on top of them is noise.
+    lastTimeHtml = renderLastTimeCard(lastTimeSnapshot, session, {
+      open: session.id === 'open',
+      repeatable: session.id === 'open' && session.exercises.length === 0,
+    });
+    html += lastTimeHtml;
   }
   session.exercises.forEach(ex => { html += renderExerciseBlock(ex, session); });
 
   if (!session.cardio) {
-    if (session.exercises.length === 0) html += `<div class="empty" style="margin-bottom:0.875rem;">Tap Add Exercise below to get started</div>`;
+    // Only worth printing when there is nothing else on the screen. Under the card above it, "tap
+    // Add Exercise below" is a caption on a box already labelled Add Exercise — Del, looking at the
+    // empty Open Workout screen: "too much space, or maybe i just dont like the text".
+    if (session.exercises.length === 0 && !lastTimeHtml) {
+      html += `<div class="empty" style="margin-bottom:0.875rem;">Tap Add Exercise below to get started</div>`;
+    }
     html += renderAddExerciseRow();
   }
 

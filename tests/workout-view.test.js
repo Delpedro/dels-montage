@@ -104,6 +104,8 @@ console.log('showWorkoutView — one function owns all four panels');
   eq(h.els['session-pill-name'].textContent, 'Lower A', 'logger view: the pill names the session');
   eq(h.els['workout-logger'].style.display, 'block', 'logger view: the logger is visible');
   eq(h.els['conditioning-form'].style.display, 'none', 'logger view: the CV + Pump form is hidden');
+  eq(h.els['workout-subtitle'].style.display, 'none',
+     'logger view: the picker caption goes too (23 Aug 2026) — "Choose your training programme" over an open logger was the first line Del read back off the screen');
 }
 
 {
@@ -114,6 +116,7 @@ console.log('showWorkoutView — one function owns all four panels');
   eq(h.els['session-pill-name'].textContent, 'CV + Pump', 'conditioning view: the pill names it');
   eq(h.els['workout-logger'].style.display, 'none', 'conditioning view: the logger is hidden');
   eq(h.els['conditioning-form'].style.display, 'block', 'conditioning view: the form is visible');
+  eq(h.els['workout-subtitle'].style.display, 'none', 'conditioning view: and the caption is hidden here as well');
 }
 
 // Going back to the grid must not leave the last session's name behind for the next view to inherit
@@ -135,6 +138,7 @@ console.log('showWorkoutView — one function owns all four panels');
   eq(h.els['workout-logger'].style.display, 'none', 'an unrecognised mode closes the logger');
   eq(h.els['conditioning-form'].style.display, 'none', 'an unrecognised mode closes the CV + Pump form');
   eq(h.els['workout-opening'].style.display, 'none', 'an unrecognised mode closes the placeholder');
+  eq(h.els['workout-subtitle'].style.display, 'none', 'and the caption, which belongs to the grid and nowhere else');
 }
 
 // ── The guard that stops the drift coming back ─────────────────────────────
