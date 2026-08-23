@@ -66,8 +66,11 @@ ok(/offlineResponse\(request\)/.test(swSrc), 'the fallback chain ends at a real 
 ok(/function offlineResponse/.test(swSrc), 'offlineResponse is defined');
 
 // Run the real function against both request shapes rather than trusting the source read.
-const offlineSrc = swSrc.slice(swSrc.indexOf('function offlineResponse'));
-const offlineResponse = new Function('Response', `${offlineSrc.slice(0, offlineSrc.indexOf('\n}\n') + 2)}\nreturn offlineResponse;`)(
+const fnSrc = (name) => {
+  const from = swSrc.slice(swSrc.indexOf(`function ${name}(`));
+  return from.slice(0, from.indexOf('\n}\n') + 2);
+};
+const offlineResponse = new Function('Response', `${fnSrc('isNavigation')}\n${fnSrc('offlineResponse')}\nreturn offlineResponse;`)(
   class FakeResponse {
     constructor(body, init = {}) { this.body = body; this.status = init.status; this.headers = init.headers || {}; }
   }
@@ -81,6 +84,45 @@ ok(asset && asset.status === 503, 'an asset gets a 503, not undefined');
 eq(asset.body, '', 'an asset gets an empty body');
 const htmlAccept = offlineResponse({ mode: 'no-cors', headers: { get: () => 'text/html,*/*' } });
 ok(/D-LOG can/.test(htmlAccept.body), 'an html Accept header counts as a navigation');
+
+// ── 4. A bad STATUS is a failed fetch (23 Aug 2026) ────────────────────────
+//
+// Del took the "new version ready" prompt and the app came back as a column of unstyled text —
+// again, five days after the white page. Different cause, same look. fetch() only REJECTS on a dead
+// network; a 404 or a 502 resolves, so GitHub Pages' error page — served in the seconds while a
+// deploy is still swapping the tree — was handed to the browser AS style.css and the cache was
+// never consulted. The reload after an update is the single most likely moment for that to happen.
+const fetchBlock = swSrc.slice(swSrc.indexOf("addEventListener('fetch'"), swSrc.indexOf('function serveFromCache'));
+ok(/if \(!response\.ok\) throw/.test(fetchBlock),
+  'a non-ok response is thrown, so it falls through to the cache like a dead network does');
+ok(!/if \(response\.ok\) \{/.test(fetchBlock),
+  'the old "cache it if it is ok, return it either way" shape is gone');
+
+// ── 5. Only a NAVIGATION may be answered with index.html ───────────────────
+//
+// This is what turned one missing file into an app that looks broken: the browser asked for CSS,
+// was offered HTML, refused it, and rendered the page bare. An asset that cannot be served gets an
+// honest 503 — a failure that looks like a failure.
+ok(/function serveFromCache/.test(swSrc), 'the fallback chain is its own function');
+const cacheBlock = swSrc.slice(swSrc.indexOf('function serveFromCache'), swSrc.indexOf('function isNavigation'));
+ok(/if \(!isNavigation\(request\)\) return offlineResponse\(request\)/.test(cacheBlock),
+  'a non-navigation never falls back to index.html');
+ok(cacheBlock.indexOf('isNavigation(request)') < cacheBlock.indexOf("caches.match('./index.html'"),
+  'the navigation check runs BEFORE index.html is offered, not after');
+ok(/function isNavigation/.test(swSrc),
+  'one definition of "is this a navigation" — offlineResponse and serveFromCache must not drift apart');
+eq((swSrc.match(/includes\('text\/html'\)/g) || []).length, 1, 'and it really is only defined once');
+
+// ── 6. The shell is cached BEFORE the worker takes over ────────────────────
+//
+// skipWaiting() used to fire beside addAll() rather than after it, so the new worker could activate,
+// delete the old cache, and answer fetches with nothing cached at all.
+const install = swSrc.slice(swSrc.indexOf("addEventListener('install'"), swSrc.indexOf("addEventListener('activate'"));
+ok(install.indexOf('cache.addAll') < install.indexOf('skipWaiting'),
+  'the shell is cached before skipWaiting() hands the new worker the clients');
+ok(/await self\.skipWaiting\(\)/.test(install), 'skipWaiting is awaited inside the install work, not fired alongside it');
+ok(/new Request\(u, \{ cache: 'reload' \}\)/.test(install),
+  'the shell is precached past the HTTP cache, so the fallback is never older than the build');
 
 // ── The build stamps must agree, or the update prompt fires forever ────────
 const swBuild = (swSrc.match(/CACHE_NAME = 'dlog-([\d-]+)'/) || [])[1];

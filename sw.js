@@ -12,7 +12,7 @@
 // on the way out and refreshes it on the way back. Combined with the ?v= build stamp on the asset
 // URLs in index.html and the version.json check in app.js, there is no longer any layer that can
 // hold a stale build.
-const CACHE_NAME = 'dlog-2026-08-23-1218';
+const CACHE_NAME = 'dlog-2026-08-23-1224';
 const APP_SHELL = [
   './',
   './index.html',
@@ -24,10 +24,19 @@ const APP_SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
-  );
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    // `cache: 'reload'` here as well as in fetch. Without it the shell is precached through the
+    // browser's HTTP cache, so the offline fallback for a brand new build can be a copy of the
+    // build it just replaced — the exact staleness the ?v= stamp exists to stop.
+    await cache.addAll(APP_SHELL.map((u) => new Request(u, { cache: 'reload' })));
+    // Only once the shell is actually in the cache. skipWaiting() used to fire alongside this
+    // rather than after it, so the new worker could activate, delete the old cache in `activate`,
+    // and start answering fetches with NOTHING cached at all — no fallback during the one minute a
+    // fallback is most likely to be needed. An addAll that fails now fails the install, which
+    // leaves the old worker serving: the right outcome, and a visible one.
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {
@@ -64,22 +73,39 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(request, { cache: 'reload' })
       .then((response) => {
-        if (response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-        }
+        // A 404 or a 502 RESOLVES. It is not a rejected promise, so the old code handed GitHub
+        // Pages' error page straight back to the browser as the stylesheet, and the cache was never
+        // consulted. That is what Del saw on 23 Aug: he took the update, the reload landed in the
+        // seconds while Pages was still swapping the tree, style.css came back as an error page,
+        // and the app rendered as a column of unstyled text. A bad status is a failed fetch here.
+        if (!response.ok) throw new Error(`HTTP ${response.status} for ${url.pathname}`);
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         return response;
       })
-      .catch(() =>
-        caches.match(request, { ignoreSearch: true })
-          .then((hit) => hit || caches.match('./index.html', { ignoreSearch: true }))
-          // respondWith(undefined) is a NETWORK ERROR, not a miss — the browser drops the asset
-          // entirely and renders the page without it. Every path here must end at a real Response
-          // so a failure looks like a failure instead of a silently broken page.
-          .then((hit) => hit || offlineResponse(request))
-      )
+      .catch(() => serveFromCache(request))
   );
 });
+
+// The fallback, for a dead network and for a deploy that is still half-published.
+//
+// respondWith(undefined) is a NETWORK ERROR rather than a miss — the browser drops the asset
+// entirely and renders the page without it — so every path here has to end at a real Response.
+function serveFromCache(request) {
+  return caches.match(request, { ignoreSearch: true }).then((hit) => {
+    if (hit) return hit;
+    // index.html is the fallback for a NAVIGATION and for nothing else. Handing it back for a
+    // stylesheet means offering the browser HTML where it asked for CSS: it refuses the file and
+    // shows the page with no styling at all. One missing asset became an app that looks broken.
+    if (!isNavigation(request)) return offlineResponse(request);
+    return caches.match('./index.html', { ignoreSearch: true })
+      .then((page) => page || offlineResponse(request));
+  });
+}
+
+function isNavigation(request) {
+  return request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html');
+}
 
 // ─── REST ALERTS (23 Aug 2026) ───────────────────────────────────────────────────────────────────
 // The only cue that reaches a locked phone. The in-app beep needs a render tick, which a locked
@@ -122,8 +148,7 @@ self.addEventListener('notificationclick', (event) => {
 // Last resort when the network failed and nothing is cached. Navigations get a readable page rather
 // than the browser's error screen; everything else gets an honest 503.
 function offlineResponse(request) {
-  const isNav = request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html');
-  if (!isNav) return new Response('', { status: 503, statusText: 'Offline' });
+  if (!isNavigation(request)) return new Response('', { status: 503, statusText: 'Offline' });
   return new Response(
     '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<style>body{font:16px/1.5 system-ui,sans-serif;background:#f4efe6;color:#231f1a;padding:2rem;text-align:center}' +
