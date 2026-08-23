@@ -619,8 +619,54 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .weekavg-split-note { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); text-align: center; margin-top: 0.55rem; }
 .weekavg-split-note:empty { display: none; }
 
-.stats-chart { margin-top: 0.75rem; margin-bottom: 0.875rem; }
-.stats-chart svg { width: 100%; height: auto; display: block; }
+/* Range pills over the weight chart (23 Aug 2026). Smaller and lighter than .history-tab on
+   purpose: those three are the History page's subject, these four are a control on a card that
+   already has a 54px hero above it. Same active treatment, so "selected" reads the same everywhere. */
+.stats-range { display: flex; gap: 6px; justify-content: center; margin-top: 0.75rem; }
+.stats-range-pill {
+  padding: 5px 13px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'DM Sans', sans-serif;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.stats-range-pill.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.stats-chart { position: relative; margin-top: 0.5rem; margin-bottom: 0.875rem; }
+.stats-chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+
+/* The scrub readout. `pan-y` above rather than `none`: a drag across the chart reads it, but a
+   swipe down it still scrolls the page — the chart is full-width, so making it a scroll dead zone
+   would cost more than the readout is worth. Positioned in px by bindChartScrub() against the
+   rendered box, and pointer-events off so it can never eat the drag that is moving it. */
+.chart-tip {
+  position: absolute;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  box-shadow: 0 2px 8px rgba(35, 31, 26, 0.13);
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  z-index: 2;
+}
+.chart-tip[hidden] { display: none; }
+.chart-tip-date { font-size: 10px; color: var(--muted); }
+.chart-tip-val { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text); }
 
 /* Stats → Daily averages. Redesigned 11 Aug 2026: calorie hero + a meter per macro, replacing
    three tiles + a split bar + a 10px grey calorie line. Every number in the card is tabular so the

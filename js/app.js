@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1336';
+const APP_BUILD = '2026-08-23-1343';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5294,8 +5294,6 @@ function applyMacroLine() {
 // Redesigned 10 Aug 2026: hero weight + hand-rolled SVG trend chart + macro averages.
 // The old Chart.js tile-switcher was removed — see CODEBASE.md for what went and why.
 async function loadStats() {
-  const since = new Date(); since.setDate(since.getDate() - 21);
-  const sinceStr = dateStr(since);
   const statsWin = sevenDayWindow();
   const weekAgoStr = statsWin.from;
 
@@ -5321,15 +5319,14 @@ async function loadStats() {
   ]);
 
   // Only days with an actual weigh-in — skipped days are dropped entirely so the
-  // line never shows a hole (user weighs in ~5 days a week, not 7).
-  const weightLogs = (allWeights || []).filter(l => l.date >= sinceStr);
-  const points = weightLogs
+  // line never shows a hole (Del weighs in ~5 days a week, not 7). The whole run is kept: the
+  // range pills above the chart decide the window now, so the old fixed 21-day / last-12 slice
+  // moved out of the loader and into pointsForStatsRange().
+  statsWeightPoints = (allWeights || [])
     .filter(l => l.weight_kg !== null && l.weight_kg !== undefined)
-    .map(l => ({ date: l.date, v: parseFloat(l.weight_kg) }))
-    .slice(-12);
+    .map(l => ({ date: l.date, v: parseFloat(l.weight_kg) }));
 
-  renderWeightHero(points);
-  renderWeightChart(points);
+  renderWeightRange();
   renderWeeklyAverage(allWeights || [], allWaists || [], allLogs || [], allWorkouts || []);
 
   // The macro card is the one group on the page that is not week-shaped: a rolling 7 days, the same
@@ -5339,12 +5336,12 @@ async function loadStats() {
   renderMacroAverages((allLogs || []).filter(l => l.date >= weekAgoStr));
 }
 
-function renderWeightHero(points) {
+function renderWeightHero(points, emptyNote) {
   const valEl = document.getElementById('stats-hero-weight');
   const subEl = document.getElementById('stats-hero-delta');
   if (!points.length) {
     valEl.innerHTML = `--<span class="stats-hero-unit">kg</span>`;
-    subEl.textContent = 'No weigh-ins yet';
+    subEl.textContent = emptyNote || 'No weigh-ins yet';
     subEl.className = 'stats-hero-sub flat';
     return;
   }
@@ -5364,14 +5361,81 @@ function renderWeightHero(points) {
   }
 }
 
-// Hand-rolled SVG rather than Chart.js so every point can carry its own value label.
-function renderWeightChart(points) {
+// ─── Weight chart ────────────────────────────────────────
+// The window the chart and the hero above it are drawn over. Not a fetch window — loadStats()
+// already holds every weigh-in — so switching range is instant and costs no request.
+const STATS_RANGES = [
+  { id: '7d',  label: '7D',  days: 7,  note: 'the last 7 days' },
+  { id: '30d', label: '30D', days: 30, note: 'the last 30 days' },
+  { id: '90d', label: '90D', days: 90, note: 'the last 90 days' },
+  { id: 'all', label: 'All', days: null, note: 'yet' },
+];
+const STATS_RANGE_STORE = 'dlog_stats_range';
+
+// 30D is the default because it is closest to the fixed 21-day / last-12-points window the chart
+// had before the pills existed — an update shouldn't move the chart under someone.
+let statsRange = '30d';
+let statsWeightPoints = [];   // every weigh-in, ascending; sliced per range at render time
+
+try {
+  const savedStatsRange = localStorage.getItem(STATS_RANGE_STORE);
+  if (STATS_RANGES.some(r => r.id === savedStatsRange)) statsRange = savedStatsRange;
+} catch (e) { /* private mode — the range just stops being remembered */ }
+
+function statsRangeDef() {
+  return STATS_RANGES.find(r => r.id === statsRange) || STATS_RANGES[1];
+}
+
+function pointsForStatsRange() {
+  const r = statsRangeDef();
+  if (!r.days) return statsWeightPoints;
+  const from = new Date();
+  from.setDate(from.getDate() - (r.days - 1));
+  const fromStr = dateStr(from);
+  return statsWeightPoints.filter(p => p.date >= fromStr);
+}
+
+function setStatsRange(id) {
+  if (!STATS_RANGES.some(r => r.id === id)) return;
+  statsRange = id;
+  try { localStorage.setItem(STATS_RANGE_STORE, id); } catch (e) { /* see above */ }
+  renderWeightRange();
+}
+
+function statsRangeEmptyNote(one) {
+  const note = statsRangeDef().note;
+  if (note === 'yet') return one ? 'Only one weigh-in so far — nothing to draw a line between' : 'No weigh-ins yet';
+  return one ? `Only one weigh-in in ${note} — nothing to draw a line between` : `No weigh-ins in ${note}`;
+}
+
+// Hero and chart are always drawn together, off the same slice. Two parts of this page disagreed
+// about their window once already (the Home/Stats drift, 14 Aug), and this is the one place that
+// can stop it recurring: "▼ 0.2kg in 11 days" now means the *selected* range, not a fixed 21 days.
+function renderWeightRange() {
+  renderStatsRangePills();
+  const pts = pointsForStatsRange();
+  renderWeightHero(pts, statsRangeEmptyNote(false));
+  renderWeightChart(pts, statsRangeEmptyNote(pts.length === 1));
+}
+
+function renderStatsRangePills() {
+  const box = document.getElementById('stats-range');
+  if (!box) return;
+  box.innerHTML = STATS_RANGES.map(r =>
+    `<button type="button" class="stats-range-pill${statsRange === r.id ? ' active' : ''}" ` +
+    `aria-pressed="${statsRange === r.id}" onclick="setStatsRange('${r.id}')">${r.label}</button>`
+  ).join('');
+}
+
+// Hand-rolled SVG rather than Chart.js so every point can carry its own value label — and so the
+// scrub readout can be wired straight onto coordinates this function has already worked out.
+function renderWeightChart(points, emptyNote) {
   const box = document.getElementById('stats-weight-chart');
   if (points.length < 2) {
-    box.innerHTML = '<div class="empty">Not enough weigh-ins to chart yet</div>';
+    box.innerHTML = `<div class="empty">${esc(emptyNote || 'Not enough weigh-ins to chart yet')}</div>`;
     return;
   }
-  const W = 300, TOP = 24, H = 74, L = 26, R = 278;
+  const W = 300, VBH = 112, TOP = 24, H = 74, L = 26, R = 278;
   const vals = points.map(p => p.v);
   const min = Math.min(...vals), max = Math.max(...vals);
   const pad = Math.max(0.4, (max - min) * 0.25);   // keeps a flat week from rendering as a straight edge
@@ -5385,11 +5449,24 @@ function renderWeightChart(points) {
     coords.slice(1).map(c => `L${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ') +
     ` L${coords[coords.length-1][0].toFixed(1)},${TOP+H} L${coords[0][0].toFixed(1)},${TOP+H} Z`;
 
-  // Label every 3rd point plus the latest, so a 12-point line stays readable on a phone.
-  const labelled = i => i % 3 === 0 || i === points.length - 1;
-  const dayOf = d => String(new Date(d).getDate()).padStart(2, '0');
+  // At most ~6 printed labels whatever the range holds. The old fixed "every 3rd point" was written
+  // for a chart that could never show more than 12; "All" now runs to every weigh-in there is, and
+  // the scrub readout is what reads the ones the axis no longer names.
+  const step = Math.max(1, Math.ceil(points.length / 6));
+  const last = points.length - 1;
+  const labelled = i => i === last || (i % step === 0 && last - i > step / 2);
+  const dots = points.length <= 24;   // past that the markers merge into one bead of dots
 
-  box.innerHTML = `<svg viewBox="0 0 ${W} 112" role="img" aria-label="Weight trend">
+  // A bare day number is only unambiguous inside a month or so. Wider than that the axis has to name
+  // the month, or "03" under a 90-day line could be any of three.
+  const spanDays = Math.round((new Date(points[last].date) - new Date(points[0].date)) / 86400000);
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const axisLabel = d => {
+    const dt = new Date(d);
+    return spanDays > 45 ? `${dt.getDate()} ${MON[dt.getMonth()]}` : String(dt.getDate()).padStart(2, '0');
+  };
+
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${VBH}" role="img" aria-label="Weight trend">
     <defs><linearGradient id="wgrad" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#b45527" stop-opacity="0.26"/>
       <stop offset="100%" stop-color="#b45527" stop-opacity="0"/>
@@ -5397,16 +5474,99 @@ function renderWeightChart(points) {
     <path d="${area}" fill="url(#wgrad)"/>
     <polyline points="${poly}" fill="none" stroke="#b45527" stroke-width="2" stroke-linejoin="round"/>
     ${coords.map((c, i) => {
-      const last = i === coords.length - 1;
-      return `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="${last ? 4 : 2.4}" fill="${last ? '#b45527' : '#fdfaf4'}" stroke="#b45527" stroke-width="1.7"/>`;
+      const isLast = i === last;
+      if (!dots && !isLast) return '';
+      return `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="${isLast ? 4 : 2.4}" fill="${isLast ? '#b45527' : '#fdfaf4'}" stroke="#b45527" stroke-width="1.7"/>`;
     }).join('')}
     ${coords.map((c, i) => labelled(i)
-      ? `<text x="${c[0].toFixed(1)}" y="${(c[1] - 8).toFixed(1)}" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" font-weight="500" fill="${i === coords.length - 1 ? '#b45527' : '#6a6053'}">${points[i].v.toFixed(1)}</text>`
+      ? `<text x="${c[0].toFixed(1)}" y="${(c[1] - 8).toFixed(1)}" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" font-weight="500" fill="${i === last ? '#b45527' : '#6a6053'}">${points[i].v.toFixed(1)}</text>`
       : '').join('')}
     ${coords.map((c, i) => labelled(i)
-      ? `<text x="${c[0].toFixed(1)}" y="106" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="7" fill="#8d8272">${dayOf(points[i].date)}</text>`
+      ? `<text x="${c[0].toFixed(1)}" y="106" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="7" fill="#8d8272">${axisLabel(points[i].date)}</text>`
       : '').join('')}
-  </svg>`;
+    <line class="chart-guide" x1="0" y1="${TOP - 8}" x2="0" y2="${TOP + H + 3}" stroke="#b45527" stroke-width="1" stroke-dasharray="2 3" opacity="0.5" style="display:none"/>
+    <circle class="chart-cursor" cx="0" cy="0" r="4.5" fill="#b45527" stroke="#fdfaf4" stroke-width="1.8" style="display:none"/>
+  </svg>
+  <div class="chart-tip" hidden></div>`;
+
+  bindChartScrub(box, points, coords, W, VBH);
+}
+
+// Drag along the line, or tap a point, and the readout names that day. Bound per render rather than
+// once at startup because the innerHTML above replaces the <svg>, taking its listeners with it.
+function bindChartScrub(box, points, coords, W, VBH) {
+  const svg = box.querySelector('svg');
+  const tip = box.querySelector('.chart-tip');
+  if (!svg || !tip) return;
+  const guide = svg.querySelector('.chart-guide');
+  const cursor = svg.querySelector('.chart-cursor');
+  if (!guide || !cursor) return;
+
+  const DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let shown = -1;
+
+  // Nearest by x, not a hit test on the dot: on a phone the fingertip is 40px wide and the dots are
+  // 5, so "the point I am on" has to mean the closest column, anywhere in the chart's height.
+  const nearest = clientX => {
+    const r = svg.getBoundingClientRect();
+    const vx = ((clientX - r.left) / r.width) * W;
+    let best = 0, bestD = Infinity;
+    coords.forEach((c, i) => { const d = Math.abs(c[0] - vx); if (d < bestD) { bestD = d; best = i; } });
+    return best;
+  };
+
+  const show = i => {
+    const [cx, cy] = coords[i];
+    const pt = points[i], prev = points[i - 1];
+    guide.setAttribute('x1', cx.toFixed(1));
+    guide.setAttribute('x2', cx.toFixed(1));
+    cursor.setAttribute('cx', cx.toFixed(1));
+    cursor.setAttribute('cy', cy.toFixed(1));
+    guide.style.display = '';
+    cursor.style.display = '';
+
+    const dt = new Date(pt.date);
+    // deltaCell() is the helper History's weight rows already use, so a drop is green and a gain is
+    // red on both screens off one definition of "lower is better".
+    tip.innerHTML = `<span class="chart-tip-date">${DAY[dt.getDay()]} ${dt.getDate()} ${MON[dt.getMonth()]}</span>` +
+      `<span class="chart-tip-val">${pt.v.toFixed(1)}kg</span>` +
+      (prev ? deltaCell(pt.v - prev.v, { suffix: 'kg', lowerIsBetter: true }) : '');
+    tip.hidden = false;
+
+    // The svg scales to the card, so its viewBox units mean nothing to a CSS offset — go through the
+    // rendered box. Clamped to that width, or the readout clips off the edge of a phone.
+    const r = svg.getBoundingClientRect();
+    const px = (cx / W) * r.width, py = (cy / VBH) * r.height;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = `${Math.round(Math.min(Math.max(px - tw / 2, 0), Math.max(0, r.width - tw)))}px`;
+    tip.style.top = `${Math.round(Math.max(0, py - th - 10))}px`;
+    shown = i;
+  };
+
+  const hide = () => {
+    tip.hidden = true;
+    guide.style.display = 'none';
+    cursor.style.display = 'none';
+    shown = -1;
+  };
+
+  let dragging = false;
+  svg.addEventListener('pointerdown', e => {
+    const i = nearest(e.clientX);
+    // Tapping the point that is already open closes it. A touch user has no pointer to move off the
+    // chart, so without this the readout has no way back off the screen.
+    if (i === shown) { hide(); dragging = false; return; }
+    dragging = true;
+    try { svg.setPointerCapture(e.pointerId); } catch (err) { /* older WebKit */ }
+    show(i);
+  });
+  svg.addEventListener('pointermove', e => {
+    if (dragging || e.pointerType === 'mouse') show(nearest(e.clientX));
+  });
+  svg.addEventListener('pointerup', () => { dragging = false; });
+  svg.addEventListener('pointercancel', () => { dragging = false; hide(); });
+  svg.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hide(); });
 }
 
 // ─── WEEKLY AVERAGE WEIGHT (17 Aug 2026) ──────────────────
