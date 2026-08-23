@@ -27,7 +27,7 @@ console.log('auto-start rest on Mark Done');
 // slicer doesn't take, so they're supplied as bindings instead. Assignments inside the real swStart()
 // land on these and the accessor reads the same bindings — a rename in the source would leave the
 // state frozen here and fail every assertion below, which is the protection that matters.
-const calls = { stop: 0, vibrate: [], render: [], cleared: [], unlocked: 0 };
+const calls = { stop: 0, vibrate: [], render: [], cleared: [], unlocked: 0, locked: 0 };
 const store = {};
 let nextInterval = 1;
 
@@ -44,6 +44,7 @@ const app = load({
     selectedSession: null,
     swStop: () => { calls.stop++; },
     swUnlockAudio: () => { calls.unlocked++; },
+    swAcquireWakeLock: () => { calls.locked++; },
     swVibrate: v => calls.vibrate.push(v),
     swRenderWatch: n => calls.render.push(n),
     sessionStorage: {
@@ -76,6 +77,7 @@ const SESSION = {
 function fresh() {
   app.reset(SESSION);
   calls.stop = 0; calls.vibrate = []; calls.render = []; calls.cleared = []; calls.unlocked = 0;
+  calls.locked = 0;
   Object.keys(store).forEach(k => delete store[k]);
 }
 
@@ -94,6 +96,9 @@ function fresh() {
   ok(JSON.parse(store.sw_state).exercise === 'Bench Press',
     'persisted to sessionStorage, so a trip to Stats and back does not lose the rest');
   eq(calls.render.length, 1, 'the watch is repainted immediately rather than waiting a second for the interval');
+  // The screen has to stay awake or the render tick that owns the beep stops before the rest ends —
+  // the auto-started timer is the one most likely to run with the phone already face-down.
+  eq(calls.locked, 1, 'the screen wake lock is taken when the rest starts');
 
   // The 14 Aug correction. Mark Done is tapped when the exercise is over, so this timer measures the
   // walk to the next machine — swStop() would have hung it on the last set as a "rest" (166s onto Leg

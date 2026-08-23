@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-22-1555';
+const APP_BUILD = '2026-08-23-1133';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6439,6 +6439,51 @@ function swFormat(s) {
 // Phone buzz helper — silently ignored on devices without vibration
 function swVibrate(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
 
+// ─── SCREEN WAKE LOCK — THE HALF THAT NEEDS NO NETWORK (23 Aug 2026) ─────────────────────────────
+// swBeep() can only fire while the page is still rendering: screen on, app in front, logger visible.
+// Four months of gym use say that is precisely when it isn't — the phone goes in a pocket and the
+// rest ends in silence. The 21 Aug fix for that (a long silent WAV so the tones landed on wall-clock
+// time) worked and was binned after one session, because a page playing audio owns the iOS audio
+// session for the length of the file and Spotify stopped for the WHOLE rest. See the note above
+// swElapsed() — that trade has been refused and must not be reintroduced.
+//
+// This is the cheap half of the replacement: while a rest is counting, ask iOS not to sleep the
+// screen. The render tick keeps ticking, so the beep that already exists fires on time. The only
+// thing the page takes from the system is the backlight — it never touches the audio session, so
+// Spotify plays straight through. No keys, no permission prompt, no network, works in a basement.
+// Web Push is the other half and is the only thing that covers the pocket; this covers the bench.
+//
+// Held for the REST PERIOD ONLY — dropped the instant the completion beep fires, and on stop/reset.
+// A lock held for a whole session would drain the battery long after the cue it was taken for.
+let swWakeLock = null;
+
+async function swAcquireWakeLock() {
+  if (!('wakeLock' in navigator) || swWakeLock) return;
+  try {
+    swWakeLock = await navigator.wakeLock.request('screen');
+    // iOS releases the lock itself the moment the page is hidden, and the stale sentinel would then
+    // make the guard above skip a re-acquire forever. Null it here so the handler below can retake.
+    swWakeLock.addEventListener('release', () => { swWakeLock = null; });
+  } catch (e) {
+    // Denied, low-power mode, or a browser without it. The beep is unaffected — this is an upgrade
+    // to the odds it is heard, never a dependency of it.
+    swWakeLock = null;
+  }
+}
+
+function swReleaseWakeLock() {
+  if (!swWakeLock) return;
+  try { swWakeLock.release(); } catch (e) { /* already released by the system */ }
+  swWakeLock = null;
+}
+
+// Glancing at the app mid-rest hands back a page whose lock was dropped when it was hidden. Without
+// this the screen sleeps again a few seconds later and the beep is lost exactly as before.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (swRunning && !swCompletionBeeped) swAcquireWakeLock();
+});
+
 // Parse "180s" / "90s" / "2min" into a number of seconds, default 60
 function swParseRest(restStr) {
   if (!restStr) return 60;
@@ -6564,6 +6609,8 @@ function swRenderWatch(exName) {
       swCompletionBeeped = true;
       swBeep();
       swVibrate([80, 60, 80]);
+      // The cue has landed — the screen has no further job to do, so give the battery back.
+      swReleaseWakeLock();
     }
   } else {
     btn.classList.remove('done');
@@ -6577,6 +6624,8 @@ function swRenderWatch(exName) {
 function swStart(exName, { save = true } = {}) {
   // UNLOCK AUDIO — must happen inside this tap handler or iOS blocks sound
   swUnlockAudio();
+  // Keep the screen alive for the rest so the beep above actually has a render tick to fire on.
+  swAcquireWakeLock();
 
   // If a different exercise was running, stop it first (no orphan timers)
   if (swRunning && swActiveExercise && swActiveExercise !== exName) swStop();
@@ -6618,6 +6667,7 @@ async function swStop() {
   swStartTimestamp = null;
   swActiveExercise = null;
   sessionStorage.removeItem('sw_state');
+  swReleaseWakeLock();
   swVibrate(10);
   swRenderWatch(exName);   // snap the ring back to idle now — don't wait on the network save below
 
@@ -6681,6 +6731,7 @@ function swReset() {
   swStartTimestamp = null;
   swActiveExercise = null;
   sessionStorage.removeItem('sw_state');
+  swReleaseWakeLock();
   swVibrate([20, 40, 20]);
   if (exName) swRenderWatch(exName);
 }
@@ -6753,6 +6804,7 @@ function swRestoreFromStorage() {
     // `!== false` so a state written by an older build (no `save` key) keeps saving, as it did then.
     swSaveOnStop = s.save !== false;
     swCompletionBeeped = (Date.now() - s.start) / 1000 >= s.target;
+    if (!swCompletionBeeped) swAcquireWakeLock();
     swRenderWatch(s.exercise);
     clearInterval(swInterval);
     swInterval = setInterval(() => swRenderWatch(s.exercise), 1000);
