@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1329';
+const APP_BUILD = '2026-08-23-1336';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5830,7 +5830,7 @@ function restoreHistoryFilters(sessionIds = []) {
   try { saved = JSON.parse(localStorage.getItem(HISTORY_FILTER_STORE) || 'null'); } catch (e) { return; }
   if (!saved) return;
   if (['all', 'workouts', 'daily'].includes(saved.tab)) historyTab = saved.tab;
-  if (['all', 'month', 'week'].includes(saved.range)) historyDateRange = saved.range;
+  if (['all', 'month', 'lastweek', 'week'].includes(saved.range)) historyDateRange = saved.range;
   // A deleted session would otherwise leave History filtered to something that no longer exists,
   // which renders as an empty feed with no obvious way back.
   if (saved.workout === 'all' || saved.workout === 'open' || sessionIds.includes(saved.workout)) {
@@ -6005,11 +6005,22 @@ window._progress = computeExerciseProgress(allHistoryWorkouts, window._setsByWor
   renderHistoryPage();
 }
 
+// Returns the window History is filtered to, as { start, end } date keys. `end` is null for every
+// range that runs up to today — only "Last Week" is a closed window, bounded at both ends, which is
+// why this returns a pair rather than the single start date it used to.
 function getDateRangeFilter() {
   const today = new Date();
   let startDate = new Date('2000-01-01');
   if (historyDateRange === 'week') {
-    return getWeekStart();
+    return { start: getWeekStart(), end: null };
+  } else if (historyDateRange === 'lastweek') {
+    // Anchored on getWeekStart() rather than counted back from today, so "last week" is the same
+    // Monday-to-Sunday block the week card and the week strip mean by it.
+    const start = new Date(`${getWeekStart()}T00:00:00`);
+    start.setDate(start.getDate() - 7);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return { start: dateStr(start), end: dateStr(end) };
   } else if (historyDateRange === 'month') {
     // setMonth() alone overflows: run on 31 March it asks for 31 February, which JS rolls forward
     // to 3 March — so "Last Month" showed three days instead of a month. Clamp to the last day of
@@ -6020,13 +6031,14 @@ function getDateRangeFilter() {
     const lastDayOfTarget = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0).getDate();
     startDate.setDate(Math.min(today.getDate(), lastDayOfTarget));
   }
-  return dateStr(startDate);
+  return { start: dateStr(startDate), end: null };
 }
 
 function filterHistoryData() {
-  const startDate = getDateRangeFilter();
-  let filteredLogs = allHistoryLogs.filter(l => l.date >= startDate);
-  let filteredWorkouts = allHistoryWorkouts.filter(w => w.date >= startDate);
+  const { start, end } = getDateRangeFilter();
+  const inWindow = d => d >= start && (!end || d <= end);
+  let filteredLogs = allHistoryLogs.filter(l => inWindow(l.date));
+  let filteredWorkouts = allHistoryWorkouts.filter(w => inWindow(w.date));
   
   if (historyWorkoutFilter !== 'all') {
     filteredWorkouts = filteredWorkouts.filter(w => w.session_type === historyWorkoutFilter);
@@ -6059,6 +6071,7 @@ function renderHistoryPage() {
       <select class="history-select ${historyDateRange !== 'all' ? 'has-value' : ''}" onchange="setHistoryDateRange(this.value)">
         <option value="all" ${historyDateRange === 'all' ? 'selected' : ''}>All Time</option>
         <option value="month" ${historyDateRange === 'month' ? 'selected' : ''}>Last Month</option>
+        <option value="lastweek" ${historyDateRange === 'lastweek' ? 'selected' : ''}>Last Week</option>
         <option value="week" ${historyDateRange === 'week' ? 'selected' : ''}>This Week</option>
       </select>
       <select class="history-select ${historyWorkoutFilter !== 'all' ? 'has-value' : ''}" onchange="setHistoryWorkoutFilter(this.value)">

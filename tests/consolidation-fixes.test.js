@@ -73,19 +73,39 @@ function dateAt(iso) {
     api.setRange(range);
     return api.getDateRangeFilter();
   }
+  const startOn = (iso, range) => rangeOn(iso, range).start;
 
   // 31 March: setMonth(2 - 1) used to ask for 31 February, which JS rolls forward to 3 March.
-  eq(rangeOn('2026-03-31T12:00:00', 'month'), '2026-02-28', 'on 31 March it clamps to 28 Feb, not 3 March');
-  eq(rangeOn('2024-03-31T12:00:00', 'month'), '2024-02-29', 'and to 29 Feb in a leap year');
-  eq(rangeOn('2026-05-31T12:00:00', 'month'), '2026-04-30', 'on 31 May it clamps to 30 April');
-  eq(rangeOn('2026-08-13T12:00:00', 'month'), '2026-07-13', 'an ordinary day is just the same date last month');
-  eq(rangeOn('2026-01-15T12:00:00', 'month'), '2025-12-15', 'and January steps back into last year');
-  eq(rangeOn('2026-08-13T12:00:00', 'week'), '2026-08-10', 'This Week defers to getWeekStart(), unchanged');
-  eq(rangeOn('2026-08-13T12:00:00', 'all'), '2000-01-01', 'All Time is still everything');
+  eq(startOn('2026-03-31T12:00:00', 'month'), '2026-02-28', 'on 31 March it clamps to 28 Feb, not 3 March');
+  eq(startOn('2024-03-31T12:00:00', 'month'), '2024-02-29', 'and to 29 Feb in a leap year');
+  eq(startOn('2026-05-31T12:00:00', 'month'), '2026-04-30', 'on 31 May it clamps to 30 April');
+  eq(startOn('2026-08-13T12:00:00', 'month'), '2026-07-13', 'an ordinary day is just the same date last month');
+  eq(startOn('2026-01-15T12:00:00', 'month'), '2025-12-15', 'and January steps back into last year');
+  eq(startOn('2026-08-13T12:00:00', 'week'), '2026-08-10', 'This Week defers to getWeekStart(), unchanged');
+  eq(startOn('2026-08-13T12:00:00', 'all'), '2000-01-01', 'All Time is still everything');
 
   // The regression this guards: the old code returned a start date only days back.
-  const start = rangeOn('2026-03-31T12:00:00', 'month');
+  const start = startOn('2026-03-31T12:00:00', 'month');
   ok(start < '2026-03-01', 'the month window genuinely reaches back past the start of this month');
+
+  // ── Last Week (added 23 Aug 2026) ────────────────────────────────────────
+  // The only closed window on the screen: every other range runs up to today, so it is also the
+  // only one that can hide rows by being unbounded at the top. getWeekStart() is stubbed to
+  // Mon 10 Aug throughout, so last week is Mon 3 – Sun 9 Aug.
+  const lw = rangeOn('2026-08-13T12:00:00', 'lastweek');
+  eq(lw.start, '2026-08-03', 'last week starts on the Monday before this one');
+  eq(lw.end, '2026-08-09', 'and ends on that Sunday, not today');
+  eq(rangeOn('2026-08-13T12:00:00', 'week').end, null, 'This Week is open-ended — it runs up to today');
+  eq(rangeOn('2026-08-13T12:00:00', 'month').end, null, 'so is Last Month');
+  eq(rangeOn('2026-08-13T12:00:00', 'all').end, null, 'and All Time');
+
+
+  // The window the filter actually applies, both ends.
+  const inWindow = d => d >= lw.start && (!lw.end || d <= lw.end);
+  ok(!inWindow('2026-08-02'), 'the Sunday before last week is out');
+  ok(inWindow('2026-08-03'), 'its Monday is in');
+  ok(inWindow('2026-08-09'), 'its Sunday is in');
+  ok(!inWindow('2026-08-10'), 'this week is out — the bug an unbounded window would cause');
 }
 
 // ── 3. History filters persist between visits ──────────────────────────────
