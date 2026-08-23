@@ -40,7 +40,7 @@ function fakeDom() {
   const get = id => (els[id] ||= mk());
   ['weekavg-card', 'weekavg-wk-name', 'weekavg-range', 'weekavg-val', 'weekavg-cmp',
    'weekavg-prev', 'weekavg-next',
-   'weekavg-waist', 'weekavg-waist-val', 'weekavg-waist-cmp',
+   'weekavg-waist', 'weekavg-waist-val', 'weekavg-waist-cmp', 'weekavg-quad',
    'weekavg-sessions', 'weekavg-steps', 'weekavg-steps-days',
    'weekavg-cals', 'weekavg-cals-days', 'weekavg-split-note'].forEach(get);
   return { els, get, document: { getElementById: id => get(id) } };
@@ -283,19 +283,19 @@ console.log('Weekly average weight');
   // Opens on the current week, chosen by the WEIGHTS — the waist line follows it there.
   eq(els['weekavg-wk-name'].textContent, 'Week 6', 'the week shown is still picked by the weigh-ins');
   eq(els['weekavg-waist'].style.display, 'block', 'the block shows once any waist exists');
-  eq(els['weekavg-waist-val'].innerHTML.startsWith('96.0'), true, 'and shows this week measurement');
+  eq(els['weekavg-waist-val'].textContent, '96.0', 'and shows this week measurement');
 
   // Step back to the week he skipped the tape. It must say so, not fall back to the nearest
   // measurement it can find.
   app.showWeeklyAverage('2026-08-10');
-  eq(els['weekavg-waist-val'].innerHTML.startsWith('--'), true, 'a week with no waist prints --');
-  eq(els['weekavg-waist-cmp'].textContent, 'Not measured that week', 'and says why');
+  eq(els['weekavg-waist-val'].textContent, '--', 'a week with no waist prints --');
+  eq(els['weekavg-waist-cmp'].textContent, 'Not measured', 'and says why');
 
   // A week that has one, against the week he is in.
   app.showWeeklyAverage('2026-07-13');
-  eq(els['weekavg-waist-val'].innerHTML.startsWith('99.0'), true, 'week 1 shows its waist');
-  eq(els['weekavg-waist-cmp'].textContent, '▼ 3.0cm vs this week (96.0cm)', 'compared to this week');
-  eq(els['weekavg-waist-cmp'].className, 'weekavg-waist-cmp down', 'a smaller waist now reads as green');
+  eq(els['weekavg-waist-val'].textContent, '99.0', 'week 1 shows its waist');
+  eq(els['weekavg-waist-cmp'].textContent, '▼ 3.0cm vs now', 'compared to this week');
+  eq(els['weekavg-waist-cmp'].className, 'weekavg-cell-note down', 'a smaller waist now reads as green');
 
   // Same rule as the weight half: the current week has nothing to compare against.
   app.showWeeklyAverage('2026-08-17');
@@ -309,15 +309,30 @@ console.log('Weekly average weight');
     { date: '2026-08-17', waist_cm: 96 }
   ]);
   two.app.showWeeklyAverage('2026-07-13');
-  eq(two.els['weekavg-waist-val'].innerHTML.startsWith('98.5'), true,
+  eq(two.els['weekavg-waist-val'].textContent, '98.5',
      'two measurements in a week average as numbers, not concatenate');
 
   // Measured in the past but not yet this week — there is no right-hand side to the comparison.
   const stale = harness('2026-08-17');
   stale.app.renderWeeklyAverage(weights, [{ date: '2026-07-13', waist_cm: 99 }]);
   stale.app.showWeeklyAverage('2026-07-13');
-  eq(stale.els['weekavg-waist-cmp'].textContent, 'Not measured this week yet',
+  eq(stale.els['weekavg-waist-cmp'].textContent, 'Nothing to compare',
      'with nothing measured this week the line says so instead of comparing to undefined');
+
+  // The grid reflows rather than leaving a hole. Four cells sit 2×2; drop the waist and the three
+  // that remain have to become one row of three, or the hairline gap renders as a solid block
+  // beside the orphan.
+  const noWaist = harness('2026-08-17');
+  noWaist.app.renderWeeklyAverage(weights, []);
+  noWaist.app.showWeeklyAverage('2026-08-17');
+  eq(noWaist.els['weekavg-quad'].classList.contains('cols3'), true,
+     'with no waist ever logged the remaining three cells sit in one row of three');
+
+  const hasWaist = harness('2026-08-17');
+  hasWaist.app.renderWeeklyAverage(weights, waists);
+  hasWaist.app.showWeeklyAverage('2026-08-17');
+  eq(hasWaist.els['weekavg-quad'].classList.contains('cols3'), false,
+     'and go back to a 2×2 the moment a waist exists');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

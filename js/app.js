@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1320';
+const APP_BUILD = '2026-08-23-1329';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5698,39 +5698,36 @@ function showWeeklyWaist(key) {
   const cmpEl = document.getElementById('weekavg-waist-cmp');
   if (!box || !valEl || !cmpEl) return;
 
-  const keys = Object.keys(_weekWaists);
-  if (!keys.length) { box.style.display = 'none'; return; }
-  box.style.display = 'block';
+  const quad = document.getElementById('weekavg-quad');
+  const note = (cls, text) => { cmpEl.className = `weekavg-cell-note ${cls}`; cmpEl.textContent = text; };
 
-  const picked = _weekWaists[key];
-  if (picked === undefined) {
-    valEl.innerHTML = `--<span class="weekavg-unit">cm</span>`;
-    cmpEl.className = 'weekavg-waist-cmp flat';
-    cmpEl.textContent = 'Not measured that week';
+  const keys = Object.keys(_weekWaists);
+  // Never measured: the cell goes entirely, and the three that are left reflow to one row of three
+  // rather than sitting as a 2×2 with a hole in it.
+  if (!keys.length) {
+    box.style.display = 'none';
+    if (quad) quad.classList.add('cols3');
     return;
   }
-  valEl.innerHTML = `${picked.toFixed(1)}<span class="weekavg-unit">cm</span>`;
+  box.style.display = 'block';
+  if (quad) quad.classList.remove('cols3');
+
+  const picked = _weekWaists[key];
+  if (picked === undefined) { valEl.textContent = '--'; note('flat', 'Not measured'); return; }
+  // Bare number: the unit lives in the label as "Waist (cm)" since 23 Aug 2026 (Del's call). In a
+  // 148px cell the trailing "cm" was what pushed the label onto a second line.
+  valEl.textContent = picked.toFixed(1);
 
   const nowKey = mondayOf(todayStr());
   const now = _weekWaists[nowKey];
-  if (now === undefined) {
-    cmpEl.className = 'weekavg-waist-cmp flat';
-    cmpEl.textContent = 'Not measured this week yet';
-    return;
-  }
-  if (nowKey === key) {
-    cmpEl.className = 'weekavg-waist-cmp flat';
-    cmpEl.textContent = 'This week so far';
-    return;
-  }
+  // These strings are terse on purpose. The cell is ~148px and the note is 8.5px uppercase, so the
+  // full sentences this block used to print — "Not measured this week yet", "▼ 3.0cm vs this week
+  // (96.0cm)" — wrapped to two and three lines once the figure moved into a column.
+  if (now === undefined) { note('flat', 'Nothing to compare'); return; }
+  if (nowKey === key) { note('flat', 'This week so far'); return; }
   const d = now - picked;
-  if (Math.abs(d) < 0.05) {
-    cmpEl.className = 'weekavg-waist-cmp flat';
-    cmpEl.textContent = `Level with this week (${now.toFixed(1)}cm)`;
-  } else {
-    cmpEl.className = `weekavg-waist-cmp ${d < 0 ? 'down' : 'up'}`;
-    cmpEl.textContent = `${d < 0 ? '▼' : '▲'} ${Math.abs(d).toFixed(1)}cm vs this week (${now.toFixed(1)}cm)`;
-  }
+  if (Math.abs(d) < 0.05) { note('flat', 'Level with now'); return; }
+  note(d < 0 ? 'down' : 'up', `${d < 0 ? '▼' : '▲'} ${Math.abs(d).toFixed(1)}cm vs now`);
 }
 
 // Signed delta, rendered the way the whole card reads it: "on" when it's bang on, else +30 / −17.

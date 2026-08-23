@@ -589,34 +589,33 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .weekavg-cmp.down { color: var(--green); }
 .weekavg-cmp.up   { color: var(--red); }
 .weekavg-cmp.flat { color: var(--muted); }
-/* Waist rides under the weight on the same card rather than taking a card of its own — it is the
-   same question asked a second way, and a fortnightly measurement does not fill a card. Smaller
-   type than the weight above it, and the whole block is hidden until a waist has been logged. */
-.weekavg-waist { margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px solid var(--border2); }
-.weekavg-waist::before {
-  content: 'WAIST'; display: block; font-size: 9.5px; letter-spacing: 1.1px;
-  color: var(--muted); margin-bottom: 3px;
-}
-.weekavg-waist-val { font-family: 'Bebas Neue', sans-serif; font-size: 34px; line-height: 1; letter-spacing: 1px; color: var(--text); }
-.weekavg-waist-cmp { font-size: 11.5px; font-weight: 600; margin-top: 3px; min-height: 16px; }
-.weekavg-waist-cmp.down { color: var(--green); }
-.weekavg-waist-cmp.up   { color: var(--red); }
-.weekavg-waist-cmp.flat { color: var(--muted); }
+/* Waist, sessions, calories and steps as a 2×2 under the weight (23 Aug 2026 — Del picked layout
+   07 off a proof sheet of fourteen). What this replaced was a full-width waist band plus a
+   three-column split: five stacked bands, and a third column with 99px to fit "12,344" over
+   "AVG STEPS" over "MON–SAT · 6 DAYS", all three of which wrapped. Four cells across the card's
+   full width give every figure ~148px, and the card loses a band of height.
 
-/* Sessions | avg steps, under the same kind of divider the waist row uses. Two counts of the same
-   week sitting side by side, so they get one shared rule above and a hairline between them rather
-   than a box each — a box would make them a separate thing from the week this card is showing. */
-/* Three columns since 19 Aug (sessions, calories, steps). Full card width rather than the 260px
-   body above it — see index.html — so each figure keeps its day-span note on one line. */
-.weekavg-split { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px solid var(--border2); text-align: center; }
-.weekavg-half + .weekavg-half { border-left: 1px solid var(--border2); }
-.weekavg-half { padding: 0 4px; }
-.weekavg-half-val { font-family: 'Bebas Neue', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
-.weekavg-half-days { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); margin-top: 2px; }
-.weekavg-half-name { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 3px; }
-/* The shared day-span note (23 Aug 2026). Under the whole split rather than under two of the three
-   columns, so the three labels keep a common baseline and the words fit on one line. Empty on a
-   full week and whenever calories and steps disagree — see showWeeklySplit(). */
+   The hairlines are the container's own background showing through a 1px grid gap, not borders on
+   the cells. That draws the full cross for a 2×2 and two clean uprights for a 3-across without a
+   single nth-child rule — which matters, because the waist cell drops out entirely for anyone who
+   has never measured one and the remaining three reflow to one row. See .cols3 and
+   showWeeklyWaist(). Cells stretch to their row's height, so the hairline stays straight even
+   though only three of the four carry a third line. */
+.weekavg-quad-wrap { margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid var(--border2); }
+.weekavg-quad { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border2); }
+.weekavg-quad.cols3 { grid-template-columns: repeat(3, 1fr); }
+.weekavg-cell { background: var(--bg2); text-align: center; padding: 10px 4px 11px; }
+.weekavg-cell-val { font-family: 'Bebas Neue', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
+.weekavg-cell-name { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 3px; }
+/* The optional third line: a day span under an average, a comparison under the waist. Keep the
+   strings short — at this width and size, anything past about twenty characters wraps. */
+.weekavg-cell-note { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); margin-top: 3px; }
+.weekavg-cell-note.down { color: var(--green); }
+.weekavg-cell-note.up   { color: var(--red); }
+.weekavg-cell-note.flat { color: var(--muted); }
+/* The shared day-span note (23 Aug 2026). Under the whole grid rather than under two of the cells,
+   so the labels keep a common baseline and the words fit on one line. Empty on a full week and
+   whenever calories and steps disagree — see showWeeklySplit(). */
 .weekavg-split-note { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--border2); text-align: center; margin-top: 0.55rem; }
 .weekavg-split-note:empty { display: none; }
 
