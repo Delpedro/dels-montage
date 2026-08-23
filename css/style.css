@@ -836,7 +836,9 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    login screen IN FRONT of it, not behind — see forceLogout(). */
 html.ob-active { overflow: hidden; }
 
-#onboarding { position: fixed; inset: 0; z-index: 900; background: var(--bg); display: flex; flex-direction: column; }
+/* Not `inset: 0`: obViewportFit() overwrites top and height so the panel matches the VISIBLE
+   viewport when the keyboard is up on the name screen. iOS never shrinks a fixed box itself. */
+#onboarding { position: fixed; left: 0; right: 0; top: 0; height: 100%; z-index: 900; background: var(--bg); display: flex; flex-direction: column; }
 .ob-top { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1.1rem; border-bottom: 1px solid var(--border); }
 .ob-brand { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 1px; color: var(--accent); }
 .ob-date { font-size: 11px; color: var(--muted); }
@@ -858,11 +860,35 @@ html.ob-active { overflow: hidden; }
 .ob-big::placeholder { color: var(--border2); letter-spacing: 1px; }
 .ob-unit { font-size: 15px; color: var(--muted); margin-left: 8px; flex: 0 0 auto; }
 
-.ob-dob { display: flex; align-items: baseline; gap: 0.35rem; }
-.ob-dob .ob-big { text-align: center; }
-.ob-dd { flex: 0 0 auto; width: 62px; }
-.ob-yy { flex: 0 0 auto; width: 104px; }
-.ob-sep { font-family: 'Bebas Neue', sans-serif; font-size: 26px; color: var(--muted); }
+/* The wheels. Every number and the date are picked, not typed — see OB_WHEEL in app.js.
+   The row height here IS the unit of measurement: app.js reads the answer back as
+   scrollTop / OB_ITEM, so 44px has to agree with OB_ITEM. */
+.ob-wheels { position: relative; display: flex; align-items: stretch; gap: 0.4rem; margin-top: 0.3rem; }
+.ob-wheel {
+  flex: 1 1 0; height: 176px; padding: 66px 0; overflow-y: auto; text-align: center;
+  scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  touch-action: pan-y; outline: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28%, #000 72%, transparent);
+          mask-image: linear-gradient(to bottom, transparent, #000 28%, #000 72%, transparent);
+}
+.ob-wheel::-webkit-scrollbar { display: none; }
+.ob-wheel i {
+  display: block; height: 44px; line-height: 44px; scroll-snap-align: center; font-style: normal;
+  font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 1px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ob-wheel i.on { color: var(--text); }
+/* Until the wheel has been dragged it is showing a suggestion, not an answer, and it says so by
+   staying grey. Tapping Next on an untouched wheel records nothing. */
+.ob-wheels.unset .ob-wheel i.on { color: var(--muted); }
+.ob-wheel:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 8px; }
+.ob-band {
+  position: absolute; left: 0; right: 0; top: 66px; height: 44px; pointer-events: none;
+  border-top: 1px solid var(--border2); border-bottom: 1px solid var(--border2);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.ob-wheel-unit { align-self: center; flex: 0 0 auto; padding-left: 4px; font-size: 15px; color: var(--muted); }
+.ob-hint { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 0.55rem; min-height: 1.2em; }
 
 .ob-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.4rem; }
 .ob-chip { border: 1px solid var(--border2); background: var(--bg3); border-radius: 8px; padding: 9px 14px; font-size: 13.5px; color: var(--muted2); font-family: 'DM Sans', sans-serif; cursor: pointer; }

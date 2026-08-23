@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1149';
+const APP_BUILD = '2026-08-23-1218';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1301,10 +1301,37 @@ const ONBOARD_STEPS = [
   }
 ];
 
+// Del rejected the form on 23 Aug for one reason: the keypad opened and closed on seven of the
+// eight screens. "imagine an older user of the app - it would fucking do their head in". So every
+// number and the date are now picked off a scrolling wheel — the control an iPhone already uses for
+// alarms and dates — and the name is the only screen left that opens a keyboard.
+//
+// These ranges are what a thumb can cross in a flick or two. They are NOT the validation limits:
+// step.min/step.max still hold those, and they still mirror the columns' CHECK constraints. A wheel
+// that spanned 20–400 kg would be 3,800 stops and unusable, which is the whole reason for a second
+// pair of numbers.
+const OB_WHEEL = {
+  start_weight_kg:  { lo: 30,  hi: 250, dec: true,  start: 75 },
+  height_cm:        { lo: 120, hi: 220, dec: false, start: 175 },
+  target_weight_kg: { lo: 30,  hi: 250, dec: true,  start: 75 }
+};
+
+// One row of the wheel, in px. Must match .ob-wheel i in the stylesheet — the scroll position IS
+// the answer (index = scrollTop / OB_ITEM), so a disagreement here reads back the wrong number.
+const OB_ITEM = 44;
+
 const OB_DRAFT_PREFIX = 'dlog_onboard_draft:';
 let obStep = 0;
 let obAnswers = {};
 let obEditing = false;
+// A wheel always sits on some value, so "showing 75 kg" cannot mean "answered 75 kg" — otherwise
+// tapping straight through would write a made-up weigh-in and a made-up birthday into the profile.
+// An answer is only recorded once the column has actually been dragged; untouched still means null,
+// exactly as an empty box did.
+let obTouch = {};
+// The date's three columns, kept as the strings obValidate() already knows how to check rather than
+// as an ISO date, so the validation path is unchanged.
+let obDob = { d: '', m: '', y: '' };
 
 // Per account, because two people can share a phone and the second one is not onboarded just
 // because the first one was. The email is already in localStorage under dlog_session — this adds
@@ -1408,6 +1435,8 @@ function openOnboarding(edit = false) {
   obEditing = !!edit;
   obStep = 0;
   obAnswers = {};
+  obTouch = {};
+  obDob = { d: '', m: '', y: '' };
   // Prefill from whatever the row already holds. PostgREST hands numerics back as strings, so the
   // numbers go through numOrNull/intOrNull rather than being trusted raw.
   ONBOARD_STEPS.forEach(s => {
@@ -1429,10 +1458,14 @@ function openOnboarding(edit = false) {
       }
     } catch (e) {}
   }
+  // Anything that came off the row or the draft is already an answer, so its wheel opens on it and
+  // reads as set rather than as an untouched default.
+  Object.keys(obAnswers).forEach(k => { obTouch[k] = true; });
   document.getElementById('ob-date').textContent =
     new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
   document.getElementById('onboarding').style.display = 'flex';
   document.documentElement.classList.add('ob-active');
+  obBindViewport();
   window.scrollTo(0, 0);
   obRender();
 }
@@ -1440,6 +1473,38 @@ function openOnboarding(edit = false) {
 function closeOnboarding() {
   document.getElementById('onboarding').style.display = 'none';
   document.documentElement.classList.remove('ob-active');
+  obUnbindViewport();
+}
+
+// iOS does not resize a `position: fixed` element when the keyboard opens — it shrinks the visual
+// viewport only. The form is fixed and full-height, so on the one screen that still takes a
+// keyboard the footer holding Next ends up underneath it, and .ob-wrap centres the question against
+// a height that is no longer on screen. Matching the panel to the visual viewport is the fix.
+function obViewportFit() {
+  const el = document.getElementById('onboarding');
+  const vv = window.visualViewport;
+  if (!el || !vv) return;
+  el.style.height = vv.height + 'px';
+  el.style.top = vv.offsetTop + 'px';
+}
+
+function obBindViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  vv.addEventListener('resize', obViewportFit);
+  vv.addEventListener('scroll', obViewportFit);
+  obViewportFit();
+}
+
+function obUnbindViewport() {
+  const el = document.getElementById('onboarding');
+  // Cleared, not left at the last keyboard-shrunk height: the panel is reopened by "Your details"
+  // and would otherwise come back half a screen tall.
+  if (el) { el.style.height = ''; el.style.top = ''; }
+  const vv = window.visualViewport;
+  if (!vv) return;
+  vv.removeEventListener('resize', obViewportFit);
+  vv.removeEventListener('scroll', obViewportFit);
 }
 
 function obRender() {
@@ -1462,11 +1527,13 @@ function obRender() {
   back.style.visibility = (obStep === 0 && !obEditing) ? 'hidden' : 'visible';
 
   document.getElementById('ob-field').innerHTML = obFieldHtml(step, answer);
+  obMountField(step, answer);
 
-  const input = document.getElementById('ob-input') || document.getElementById('ob-dob-d');
-  // Called out of a tap on Next, so this is still inside a user gesture and iOS will open the
-  // keyboard. The whole point of one question per screen is not having to aim for the field.
-  if (input) { try { input.focus(); } catch (e) {} }
+  const input = document.getElementById('ob-input');
+  // Only the name still takes a keyboard, and only there is the focus wanted. Focusing on every
+  // render is what made the keypad spring up and drop away eight times over — the thing Del
+  // rejected the form for on 23 Aug.
+  if (input && step.type === 'text') { try { input.focus(); } catch (e) {} }
 }
 
 function obFieldHtml(step, answer) {
@@ -1477,17 +1544,152 @@ function obFieldHtml(step, answer) {
     }).join('') + '</div>';
   }
   if (step.type === 'dob') {
-    const parts = String(answer || '').split('-');
-    const y = parts[0] || '', m = parts[1] || '', d = parts[2] || '';
-    const box = (id, val, ph, len, cls) =>
-      `<input class="ob-big ${cls}" id="${id}" type="text" inputmode="numeric" maxlength="${len}" placeholder="${ph}" value="${esc(val)}" onkeydown="obKey(event)" />`;
-    return `<div class="ob-dob">${box('ob-dob-d', d, 'DD', 2, 'ob-dd')}<span class="ob-sep">/</span>${box('ob-dob-m', m, 'MM', 2, 'ob-dd')}<span class="ob-sep">/</span>${box('ob-dob-y', y, 'YYYY', 4, 'ob-yy')}</div>`;
+    return obWheelsHtml([
+      { id: 'ob-w-d', label: 'Day' },
+      { id: 'ob-w-m', label: 'Month' },
+      { id: 'ob-w-y', label: 'Year' }
+    ], '', obTouch[step.key]);
+  }
+  if (step.type === 'number') {
+    const cols = [{ id: 'ob-w-whole', label: step.q }];
+    if (OB_WHEEL[step.key] && OB_WHEEL[step.key].dec) cols.push({ id: 'ob-w-dec', label: 'Tenths' });
+    return obWheelsHtml(cols, step.unit || '', obTouch[step.key]);
   }
   const unit = step.unit ? `<span class="ob-unit">${step.unit}</span>` : '';
   const mode = step.type === 'number' ? 'decimal' : 'text';
   const cap = step.type === 'text' ? ' autocapitalize="words"' : '';
   const shown = (answer === null || answer === undefined) ? '' : String(answer);
   return `<div class="ob-row"><input class="ob-big" id="ob-input" type="text" inputmode="${mode}"${cap} placeholder="${esc(step.placeholder || '')}" value="${esc(shown)}" onkeydown="obKey(event)" />${unit}</div>`;
+}
+
+// The shell. The rows themselves are filled by obMountField() rather than built into this string:
+// a year column is eighty-odd rows, and the field builder stays readable without them.
+function obWheelsHtml(cols, unit, set) {
+  const wheels = cols.map(c =>
+    `<div class="ob-wheel" id="${c.id}" tabindex="0" role="listbox" aria-label="${esc(c.label)}"></div>`
+  ).join('');
+  const u = unit ? `<span class="ob-wheel-unit">${esc(unit)}</span>` : '';
+  return `<div class="ob-wheels${set ? '' : ' unset'}" id="ob-wheels">${wheels}${u}<div class="ob-band"></div></div>
+          <p class="ob-hint" id="ob-hint">${set ? '' : 'spin to set &middot; or skip it with next'}</p>`;
+}
+
+// One scrolling column. The answer is read back off scrollTop rather than tracked in a variable,
+// because iOS momentum keeps the list moving after the finger has gone and only where it comes to
+// rest is an answer. `onSettle` fires once the scrolling stops.
+//
+// Touch is detected from a real gesture, never from the scroll event: setting scrollTop to open the
+// wheel on its start value fires `scroll` too, and treating that as an answer is exactly the
+// made-up birthday this is meant to prevent.
+function obWheel(el, labels, index, onSettle, onTouch) {
+  if (!el) return;
+  el.innerHTML = labels.map(l => `<i>${l}</i>`).join('');
+  const mark = () => {
+    const i = Math.max(0, Math.min(labels.length - 1, Math.round(el.scrollTop / OB_ITEM)));
+    for (let n = 0; n < el.children.length; n++) el.children[n].classList.toggle('on', n === i);
+    return i;
+  };
+  let timer = null;
+  el.addEventListener('scroll', () => {
+    const i = mark();
+    clearTimeout(timer);
+    timer = setTimeout(() => onSettle(i), 90);
+  }, { passive: true });
+  ['pointerdown', 'touchstart', 'wheel', 'keydown'].forEach(ev =>
+    el.addEventListener(ev, onTouch, { passive: true })
+  );
+  el.scrollTop = Math.max(0, Math.min(labels.length - 1, index)) * OB_ITEM;
+  mark();
+}
+
+function obDaysIn(m, y) {
+  return new Date(y, m, 0).getDate();   // m is 1-based here, so day 0 of m+0 is the last of m
+}
+
+function obRange(lo, hi, fmt) {
+  const out = [];
+  for (let i = lo; i <= hi; i++) out.push(fmt ? fmt(i) : String(i));
+  return out;
+}
+
+// Turns the wheel from a default into an answer, and drops the "or skip it" hint.
+function obMarkTouched(step) {
+  if (obTouch[step.key]) return;
+  obTouch[step.key] = true;
+  const box = document.getElementById('ob-wheels');
+  if (box) box.classList.remove('unset');
+  const hint = document.getElementById('ob-hint');
+  if (hint) hint.textContent = '';
+}
+
+function obMountField(step, answer) {
+  if (step.type === 'number') return obMountNumber(step, answer);
+  if (step.type === 'dob') return obMountDob(step, answer);
+}
+
+function obMountNumber(step, answer) {
+  const w = OB_WHEEL[step.key];
+  if (!w) return;
+  // A target weight with nothing to go on opens on what they just told us they weigh, which is the
+  // only number on the screen that is theirs rather than an average.
+  const fallback = step.key === 'target_weight_kg' && numOrNull(obAnswers.start_weight_kg) !== null
+    ? numOrNull(obAnswers.start_weight_kg) : w.start;
+  const v = Math.min(w.hi, Math.max(w.lo, numOrNull(answer) === null ? fallback : numOrNull(answer)));
+  const whole = Math.floor(v);
+  const tenth = Math.round((v - whole) * 10);
+
+  const read = () => {
+    const wEl = document.getElementById('ob-w-whole');
+    const dEl = document.getElementById('ob-w-dec');
+    if (!wEl) return;
+    const n = w.lo + Math.round(wEl.scrollTop / OB_ITEM);
+    const t = (w.dec && dEl) ? Math.round(dEl.scrollTop / OB_ITEM) : 0;
+    const val = Math.min(w.hi, Math.max(w.lo, n)) + (w.dec ? t / 10 : 0);
+    if (obTouch[step.key]) obAnswers[step.key] = Math.round(val * 10) / 10;
+  };
+  // A tap without a drag still counts: the wheel goes full-colour, so it has to commit the value
+  // it is showing or the screen would claim an answer it never recorded.
+  const touch = () => { obMarkTouched(step); read(); };
+
+  obWheel(document.getElementById('ob-w-whole'), obRange(w.lo, w.hi), whole - w.lo, read, touch);
+  if (w.dec) obWheel(document.getElementById('ob-w-dec'), obRange(0, 9, i => '.' + i), tenth, read, touch);
+}
+
+function obMountDob(step, answer) {
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const nowY = new Date().getFullYear();
+  // The wheel cannot offer a year obValidate() would reject: it caps age at 13 and 100.
+  const yLo = nowY - 100, yHi = nowY - 13;
+  const parts = String(answer || '').split('-');
+  const y = Math.min(yHi, Math.max(yLo, parseInt(parts[0], 10) || 1980));
+  const m = Math.min(12, Math.max(1, parseInt(parts[1], 10) || 1));
+  const d = Math.min(31, Math.max(1, parseInt(parts[2], 10) || 1));
+
+  const read = () => {
+    const dEl = document.getElementById('ob-w-d');
+    const mEl = document.getElementById('ob-w-m');
+    const yEl = document.getElementById('ob-w-y');
+    if (!dEl || !mEl || !yEl) return;
+    const mm = 1 + Math.round(mEl.scrollTop / OB_ITEM);
+    const yy = yLo + Math.round(yEl.scrollTop / OB_ITEM);
+    // February cannot offer a 30th. Scrolling the day column back is what re-renders it, and the
+    // scroll settles again on the clamped value — so this converges rather than looping.
+    const max = obDaysIn(mm, yy);
+    let dd = 1 + Math.round(dEl.scrollTop / OB_ITEM);
+    if (dd > max) { dd = max; dEl.scrollTop = (max - 1) * OB_ITEM; }
+    if (!obTouch[step.key]) return;
+    obDob = { d: String(dd), m: String(mm), y: String(yy) };
+    document.getElementById('ob-hint').textContent =
+      `${dd} ${MON[mm - 1]} ${yy} · aged ${obAgeOn(new Date(yy, mm - 1, dd), new Date())}`;
+  };
+  // A tap without a drag still counts: the wheel goes full-colour, so it has to commit the value
+  // it is showing or the screen would claim an answer it never recorded.
+  const touch = () => { obMarkTouched(step); read(); };
+
+  obDob = answer ? { d: String(d), m: String(m), y: String(y) } : { d: '', m: '', y: '' };
+  obWheel(document.getElementById('ob-w-d'), obRange(1, 31), d - 1, read, touch);
+  obWheel(document.getElementById('ob-w-m'), MON, m - 1, read, touch);
+  obWheel(document.getElementById('ob-w-y'), obRange(yLo, yHi), y - yLo, read, touch);
+  if (answer) read();
 }
 
 function obKey(e) {
@@ -1508,7 +1710,13 @@ function obReadRaw(step) {
     return el ? el.value : '';
   };
   if (step.type === 'chips') return obAnswers[step.key];
-  if (step.type === 'dob') return { d: val('ob-dob-d'), m: val('ob-dob-m'), y: val('ob-dob-y') };
+  // The wheels write into state as they settle, so state is the field — and an untouched wheel
+  // holds nothing, which obValidate() reads as a skipped answer exactly like an empty box did.
+  if (step.type === 'dob') return obDob;
+  if (step.type === 'number') {
+    const v = obAnswers[step.key];
+    return (v === null || v === undefined) ? '' : v;
+  }
   return val('ob-input');
 }
 

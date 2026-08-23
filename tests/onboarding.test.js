@@ -54,7 +54,7 @@ function app({ store = memStore(), email = 'del@example.com', now = new Date(202
     constructor(...args) { super(...(args.length ? args : [now.getTime()])); }
   }
   return load({
-    decls: ['PROFILE', 'OB_DRAFT_PREFIX', 'ONBOARD_STEPS'],
+    decls: ['PROFILE', 'OB_DRAFT_PREFIX', 'ONBOARD_STEPS', 'OB_WHEEL', 'OB_ITEM'],
     functions: ['obValidate', 'obAgeOn', 'obPayload', 'needsOnboarding', 'markOnboarded',
                 'onboardedKey', 'obDraftKey'],
     // authSession is passed rather than lifted: its declaration carries a trailing comment, which
@@ -62,6 +62,8 @@ function app({ store = memStore(), email = 'del@example.com', now = new Date(202
     deps: { Date: Fixed, localStorage: store, authSession: email ? { email } : null },
     accessors: {
       steps: '() => ONBOARD_STEPS',
+      wheels: '() => OB_WHEEL',
+      item: '() => OB_ITEM',
       setProfile: 'p => { PROFILE = p; }'
     }
   });
@@ -95,6 +97,46 @@ console.log('Onboarding — the form that fills the profile in');
   ok(a.steps().every(s => typeof s.q === 'string' && s.q.length > 0), 'every screen has a question');
   ok(a.steps().filter(s => s.type === 'number').every(s => s.unit && s.min < s.max),
     'every number step names its unit and its range');
+}
+
+// ── 1b. the wheels (23 Aug) ───────────────────────────────────────────────────────────────────
+// Del rejected the form because the keypad opened and closed on seven of the eight screens. Every
+// number and the date are picked off a wheel now. Two things can break silently here: a number
+// screen with no wheel to draw, and a wheel that can reach a value obValidate() then rejects.
+{
+  const a = app();
+  const nums = a.steps().filter(s => s.type === 'number');
+  ok(nums.length > 0 && nums.every(s => a.wheels()[s.key]),
+    'every number screen has a wheel — without one the screen renders an empty box');
+
+  Object.keys(a.wheels()).forEach(key => {
+    const step = stepFor(a, key);
+    const w = a.wheels()[key];
+    ok(!!step, `${key} has a wheel and a step`);
+    ok(w.lo < w.hi, `${key}: the wheel counts upwards`);
+    // The wheel is the narrower of the two ranges on purpose: 20–400 kg is 3,800 stops and a thumb
+    // cannot cross it. What it must never do is offer a value the CHECK constraint refuses.
+    ok(w.lo >= step.min && w.hi <= step.max,
+      `${key}: the wheel cannot reach a value obValidate() would reject`);
+    ok(w.start >= w.lo && w.start <= w.hi, `${key}: the wheel opens on a value it can show`);
+    eq(typeof w.dec, 'boolean', `${key}: says whether it carries a tenths column`);
+  });
+
+  ok(a.steps().some(s => s.type === 'dob'), 'the date is still its own type, drawn as three wheels');
+  eq(a.steps().filter(s => s.type === 'text').length, 1,
+    'exactly ONE screen still opens a keyboard — the name');
+
+  // The scroll position IS the answer: app.js reads it back as scrollTop / OB_ITEM. If the
+  // stylesheet's row height ever stops agreeing with OB_ITEM, every wheel reads back the wrong
+  // number and nothing throws.
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'style.css'), 'utf8');
+  const row = /\.ob-wheel i \{[^}]*?height:\s*(\d+)px/.exec(css);
+  ok(!!row, 'the stylesheet still sets a row height on .ob-wheel i');
+  eq(parseInt(row[1], 10), a.item(), 'the CSS row height matches OB_ITEM');
+  const band = /\.ob-band \{[^}]*?top:\s*(\d+)px;\s*height:\s*(\d+)px/.exec(css);
+  ok(!!band, 'the selected-row band is still positioned');
+  eq(parseInt(band[2], 10), a.item(), 'the band is exactly one row tall');
+  eq(parseInt(band[1], 10), (176 - a.item()) / 2, 'the band sits over the centre row');
 }
 
 // ── 2. the name ───────────────────────────────────────────────────────────────────────────────
