@@ -835,6 +835,11 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    z-index 900, below #login-screen's 999. An expired token while the form is open must put the
    login screen IN FRONT of it, not behind — see forceLogout(). */
 html.ob-active { overflow: hidden; }
+/* The panel is matched to the VISIBLE viewport while the keyboard is up (obViewportFit), so it no
+   longer covers the whole screen — and the home screen showed through the strip underneath it and
+   behind the keyboard's translucent toolbar. Nothing behind an eight-screen form should be visible
+   at all: 23 Aug, "look at it closely, you see the home page behind it". */
+html.ob-active #app { display: none; }
 
 /* Not `inset: 0`: obViewportFit() overwrites top and height so the panel matches the VISIBLE
    viewport when the keyboard is up on the name screen. iOS never shrinks a fixed box itself. */
@@ -851,7 +856,11 @@ html.ob-active { overflow: hidden; }
 
 /* Centred in the slack rather than stacked at the top: on a tall phone a top-aligned single
    question leaves two thirds of the screen empty and reads as a page that failed to load. */
-.ob-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 0.45rem; padding: 0 0.15rem; overflow-y: auto; }
+/* Anchored to the top, not centred. Centring put the question in a different place on every screen
+   — halfway down on the chip screens, near the top on the wheels — so it appeared to jump as you
+   stepped through, with dead space above and below it. Same place all eight times reads as one
+   designed flow rather than eight pages. */
+.ob-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; gap: 0.45rem; padding: 1.5rem 0.15rem 0; overflow-y: auto; }
 .ob-q { font-family: 'Bebas Neue', sans-serif; font-size: 31px; line-height: 1.02; letter-spacing: 0.4px; font-weight: 400; }
 .ob-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 0.4rem; }
 
@@ -887,13 +896,30 @@ html.ob-active { overflow: hidden; }
   border-top: 1px solid var(--border2); border-bottom: 1px solid var(--border2);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
-.ob-wheel-unit { align-self: center; flex: 0 0 auto; padding-left: 4px; font-size: 15px; color: var(--muted); }
+.ob-wheel-unit { align-self: center; flex: 0 0 34px; padding-left: 8px; font-size: 15px; color: var(--muted); }
 .ob-hint { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 0.55rem; min-height: 1.2em; }
 
-.ob-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.4rem; }
-.ob-chip { border: 1px solid var(--border2); background: var(--bg3); border-radius: 8px; padding: 9px 14px; font-size: 13.5px; color: var(--muted2); font-family: 'DM Sans', sans-serif; cursor: pointer; }
+/* The pick-one screens. Small wrapping pills read as tags rather than as answers, and four of them
+   wrapped 3 + 1 with an orphan on its own line — "horrible UI ... not professional at all", 23 Aug.
+   A full-width row per option is what a phone does for a choice: nothing to aim for, nothing to
+   wrap, and the list reads down the screen in one pass. */
+.ob-opts { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem; }
+.ob-opt {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  border: 1px solid var(--border2); background: var(--bg3); border-radius: 12px;
+  padding: 15px 16px; font-size: 15px; color: var(--text); font-family: 'DM Sans', sans-serif;
+  text-align: left; cursor: pointer;
+}
+.ob-opt:active { background: var(--bg); }
 /* --accent, not --amber: this is "you can tap this / you tapped this", not identity. */
-.ob-chip.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+.ob-opt.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+.ob-tick { font-size: 15px; opacity: 0; }
+.ob-opt.on .ob-tick { opacity: 1; }
+/* Two to six days a week are labels one character long. Stacked full-width they would be six near
+   empty bars down the screen, so those go in a row and get the display face, like the wheels. */
+.ob-opts.row { flex-direction: row; gap: 0.4rem; }
+.ob-opts.row .ob-opt { flex: 1 1 0; justify-content: center; padding: 16px 0; font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1px; }
+.ob-opts.row .ob-tick { display: none; }
 
 /* Reserves its line whether or not there is an error, so the question above never jumps when one
    appears. */

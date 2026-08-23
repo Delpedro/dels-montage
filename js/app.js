@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1224';
+const APP_BUILD = '2026-08-23-1236';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1538,9 +1538,12 @@ function obRender() {
 
 function obFieldHtml(step, answer) {
   if (step.type === 'chips') {
-    return '<div class="ob-chips">' + step.options.map(([value, label]) => {
+    // One character per option (2–6 days a week) goes in a row; anything wordy gets a row each, so
+    // nothing wraps and no option ends up orphaned on a line of its own.
+    const row = step.options.every(([, label]) => String(label).length <= 2);
+    return `<div class="ob-opts${row ? ' row' : ''}">` + step.options.map(([value, label]) => {
       const arg = typeof value === 'number' ? String(value) : `'${esc(String(value))}'`;
-      return `<button type="button" class="ob-chip${answer === value ? ' on' : ''}" onclick="obChoose(${arg})">${esc(label)}</button>`;
+      return `<button type="button" class="ob-opt${answer === value ? ' on' : ''}" onclick="obChoose(${arg})">${esc(label)}<span class="ob-tick">&#10003;</span></button>`;
     }).join('') + '</div>';
   }
   if (step.type === 'dob') {
