@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1928';
+const APP_BUILD = '2026-08-23-1932';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5466,9 +5466,46 @@ function flipStats(face) {
     // off the screen, and a card read out twice is worse than a card that cannot be tapped.
     el.setAttribute('aria-hidden', i === statsFlipFace ? 'false' : 'true');
   });
-  document.querySelectorAll('#stats-flip-dots .flip-dot').forEach((d, i) => {
-    d.classList.toggle('active', i === statsFlipFace);
+  const sw = document.getElementById('stats-flip-switch');
+  if (sw) {
+    sw.classList.toggle('at-b', statsFlipFace === 1);
+    sw.querySelectorAll('.flip-switch-opt').forEach((o, i) => {
+      o.classList.toggle('active', i === statsFlipFace);
+      o.setAttribute('aria-pressed', i === statsFlipFace ? 'true' : 'false');
+    });
+  }
+}
+
+// Swipe the tile itself, which is how you'd expect to turn a card over on a phone. Bound once, on
+// the tile rather than on either face, because the faces are swapped in and out from under the
+// pointer mid-gesture.
+//
+// The chart is carved out deliberately: a horizontal drag across it is the scrub readout, and that
+// gesture is the whole reason the chart is interactive. Two meanings for one drag in one box is a
+// coin toss the user always loses, so the swipe listens everywhere on the tile except there.
+function bindStatsFlipSwipe() {
+  const tile = document.getElementById('stats-flip');
+  if (!tile || tile.dataset.swipeBound) return;
+  tile.dataset.swipeBound = '1';
+
+  let x0 = null, y0 = null;
+  tile.addEventListener('pointerdown', e => {
+    if (e.target.closest('#stats-weight-chart') || e.target.closest('button')) { x0 = null; return; }
+    x0 = e.clientX; y0 = e.clientY;
   });
+  tile.addEventListener('pointerup', e => {
+    if (x0 === null) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    x0 = null;
+    // 45px and mostly sideways: below that it is a tap, and a diagonal belongs to the page scroll.
+    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const to = dx < 0 ? 1 : 0;          // drag left to bring the next side in, as a carousel does
+    // The switch being hidden is how "there is no second side yet" is stored — a swipe must not be
+    // able to reach a side the control says isn't there.
+    const sw = document.getElementById('stats-flip-switch');
+    if (to !== statsFlipFace && sw && sw.style.display !== 'none') flipStats(to);
+  });
+  tile.addEventListener('pointercancel', () => { x0 = null; });
 }
 
 // Both faces are absolute, so nothing in the flow gives the tile a height — this does, at the taller
@@ -5481,8 +5518,9 @@ function sizeStatsFlip() {
   const inner = document.getElementById('stats-flip-inner');
   const a = document.getElementById('stats-face-a');
   const b = document.getElementById('stats-face-b');
-  const dots = document.getElementById('stats-flip-dots');
+  const control = document.getElementById('stats-flip-switch');
   if (!inner || !a || !b) return;
+  bindStatsFlipSwipe();
   // Clear before measuring: a face carrying last render's height would measure that back out, and
   // the tile could then only ever grow.
   a.style.height = '';
@@ -5490,7 +5528,7 @@ function sizeStatsFlip() {
   const hb = b.firstElementChild && b.firstElementChild.offsetParent !== null ? b.offsetHeight : 0;
   const h = Math.max(a.offsetHeight, hb);
   inner.style.height = `${h}px`;
-  if (dots) dots.style.display = hb ? 'flex' : 'none';
+  if (control) control.style.display = hb ? 'flex' : 'none';
   if (!hb && statsFlipFace === 1) flipStats(0);   // never strand anyone on a side that isn't there
 }
 

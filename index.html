@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1928">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-23-1932">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -349,9 +349,13 @@
         </div>
       </div>
     </div>
-    <div class="flip-dots" id="stats-flip-dots" style="display:none;">
-      <button type="button" class="flip-dot active" onclick="flipStats(0)" aria-label="Show the daily line"></button>
-      <button type="button" class="flip-dot" onclick="flipStats(1)" aria-label="Show this week's averages"></button>
+    <!-- Swipe the tile on a phone; on a desktop there is nothing to swipe with, so this names both
+         sides and slides between them (23 Aug 2026 — Del: "dots are shite on phone too"). Dots said
+         there was a second side without saying what was on it; two words do both jobs at once. -->
+    <div class="flip-switch" id="stats-flip-switch" style="display:none;">
+      <div class="flip-switch-thumb" id="stats-flip-thumb" aria-hidden="true"></div>
+      <button type="button" class="flip-switch-opt active" onclick="flipStats(0)" aria-pressed="true">Daily</button>
+      <button type="button" class="flip-switch-opt" onclick="flipStats(1)" aria-pressed="false">Weekly</button>
     </div>
 
     <div class="stats-section" id="stats-avg-window">Last 7 days</div>
@@ -701,6 +705,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-23-1928"></script>
+<script src="js/app.js?v=2026-08-23-1932"></script>
 </body>
 </html>

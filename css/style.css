@@ -645,20 +645,51 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    the page background with a chart drawn on it. */
 .stats-weight-card { padding: 0.875rem; }
 
-.flip-dots { display: flex; justify-content: center; gap: 8px; margin: 0.75rem 0 0.875rem; }
-.flip-dot {
+/* The switch under the tile. A track with a thumb that slides, rather than two buttons that light
+   up: the thumb moving left-to-right is the same motion the tile makes, so the control looks like
+   what it does. Sized to the tile's own text column, not the full width — it is a caption on the
+   card above it, not an action bar. */
+.flip-switch {
   position: relative;
-  width: 8px; height: 8px; padding: 0; border-radius: 50%;
-  border: 1px solid var(--border2); background: transparent;
-  cursor: pointer; transition: all 0.2s;
+  display: flex;
+  max-width: 220px;
+  margin: 0.75rem auto 0.875rem;
+  padding: 3px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
 }
-.flip-dot.active { background: var(--accent); border-color: var(--accent); }
-/* The tap target is the 8px dot plus the space around it — a dot you have to aim at is a dot nobody
-   presses twice. */
-.flip-dot::after { content: ''; position: absolute; width: 34px; height: 34px; margin: -13px 0 0 -13px; }
+.flip-switch-thumb {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: calc(50% - 3px);
+  height: calc(100% - 6px);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  border: 1px solid var(--accent);
+  transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.25, 1);
+}
+.flip-switch.at-b .flip-switch-thumb { transform: translateX(100%); }
+.flip-switch-opt {
+  position: relative;          /* over the thumb, so the label never sits behind it */
+  flex: 1;
+  padding: 7px 0;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.flip-switch-opt.active { color: var(--accent); }
 
 @media (prefers-reduced-motion: reduce) {
-  .flip-inner { transition: none; }
+  .flip-inner, .flip-switch-thumb { transition: none; }
 }
 
 .stats-range-nav { max-width: 230px; margin: 0.75rem auto 0; text-align: center; }
