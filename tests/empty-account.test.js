@@ -239,6 +239,10 @@ function eq(actual, expected, label) {
     'dlog_session',       // the credentials themselves — replaced by login, removed by logout
     'dlog_last_account',  // the marker this rule is built on
     'dlog_update_tried',  // about the app BUILD on this device, not about any person
+    // The shared catalogue: public, identical for every user, nothing personal in it. Kept ACROSS
+    // an account switch on purpose — the second account wants it too, and it is the fallback that
+    // stops a bad connection from reproducing the empty picker on someone's first session.
+    'dlog_exercise_catalogue',
   ]);
   const found = new Set([
     ...(src.match(/'dlog_[a-z_]+'/g) || []).map(s => s.slice(1, -1)),
@@ -252,6 +256,45 @@ function eq(actual, expected, label) {
       `${key} is either cleared on an account switch or listed as deliberately exempt — a new ` +
       `storage key must not silently leak between two people sharing a browser`);
   }
+}
+
+
+// ── 5. THE HARDENING PASS ─────────────────────────────────────────────────────────────────────
+// Del asked whether a second reviewer would find flaws in the catalogue migration. It would have
+// found these three. They are asserted here so a later edit cannot quietly undo them.
+{
+  const sql = fs.readFileSync(path.join(
+    __dirname, '..', 'supabase', 'migrations', '20260824220000_catalogue_hardening.sql'), 'utf8');
+
+  // 1. The uniqueness guarantee has to be the guarantee the code relies on. The table was unique on
+  //    `name` exactly, while the trigger, the backfill and CATALOGUE_BY_KEY all key on
+  //    lower(btrim(name)) — so "Pull-Ups" and "pull-ups" could both have existed, the trigger's
+  //    `limit 1` would have picked one arbitrarily, and app.js would have kept whichever loaded
+  //    last. Two users, different metadata for the same lift, non-deterministically.
+  ok(/create unique index if not exists exercise_catalogue_name_lower_key\s+on public\.exercise_catalogue \(lower\(btrim\(name\)\)\)/.test(sql),
+    'the catalogue is unique on exactly what every lookup keys on');
+
+  // 2. rename_exercise() updates exercises.name in place, so an INSERT-only trigger left the link
+  //    pointing at the old lift — keeping its optional_weight flag, and one day showing a pull-up
+  //    clip on a bench press.
+  ok(/before insert or update on public\.exercises/.test(sql),
+    'the catalogue link is re-resolved on rename, not just on insert');
+  ok(/tg_op = 'UPDATE' and new\.name is distinct from old\.name/.test(sql),
+    'and it uses the same three-part condition as the existing link_exercise trigger');
+
+  // 3. Least privilege on a trigger attached to a user-writable table.
+  ok(/security invoker/.test(sql), 'the trigger function is not SECURITY DEFINER');
+  ok(/set search_path = public/.test(sql),
+    'and still pins search_path — the advisor checks that on every function, not just definer ones');
+
+  // 4. The app caps the field at 60 characters, but the app is not the only way in: a signed-in
+  //    user can POST straight to PostgREST with their own JWT.
+  for (const t of ['exercise_catalogue', 'exercises', 'custom_exercises']) {
+    ok(new RegExp(`alter table public\\.${t} add constraint ${t}_name_sane`).test(sql),
+      `${t}.name cannot be empty or absurd, enforced in the database rather than the form`);
+  }
+  ok(/check \(btrim\(name\) <> '' and length\(name\) <= 80\)/.test(sql),
+    'and the bound is stated once, the same way, on all three');
 }
 
 console.log(`empty-account: ${pass} passed, ${fail} failed`);

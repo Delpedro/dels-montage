@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-24-2140';
+const APP_BUILD = '2026-08-24-2221';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -444,12 +444,37 @@ let CATALOGUE_BY_KEY = {};          // lower(trim(name)) → catalogue row
 
 function catalogueKey(name) { return (name || '').trim().toLowerCase(); }
 
-async function loadExerciseCatalogue() {
-  const rows = await sb('exercise_catalogue?select=name,variations,timed_target,optional_weight,bodyweight,muscle_group,equipment&order=name.asc');
+// Cached, and this one earns it. `sb()` turns a failed GET into `[]`, so a gym-basement connection
+// on a new account would hand back an empty catalogue — which is the EXACT empty picker this whole
+// job exists to remove, reappearing at the worst possible moment: someone's first session.
+//
+// Safe to cache in a way almost nothing else in this app is: the catalogue is shared, public,
+// identical for every user, and holds nothing personal. It is overwritten on every successful read,
+// so staleness is bounded by "the last time the app reached the network", and it is only ever
+// consulted when the live read gives nothing. It is deliberately NOT in perDeviceKeys() — there is
+// nothing of one account in it to leak to another.
+const CATALOGUE_CACHE = 'dlog_exercise_catalogue';
+
+function applyCatalogue(rows) {
   const byName = {}, byKey = {};
-  (rows || []).forEach(r => { byName[r.name] = r; byKey[catalogueKey(r.name)] = r; });
+  (rows || []).forEach(r => { if (r && r.name) { byName[r.name] = r; byKey[catalogueKey(r.name)] = r; } });
   EXERCISE_CATALOGUE = byName;
   CATALOGUE_BY_KEY = byKey;
+}
+
+async function loadExerciseCatalogue() {
+  const rows = await sb('exercise_catalogue?select=name,variations,timed_target,optional_weight,bodyweight,muscle_group,equipment&order=name.asc');
+  if (rows && rows.length) {
+    applyCatalogue(rows);
+    try { localStorage.setItem(CATALOGUE_CACHE, JSON.stringify(rows)); } catch (e) { /* private mode */ }
+    return;
+  }
+  // Nothing came back. Last good copy beats an empty picker; an empty picker beats a crash.
+  try {
+    const cached = JSON.parse(localStorage.getItem(CATALOGUE_CACHE) || 'null');
+    if (Array.isArray(cached) && cached.length) { applyCatalogue(cached); return; }
+  } catch (e) { /* corrupt or unavailable — fall through */ }
+  applyCatalogue([]);
 }
 
 // Returns { exercise_id } to spread into a row, or {} when the name isn't known yet — a brand new
