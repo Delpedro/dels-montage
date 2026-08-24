@@ -286,6 +286,8 @@ function eq(actual, expected, label) {
   ok(/security invoker/.test(sql), 'the trigger function is not SECURITY DEFINER');
   ok(/set search_path = public/.test(sql),
     'and still pins search_path — the advisor checks that on every function, not just definer ones');
+  ok(sql.includes("alter function public.exercises_link_catalogue() set search_path = '';"),
+    "pinned to the EMPTY string like the other eight, not to 'public' — one rule, no lone exception");
 
   // 4. The app caps the field at 60 characters, but the app is not the only way in: a signed-in
   //    user can POST straight to PostgREST with their own JWT.

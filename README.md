@@ -19,7 +19,7 @@ No framework. No build step. Vanilla JS + Supabase. Installs to an iPhone home s
 - Band exercises with abbreviation badges (RB×15, YB×15), and bodyweight exercises (null weight, no "BW" string in the DB)
 - Cardio blocks (treadmill, bike, rower, …) logged alongside the lifting
 - **Session template editor** (✎) — rename, reorder, add, remove, superset, change set counts
-- Custom exercises, added inline from the picker
+- Custom exercises, added inline from the picker — and a **shared, read-only `exercise_catalogue`** (58 lifts) so a brand-new account has a full picker on day one
 - Mark Done per exercise — turns green and writes to Supabase immediately
 - PR badges on weight *and* reps, keyed by exercise **and** variation
 
@@ -55,7 +55,7 @@ No framework. No build step. Vanilla JS + Supabase. Installs to an iPhone home s
 **Data safety**
 - Export everything to JSON (UTF-8 declared, so notes don't open as gibberish)
 - `tools/backup.js` — credential-free dump of every table
-- Supabase Auth with per-user RLS on every table
+- Supabase Auth with per-user RLS on every table; `anon` holds no grant anywhere, and the one shared table (`exercise_catalogue`) is readable by signed-in users and writable by none
 
 **Offline / deployment**
 - Service worker: network-first with `cache: 'reload'`, so a deploy can never be masked by a cache

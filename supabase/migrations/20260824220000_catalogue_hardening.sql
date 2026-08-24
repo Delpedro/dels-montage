@@ -86,3 +86,11 @@ create trigger exercises_catalogue
 -- revert any correction made since — but it is a trap if you do not know it. To change a lift's
 -- metadata, or to add one, write a NEW migration with an explicit insert/update. Do not edit the
 -- seed and expect it to apply.
+
+-- ── 4. search_path = '' to match the other eight ──
+-- The 24 Aug advisor pass (770834b) pinned every other function in `public` to the EMPTY string,
+-- not to `public`. Empty is the stricter form: it resolves nothing implicitly, so every reference
+-- has to be schema-qualified and there is no schema a caller could shadow. This function already
+-- qualifies everything it touches, so it should have been '' from the start. Nine functions, one
+-- rule — a lone exception is how the next audit gets a finding.
+alter function public.exercises_link_catalogue() set search_path = '';
