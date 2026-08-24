@@ -39,8 +39,14 @@ html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', 
    background, so there is no page behind it to scroll or rubber-band into view. */
 html.login-active { overflow: hidden; }
 
-#login-screen { position: fixed; inset: 0; z-index: 999; display: flex; align-items: center; justify-content: center; padding: 2rem; background: var(--bg); }
-.login-card { width: 100%; max-width: 380px; }
+/* overflow-y:auto and `margin: auto` on the card, together, since 24 Aug: the reset panel is a
+   code box plus two password boxes plus a heading, and on a small phone with the keyboard up it is
+   taller than what is left of the screen. A centred flex item that overflows gets clipped at the
+   TOP — the half you need — and `align-items: center` alone cannot scroll to it. `margin: auto`
+   centres it while it fits and lets it scroll once it doesn't. html.login-active still has
+   overflow:hidden, so this is the only thing on the screen that scrolls. */
+#login-screen { position: fixed; inset: 0; z-index: 999; display: flex; align-items: center; justify-content: center; padding: 2rem; background: var(--bg); overflow-y: auto; }
+.login-card { width: 100%; max-width: 380px; margin: auto; }
 .login-title { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; line-height: 1; margin-bottom: 4px; }
 .login-sub { font-size: 13px; color: var(--muted); margin-bottom: 2.5rem; }
 .form-group { margin-bottom: 1rem; }
@@ -52,6 +58,16 @@ html.login-active { overflow: hidden; }
 .login-error { font-size: 13px; color: var(--red); margin-top: 0.75rem; text-align: center; display: none; }
 .login-diag { font-family: 'DM Mono', monospace; font-size: 10px; line-height: 1.5; color: var(--muted); margin-top: 1.25rem; text-align: center; letter-spacing: 0.02em; word-break: break-word; }
 .login-diag.warn { color: var(--red); }
+
+/* The reset flow's own furniture. A <button>, not an <a>: there is nowhere to navigate to, and an
+   anchor with href="#" on an iOS PWA is a way to lose the whole app to a stray navigation. */
+.login-link { display: block; width: 100%; background: none; border: none; color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 13px; text-align: center; padding: 14px 0 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.login-link:disabled { opacity: 0.55; cursor: default; text-decoration: none; }
+.login-step { font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 1px; line-height: 1.1; margin-bottom: 6px; }
+.login-note { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 1.5rem; }
+/* `.form-group input` is (0,1,1), so a bare `.code-input` would lose to it and the digits would
+   come out at 15px like any other field. It has to be qualified to win. */
+.form-group input.code-input { font-family: 'DM Mono', monospace; font-size: 24px; letter-spacing: 10px; text-align: center; padding-left: 26px; }
 
 /* A flex column, not a block, since 19 Aug: it lets a page grow to fill whatever is left of the
    screen, which is what parks Home's account/build footer at the bottom instead of leaving it

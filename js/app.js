@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-24-1448';
+const APP_BUILD = '2026-08-24-1509';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -855,14 +855,19 @@ async function enterApp(page = 'home') {
 
 
 function showLoginScreen(message) {
-  const err = document.getElementById('login-error');
-  if (message) { err.textContent = message; err.style.display = 'block'; }
-  else { err.style.display = 'none'; }
   window.scrollTo(0, 0);
   // A token can expire with the onboarding form open. The login screen sits in front of it either
   // way (z-index 999 against 900), but leaving it mounted means the NEXT person to log in on this
   // phone lands on somebody else's half-answered form the moment the login screen hides.
   closeOnboarding();
+  // It can expire with a password reset half-finished too, and that one leaves a code box and a
+  // typed-out new password on screen for whoever picks the phone up next. Both go back to the
+  // sign-in panel. This runs before the message because showLoginPanel() clears the error line.
+  resetRecoveryState();
+  showLoginPanel('signin');
+  const err = document.getElementById('login-error');
+  if (message) { err.textContent = message; err.style.display = 'block'; }
+  else { err.style.display = 'none'; }
   document.documentElement.classList.add('login-active');
   document.getElementById('login-screen').style.display = 'flex';
 }
@@ -898,8 +903,341 @@ function handleLogout() {
   showLoginScreen();
 }
 
+// ─── FORGOTTEN PASSWORD ───────────────────────────────────
+// 24 August 2026. Until today there was no way back into an account whose password had been lost.
+// The only recovery was Del opening the Supabase dashboard and setting a new one by hand, which is
+// fine for an app with one user who owns the project and useless the moment anybody else has an
+// account. That is why this is built *before* the beta rather than after the first lockout.
+//
+// **A six-digit code typed into D-LOG, not a link in an email.** The link is the default Supabase
+// flow and it was turned down deliberately, on both of Del's stated axes:
+//
+//   - *Fewest mountains to the store.* A link has to land somewhere. In a browser that is a
+//     redirect URL to allow-list; in a store-shipped app it is a universal link / app link, which
+//     means an associated-domains entitlement, a domain-association file served from the host, and
+//     a whole class of "it opened Safari instead of the app" bugs to answer for. A code that is
+//     typed in needs **no URL configuration at all** — not now, not when this ships as an app.
+//   - *Security.* Both are one-time tokens issued and checked by GoTrue, so neither is weaker at
+//     the protocol. In practice the link is worse: corporate mail scanners follow links to check
+//     them and burn the one-time token before the human ever taps it, and the token ends up in
+//     browser history and in the referrer. Neither happens to a number you read and type.
+//
+// What this adds on top of GoTrue:
+//
+//   1. **The email is never confirmed or denied.** Sending says the same sentence whether or not
+//      the address has an account, and a bad code and an unknown address fail identically. The
+//      login screen must not be a way to find out who has an account here.
+//   2. **A verified code does not sign anybody in.** GoTrue answers a good code with a full
+//      session. That session is held in memory only and is never written to localStorage until the
+//      new password has actually been set — walk away half-way through and the device keeps
+//      nothing, and a code shoulder-surfed off a notification buys no access on its own.
+//   3. **Every other session on the account is revoked** the moment the password changes. That is
+//      the point of a reset: whoever caused it should be signed out everywhere, not just here.
+//   4. **Five wrong codes ends it**, so six digits cannot be worked through from the login screen.
+//   5. **One send a minute**, counted down on the button.
+//
+// Requires the Supabase "Reset Password" email template to send `{{ .Token }}` — the stock one only
+// contains a link, and a link cannot be typed in. The template to paste is kept in the repo at
+// supabase/templates/recovery.html.
+const RECOVERY_MAX_ATTEMPTS = 5;
+const RECOVERY_RESEND_MS = 60000;
+
+// The session bought by a verified code. Memory only, never localStorage — see (2) above.
+let recoverySession = null;
+let recoveryEmail = '';
+let recoveryAttempts = 0;
+let recoveryResendAt = 0;
+let recoveryTimer = null;
+
+// The login screen is three panels inside one card — sign in, ask for a code, type the code — and
+// they share a single #login-error and #login-diag. Every message this screen can produce comes out
+// in the same two places no matter which panel is up, which is the whole reason the diag readout
+// was worth keeping: it stays the one instrument pointed at getting into the app.
+function showLoginPanel(which) {
+  const err = document.getElementById('login-error');
+  if (err) err.style.display = 'none';
+  const panels = [['login-form', 'signin'], ['reset-request', 'request'], ['reset-confirm', 'confirm']];
+  for (const [id, name] of panels) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = which === name ? '' : 'none';
+  }
+}
+
+function loginFail(msg) {
+  const err = document.getElementById('login-error');
+  if (!err) return;
+  err.textContent = msg;
+  err.style.display = 'block';
+}
+
+// Leaves nothing behind: not the code, not the typed password, not the in-memory session, and not
+// the resend interval. Called on every way out of the flow, including a session expiring somewhere
+// else in the app and putting the login screen back up.
+function resetRecoveryState() {
+  recoverySession = null;
+  recoveryEmail = '';
+  recoveryAttempts = 0;
+  recoveryResendAt = 0;
+  if (recoveryTimer) { clearInterval(recoveryTimer); recoveryTimer = null; }
+  for (const id of ['reset-email', 'reset-code', 'reset-new', 'reset-confirm-pw']) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+}
+
+function showForgotPassword() {
+  resetRecoveryState();
+  // He has almost always typed his email into the sign-in box already — failing to get in is how
+  // anyone arrives here. Carry it over rather than asking for it twice.
+  const typed = (document.getElementById('login-email')?.value || '').trim();
+  const box = document.getElementById('reset-email');
+  if (box) box.value = typed;
+  showLoginPanel('request');
+  loginStep('reset · email');
+  if (box && box.focus) box.focus();
+}
+
+function backToSignIn() {
+  resetRecoveryState();
+  showLoginPanel('signin');
+  loginStep('sign in');
+}
+
+// The button counts its own cooldown down. A dead "Send a new code" button with no explanation is
+// the same bug as a dead Get In button — see login.test.js — so it says how long it has left.
+function startResendCooldown() {
+  recoveryResendAt = Date.now() + RECOVERY_RESEND_MS;
+  if (recoveryTimer) clearInterval(recoveryTimer);
+  const paint = () => {
+    const btn = document.getElementById('reset-resend');
+    if (!btn) return;
+    const left = Math.ceil((recoveryResendAt - Date.now()) / 1000);
+    if (left > 0) {
+      btn.textContent = 'Send a new code (' + left + 's)';
+      btn.disabled = true;
+      return;
+    }
+    btn.textContent = 'Send a new code';
+    btn.disabled = false;
+    if (recoveryTimer) { clearInterval(recoveryTimer); recoveryTimer = null; }
+  };
+  paint();
+  recoveryTimer = setInterval(paint, 1000);
+}
+
+async function sendRecoveryCode() {
+  const email = (document.getElementById('reset-email')?.value || '').trim();
+  const btn = document.getElementById('reset-send-btn');
+  const resend = document.getElementById('reset-resend');
+  // Both buttons, because both of them send. "Send a new code" sits on the panel after this one and
+  // reaches here through resendRecoveryCode(), and driving only the first would leave that tap with
+  // no feedback at all until the request came back — the dead-button symptom again.
+  const busy = on => {
+    if (btn) { btn.disabled = on; btn.textContent = on ? 'Sending…' : 'Send me a code'; }
+    if (resend) { resend.disabled = on; resend.textContent = on ? 'Sending…' : 'Send a new code'; }
+  };
+
+  // Never a silent return on this screen. Same rule as handleLogin(): if a tap does nothing and
+  // says nothing, it is indistinguishable from a dead button, and that cost eight rounds once.
+  if (!email || !email.includes('@')) {
+    loginFail('Enter the email address you sign in with');
+    loginStep('reset · no email', true);
+    return;
+  }
+  if (btn && btn.disabled) { loginStep('reset · already sending - wait'); return; }
+  if (Date.now() < recoveryResendAt) {
+    loginFail('Wait ' + Math.ceil((recoveryResendAt - Date.now()) / 1000) + 's before asking for another code');
+    return;
+  }
+
+  busy(true);
+  loginStep('reset · sending');
+
+  let res;
+  try {
+    res = await netFetch(SUPABASE_URL + '/auth/v1/recover', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+  } catch (e) {
+    loginFail("Can't reach the server — check your connection");
+    loginStep('reset · network: ' + ((e && e.name) || 'unknown'), true);
+    return;
+  } finally {
+    busy(false);
+  }
+
+  // 429 is the one status worth telling the truth about. GoTrue caps recovery emails per hour, and
+  // "no email arrived" with no explanation sends you to the spam folder for ten minutes over
+  // something that is not your fault and not fixable by trying again immediately.
+  if (res.status === 429) {
+    loginFail('Too many requests — wait a few minutes and try again');
+    loginStep('reset · http 429', true);
+    // Start the cooldown anyway. Being rate-limited and then handed an enabled button is an
+    // invitation to tap straight into another 429.
+    startResendCooldown();
+    return;
+  }
+
+  // Everything else lands here, INCLUDING an address with no account. Do not branch on res.ok:
+  // the identical outcome for a real and an unknown address is the anti-enumeration property, and
+  // a helpful "no account with that email" would hand it straight back.
+  recoveryEmail = email;
+  recoveryAttempts = 0;
+  const sentTo = document.getElementById('reset-sent-to');
+  if (sentTo) sentTo.textContent = email;
+  showLoginPanel('confirm');
+  startResendCooldown();
+  loginStep('reset · code sent · http ' + res.status);
+  const codeBox = document.getElementById('reset-code');
+  if (codeBox && codeBox.focus) codeBox.focus();
+}
+
+function resendRecoveryCode() {
+  const box = document.getElementById('reset-email');
+  if (box) box.value = recoveryEmail;
+  sendRecoveryCode();
+}
+
+async function completePasswordReset() {
+  const codeEl = document.getElementById('reset-code');
+  // Digits only, so a code pasted out of the email as "148 209" is the same code as "148209".
+  const code = ((codeEl && codeEl.value) || '').replace(/\D/g, '');
+  const pw = document.getElementById('reset-new')?.value || '';
+  const again = document.getElementById('reset-confirm-pw')?.value || '';
+  const btn = document.getElementById('reset-save-btn');
+  const release = () => { if (btn) { btn.disabled = false; btn.textContent = 'Set password'; } };
+
+  if (recoveryAttempts >= RECOVERY_MAX_ATTEMPTS) {
+    loginFail('Too many wrong codes — ask for a new one');
+    loginStep('reset · attempts spent', true);
+    return;
+  }
+  // Every message names the field it means — the same lesson savePassword() carries: an empty
+  // password box falling through to the length check reads as a complaint about the box above it.
+  if (code.length !== 6) return loginFail('The code is the six digits from the email');
+  if (!pw) return loginFail('Enter a new password');
+  if (pw.length < 8) return loginFail('Your new password needs at least 8 characters');
+  if (!again) return loginFail('Type your new password again to confirm it');
+  if (pw !== again) return loginFail("Those don't match");
+  if (pw.toLowerCase() === recoveryEmail.toLowerCase()) return loginFail("Don't use your email address as your password");
+  if (btn && btn.disabled) { loginStep('reset · already saving - wait'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Setting…'; }
+  loginStep('reset · verifying');
+
+  let res;
+  try {
+    res = await netFetch(SUPABASE_URL + '/auth/v1/verify', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'recovery', email: recoveryEmail, token: code })
+    });
+  } catch (e) {
+    loginFail("Can't reach the server — check your connection");
+    loginStep('reset · network: ' + ((e && e.name) || 'unknown'), true);
+    release();
+    return;
+  }
+
+  if (!res.ok) {
+    recoveryAttempts++;
+    const left = RECOVERY_MAX_ATTEMPTS - recoveryAttempts;
+    // One sentence for a wrong code, an expired code, and an address that has no account at all.
+    // Same reason as the send step: this screen does not answer "is this person a member here".
+    loginFail(left > 0
+      ? 'That code is wrong or has expired — ' + left + (left === 1 ? ' try left' : ' tries left')
+      : 'Too many wrong codes — ask for a new one');
+    loginStep('reset · verify http ' + res.status, true);
+    release();
+    return;
+  }
+
+  let session = null;
+  try { session = await res.json(); } catch (e) { session = null; }
+  const token = session && session.access_token;
+  if (!token) {
+    loginFail('That code was accepted but the server sent nothing back — try again');
+    loginStep('reset · verify ok, no token', true);
+    release();
+    return;
+  }
+  // In memory, and only in memory. Nothing has been written to this device yet and nothing will be
+  // until the password below actually changes.
+  recoverySession = session;
+
+  let put;
+  try {
+    put = await netFetch(SUPABASE_URL + '/auth/v1/user', {
+      method: 'PUT',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    });
+  } catch (e) {
+    recoverySession = null;
+    loginFail("Can't reach the server — check your connection");
+    loginStep('reset · set network: ' + ((e && e.name) || 'unknown'), true);
+    release();
+    return;
+  }
+
+  if (!put.ok) {
+    recoverySession = null;
+    let detail = '';
+    try { detail = (await put.json())?.msg || ''; } catch (e) {}
+    loginFail(detail || "Couldn't set the password (" + put.status + ')');
+    loginStep('reset · set http ' + put.status, true);
+    release();
+    return;
+  }
+
+  // Past this line the reset has happened, so the session the code bought is a legitimate one and
+  // is worth keeping — he proved he holds the mailbox and then chose the password. Anything that
+  // throws from here leaves him looking at a torn-down login screen with no message, so it puts
+  // the screen back and says what broke, exactly as handleLogin() does.
+  try {
+    storeSession(session);
+    revokeOtherSessions(token);
+    resetRecoveryState();
+    showLoginPanel('signin');
+    const pwBox = document.getElementById('login-password');
+    if (pwBox) pwBox.value = '';
+    sessionStorage.setItem('del_page', 'home');
+    loginStep('reset · done · opening');
+    await enterApp('home');
+    showToast('Password changed — you are signed in', 'success');
+  } catch (e) {
+    showLoginScreen('Password changed — sign in with your new one');
+    loginStep('reset · open failed: ' + ((e && e.message) || e), true);
+  } finally {
+    release();
+  }
+}
+
+// The reset is only half a reset if whoever knew the old password stays signed in on their own
+// device. `scope=others` revokes every refresh token on the account except the one just issued
+// here — the exact opposite of handleLogout()'s `scope=local`, and for the opposite reason.
+// Fire-and-forget: it runs after the password has already changed, so a failure here must never
+// stand between Del and his app.
+function revokeOtherSessions(token) {
+  netFetch(SUPABASE_URL + '/auth/v1/logout?scope=others', {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + token }
+  }).catch(() => {});
+}
+
 document.getElementById('login-password').addEventListener('keydown', e => {
   if (e.key === 'Enter') handleLogin();
+});
+
+// Enter submits whichever panel is up. On the reset panels it is bound to the LAST field of each,
+// so a password manager or an autofilled code still lands on a keystroke that means "go".
+document.getElementById('reset-email').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendRecoveryCode();
+});
+document.getElementById('reset-confirm-pw').addEventListener('keydown', e => {
+  if (e.key === 'Enter') completePasswordReset();
 });
 
 window.addEventListener('load', async () => {
