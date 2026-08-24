@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-24-1509';
+const APP_BUILD = '2026-08-24-1604';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -909,7 +909,7 @@ function handleLogout() {
 // fine for an app with one user who owns the project and useless the moment anybody else has an
 // account. That is why this is built *before* the beta rather than after the first lockout.
 //
-// **A six-digit code typed into D-LOG, not a link in an email.** The link is the default Supabase
+// **A numeric code typed into D-LOG, not a link in an email.** The link is the default Supabase
 // flow and it was turned down deliberately, on both of Del's stated axes:
 //
 //   - *Fewest mountains to the store.* A link has to land somewhere. In a browser that is a
@@ -933,14 +933,22 @@ function handleLogout() {
 //      nothing, and a code shoulder-surfed off a notification buys no access on its own.
 //   3. **Every other session on the account is revoked** the moment the password changes. That is
 //      the point of a reset: whoever caused it should be signed out everywhere, not just here.
-//   4. **Five wrong codes ends it**, so six digits cannot be worked through from the login screen.
+//   4. **Five wrong codes ends it**, so the code cannot be worked through from the login screen.
 //   5. **One send a minute**, counted down on the button.
+//   6. **The code length is whatever the dashboard says.** See RECOVERY_CODE_MIN / _MAX below.
 //
 // Requires the Supabase "Reset Password" email template to send `{{ .Token }}` — the stock one only
 // contains a link, and a link cannot be typed in. The template to paste is kept in the repo at
 // supabase/templates/recovery.html.
 const RECOVERY_MAX_ATTEMPTS = 5;
 const RECOVERY_RESEND_MS = 60000;
+// **The length of the code is a dashboard setting, not ours.** Authentication → Sign In / Providers
+// → Email → "Email OTP length" was found sitting on 8 on 24 Aug, while every string in this flow and
+// a `maxlength="6"` on the input said six — so the code could not physically be typed in. Rather
+// than pin the app to whatever the dashboard says today, accept the range GoTrue can be configured
+// to and let the digits speak for themselves. Nothing in the UI states a number any more.
+const RECOVERY_CODE_MIN = 6;
+const RECOVERY_CODE_MAX = 10;
 
 // The session bought by a verified code. Memory only, never localStorage — see (2) above.
 let recoverySession = null;
@@ -1116,7 +1124,7 @@ async function completePasswordReset() {
   }
   // Every message names the field it means — the same lesson savePassword() carries: an empty
   // password box falling through to the length check reads as a complaint about the box above it.
-  if (code.length !== 6) return loginFail('The code is the six digits from the email');
+  if (code.length < RECOVERY_CODE_MIN || code.length > RECOVERY_CODE_MAX) return loginFail('The code is the digits from the email');
   if (!pw) return loginFail('Enter a new password');
   if (pw.length < 8) return loginFail('Your new password needs at least 8 characters');
   if (!again) return loginFail('Type your new password again to confirm it');

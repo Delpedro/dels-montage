@@ -4,14 +4,14 @@
 // opening the Supabase dashboard and setting a new one by hand. That is not a recovery flow, it is
 // Del being on call, and it stops working the moment somebody who is not Del has an account.
 //
-// The flow is a six-digit code typed into D-LOG rather than a link in an email — no redirect URL to
+// The flow is a numeric code typed into D-LOG rather than a link in an email — no redirect URL to
 // allow-list now, no universal link / app link to configure when this ships to the stores. What is
 // asserted here is mostly the *security* half, because that is the half you cannot see by using it:
 //
 //   - a real address and an unknown one are indistinguishable from the login screen
 //   - a verified code writes NOTHING to the device until the password has actually changed
 //   - the password change signs every other session out
-//   - six digits cannot be brute-forced from the screen
+//   - the code cannot be brute-forced from the screen
 //
 // The usability half is asserted too, on the same rule login.test.js established: every failure
 // path leaves the button tappable and says something. A dead button with no message is the bug.
@@ -78,7 +78,8 @@ function harness(fetchImpl) {
       'revokeOtherSessions', 'showLoginScreen', 'loginStep', 'renderLoginDiag', 'netFetch',
     ],
     decls: [
-      'RECOVERY_MAX_ATTEMPTS', 'RECOVERY_RESEND_MS', 'recoverySession', 'recoveryEmail',
+      'RECOVERY_MAX_ATTEMPTS', 'RECOVERY_RESEND_MS', 'RECOVERY_CODE_MIN', 'RECOVERY_CODE_MAX',
+      'recoverySession', 'recoveryEmail',
       'recoveryAttempts', 'recoveryResendAt', 'recoveryTimer', 'NET_TIMEOUT_MS', 'APP_BUILD',
       'serverBuild', 'loginStatus',
     ],
@@ -200,7 +201,8 @@ const stop = h => h.app.resetRecoveryState();   // kills the resend interval so 
   // ── The code is checked before anything leaves the phone ────────────────────────────────────
   {
     const cases = [
-      ['12345', 'goodpass99', 'goodpass99', /six digits/i, 'a five-digit code'],
+      ['12345', 'goodpass99', 'goodpass99', /digits from the email/i, 'a five-digit code'],
+      ['12345678901', 'goodpass99', 'goodpass99', /digits from the email/i, 'an eleven-digit code'],
       ['148209', '', '', /new password/i, 'no new password'],
       ['148209', 'short12', 'short12', /8 characters/i, 'a password under 8 characters'],
       ['148209', 'goodpass99', '', /again/i, 'no confirmation'],
@@ -235,6 +237,21 @@ const stop = h => h.app.resetRecoveryState();   // kills the resend interval so 
     stop(h);
   }
 
+  // ── An 8-digit code works, because the length is a DASHBOARD setting and not ours ───────────
+  {
+    for (const code of ['148209', '14820912', '1482091234']) {
+      const h = await atCodeStep(router({ '/auth/v1/recover': res(200), '/auth/v1/verify': res(400) }));
+      h.els['reset-code'].value = code;
+      h.els['reset-new'].value = 'goodpass99';
+      h.els['reset-confirm-pw'].value = 'goodpass99';
+      await h.app.completePasswordReset();
+      const v = post(h, '/auth/v1/verify');
+      eq(v.length, 1, `a ${code.length}-digit code is sent, not rejected on length`);
+      eq(JSON.parse(v[0].opts.body).token, code, `the ${code.length}-digit code goes out intact`);
+      stop(h);
+    }
+  }
+
   // ── A wrong code says the same thing an unknown account does, and is counted ────────────────
   {
     const h = await atCodeStep(router({ '/auth/v1/recover': res(200), '/auth/v1/verify': res(400, { msg: 'Token has expired or is invalid' }) }));
@@ -253,7 +270,7 @@ const stop = h => h.app.resetRecoveryState();   // kills the resend interval so 
     // The sixth never reaches the network.
     h.els['reset-code'].value = '000000';
     await h.app.completePasswordReset();
-    eq(post(h, '/auth/v1/verify').length, 5, 'the sixth attempt is refused without a request — six digits cannot be worked through');
+    eq(post(h, '/auth/v1/verify').length, 5, 'the sixth attempt is refused without a request — the code cannot be worked through');
     ok(/ask for a new one/i.test(shown(h) || ''), 'and it says to ask for a new code');
     stop(h);
   }

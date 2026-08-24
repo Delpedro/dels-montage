@@ -67,7 +67,8 @@ html.login-active { overflow: hidden; }
 .login-note { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 1.5rem; }
 /* `.form-group input` is (0,1,1), so a bare `.code-input` would lose to it and the digits would
    come out at 15px like any other field. It has to be qualified to win. */
-.form-group input.code-input { font-family: 'DM Mono', monospace; font-size: 24px; letter-spacing: 10px; text-align: center; padding-left: 26px; }
+/* Sized for the longest code GoTrue can be set to emit (10), not the six it was written for. */
+.form-group input.code-input { font-family: 'DM Mono', monospace; font-size: 22px; letter-spacing: 7px; text-align: center; padding-left: 23px; }
 
 /* A flex column, not a block, since 19 Aug: it lets a page grow to fill whatever is left of the
    screen, which is what parks Home's account/build footer at the bottom instead of leaving it
