@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-24-1242';
+const APP_BUILD = '2026-08-24-1448';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -228,7 +228,7 @@ async function loadSessionTemplates() {
     if (row.superset_group) ex.supersetGroup = row.superset_group;
     (exByTemplate[row.session_id] ||= []).push(ex);
   });
-  SESSIONS = (templates || []).map(t => {
+  const next = (templates || []).map(t => {
     const session = {
       id: t.id, name: t.name, focus: t.focus, programme: t.programme, sort_order: t.sort_order,
       exercises: exByTemplate[t.id] || []
@@ -237,7 +237,83 @@ async function loadSessionTemplates() {
     if (t.cardio) session.cardio = true;
     return session;
   });
+  // A failed GET comes back as [] rather than throwing (see sb()), and this used to assign that []
+  // straight over SESSIONS. Harmless while the only callers were init and a save that had just
+  // succeeded; not harmless now that refreshSessionTemplates() calls it on every foreground, which
+  // on a gym-basement connection would have replaced a perfectly good session grid with an empty
+  // one. An empty read only wins when there was nothing to lose — a brand-new account whose
+  // templates genuinely are empty. It cannot strand a deletion either: only a My Session can be
+  // deleted (see deleteSessionTemplate), so the built-ins keep every real read non-empty.
+  if (!next.length && SESSIONS.length) return false;
+  SESSIONS = next;
+  return true;
 }
+
+// ─── TEMPLATE FRESHNESS (24 Aug 2026) ─────────────────────────────────────────────────────────
+// SESSIONS was a snapshot taken once, at boot, and nothing ever re-read it except the device that
+// did the editing — the ✎ editor and the save/delete of a My Session each call loadSessionTemplates()
+// on their way out, so locally the change looked instant and the gap was invisible for four months.
+//
+// The gap: edit Upper 1 on the laptop, then train off the phone whose PWA has been sitting resumed
+// since yesterday, and the phone logs YESTERDAY'S template. Nothing on screen says it is stale and
+// nothing short of force-quitting the app fixes it. checkForUpdate() does not cover this — it
+// reloads on a new BUILD, not on new DATA, so an edit only ever reached the second device by the
+// accident of a deploy happening afterwards. That is the "how long does it take?" with no answer.
+//
+// Two phones on one account is the normal case once this is on the stores, not an edge case, and
+// "I changed my programme and the app carried on with the old one" is a refund, not a bug report.
+//
+// So: re-read on every foreground and on every visit to the Workout tab. Two small selects, both
+// throttled, and neither can disturb a session in progress — the logger runs off its own clone
+// (see selectSession's clone-before-mutate), so a refresh mid-workout changes nothing on screen.
+// Today's session picks the edit up the next time the tile is tapped.
+const TEMPLATE_REFRESH_THROTTLE_MS = 30000;
+let templateRefreshRunning = false;
+let lastTemplateRefresh = 0;
+
+async function refreshSessionTemplates(force = false) {
+  if (templateRefreshRunning) return;
+  // Nothing loaded yet means initApp() hasn't finished — it owns the first read, and firing a
+  // second one alongside it would only race it. The login overlay is skipped for a harder reason:
+  // sb() with no session calls forceLogout(), so a background refresh there would boot him out.
+  if (!SESSIONS.length) return;
+  if (document.documentElement.classList.contains('login-active')) return;
+  if (!force && Date.now() - lastTemplateRefresh < TEMPLATE_REFRESH_THROTTLE_MS) return;
+  templateRefreshRunning = true;
+  lastTemplateRefresh = Date.now();
+  try {
+    const before = templateFingerprint();
+    if (!await loadSessionTemplates()) return;   // failed read — keep what we had
+    if (templateFingerprint() === before) return;
+    EXERCISE_LIBRARY = buildExerciseLibrary();
+    // Only repaint what is actually on screen. buildSessionGrid() rebuilds every tile and re-reads
+    // this week's workouts to redo the done states, which is wasted work behind the logger — and the
+    // logger itself is deliberately left alone, see the note above.
+    if (document.getElementById('session-grid').style.display !== 'none') {
+      await buildSessionGrid(selectedProgramme);
+    }
+  } catch (e) {
+    // Offline or a bad read. The old SESSIONS stand and the next foreground tries again.
+  } finally {
+    templateRefreshRunning = false;
+  }
+}
+
+// Cheap enough to run on every foreground, and it is what stops a refresh that changed nothing from
+// tearing down and rebuilding the grid under his thumb. Covers everything the ✎ editor can write:
+// membership, order, set counts, reps/rest, supersets, and the session name/focus on the tile.
+function templateFingerprint() {
+  return SESSIONS.map(s => [s.id, s.name, s.focus, s.programme, s.sort_order,
+    (s.exercises || []).map(e => [e.name, e.sets, e.reps, e.rest, e.supersetGroup || ''].join('~')).join('|')
+  ].join('~')).join('\n');
+}
+
+// The same two moments checkForUpdate() watches, for the same reason — a resumed PWA is the case
+// that was broken. 'load' is not among them: initApp() has just read the templates itself.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshSessionTemplates();
+});
+window.addEventListener('pageshow', (e) => { if (e.persisted) refreshSessionTemplates(true); });
 
 // Sessions saved out of an Open Workout carry this programme id (see offerSaveOpenAsTemplate). It's
 // purely a marker on the row — what makes a session yours rather than built-in, so it can be deleted
@@ -2037,6 +2113,9 @@ async function initApp(page = 'home') {
   document.getElementById('log-date').max = todayStr();
   await autoCloseStaleWorkouts();  // Clean up orphans from >24hrs ago before rendering the session grid
   await loadSessionTemplates();  // Fixed-session templates now live in Supabase, not a hardcoded array — must resolve before anything reads SESSIONS
+  // Starts the freshness clock, so restoring straight onto the Workout tab (sessionStorage remembers
+  // the last page) does not fire a second read of what we just read. See refreshSessionTemplates().
+  lastTemplateRefresh = Date.now();
   // Before the build, not after: buildExerciseLibrary() folds EXERCISE_VARIATIONS in, and every
   // workout_sets write consults EXERCISE_IDS — the logger can open the moment initApp returns.
   await loadExerciseIds();
@@ -2940,9 +3019,35 @@ async function saveSessionTemplate() {
     if (!postRes.ok) { showToast(`Save failed (${postRes.status})`, 'error'); return; }
   }
   await loadSessionTemplates();
+  lastTemplateRefresh = Date.now();   // freshest read there is — don't let a foreground redo it
   EXERCISE_LIBRARY = buildExerciseLibrary();
   closeSessionEditor();
   showToast('Template updated', 'success');
+
+  // The ✎ link also sits INSIDE the logger ("Reorder / add / remove exercises for this session"),
+  // and until now saving from there changed the template, changed the grid, and changed nothing you
+  // could see: the logger runs off a clone taken when the tile was tapped, so the session you were
+  // standing in carried on with the old exercise list until you left the screen and came back.
+  //
+  // Re-clone and rebuild it. Nothing is lost — buildWorkoutLogger() re-hydrates from the draft and
+  // from the sets already saved against currentWorkoutId, the same path a mid-session browser
+  // refresh takes — and the superset state is reset first so it re-derives exactly as a fresh entry
+  // would (draft first, then the template's tags, then the saved sets) rather than keeping a
+  // pairing that was just unpaired in the editor. Scroll position is put back: being thrown to the
+  // top of a long session between sets is its own small bug.
+  const loggerShowingThisSession = selectedSession && selectedSession.id === id
+    && document.getElementById('workout-logger').style.display !== 'none';
+  if (loggerShowingThisSession) {
+    const fresh = getSessionById(id);
+    if (fresh) {
+      const y = window.scrollY;
+      supersetGroups = [];
+      supersetsTouched = false;
+      selectedSession = { ...fresh, exercises: fresh.exercises.map(e => ({ ...e })) };
+      await buildWorkoutLogger(selectedSession);
+      window.scrollTo(0, y);
+    }
+  }
   buildSessionGrid(selectedProgramme);
 }
 
@@ -6719,6 +6824,11 @@ function showPage(name) {
   if (name === 'stats') loadStats();
   if (name === 'history') loadHistory();
   if (name === 'today') renderCheckinSummary();
+  // Not awaited: the tab must paint now, and the grid it paints is right in every case except the
+  // one this catches — a template edited on another device since this one booted. See
+  // refreshSessionTemplates(). Landing on Workout is the last moment before a tile gets tapped, so
+  // it is the moment worth spending a round trip on.
+  if (name === 'workout') refreshSessionTemplates();
   }
 
 // ─── EDIT CHECK-IN MODAL ──────────────────────────────────

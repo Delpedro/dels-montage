@@ -41,8 +41,15 @@ const LIBRARY = {};
   LIBRARY[n] = { name: n, sets: 3, reps: '8–12', rest: '90s' };
 });
 
-const calls = { renders: 0, saved: [], toasts: [] };
+const calls = { renders: 0, saved: [], toasts: [], rebuilt: [], scrolled: null };
 let promptReturns = null;
+
+// The logger-refresh half of the save (24 Aug 2026). Saving the ✎ editor used to change the template
+// and leave a logger that was open on that very session showing the old exercise list until you left
+// the screen. `loggerDisplay` stands in for the panel's style.display and `freshTemplate` for what
+// loadSessionTemplates() has just pulled back down.
+let loggerDisplay = 'none';
+let freshTemplate = null;
 
 const app = load({
   functions: [
@@ -54,7 +61,10 @@ const app = load({
     'saveSessionTemplate', 'exerciseIdFields',
   ],
   decls: ['editingTemplateExercises', 'editingTemplateGroups', 'editingTemplatePickerFor',
-    'editingTemplateSessionId', 'EXERCISE_LIBRARY', 'EXERCISE_IDS', 'selectedProgramme'],
+    'editingTemplateSessionId', 'EXERCISE_LIBRARY', 'EXERCISE_IDS', 'selectedProgramme',
+    // Saving the template now also refreshes a logger that is open on the session being edited
+    // (24 Aug 2026) — these are the bindings that path reads and resets.
+    'selectedSession', 'supersetGroups', 'supersetsTouched', 'lastTemplateRefresh'],
   deps: {
     renderTemplateEditorRows: () => { calls.renders++; },
     // saveSessionTemplate's collaborators. sb() records the write so the row order can be asserted —
@@ -68,6 +78,12 @@ const app = load({
     buildExerciseLibrary: () => LIBRARY,
     closeSessionEditor: () => {},
     buildSessionGrid: () => {},
+    // Collaborators of the logger refresh. getElementById is called fresh each time, so reading
+    // `loggerDisplay` here picks up whatever the case set it to.
+    document: { getElementById: () => ({ style: { display: loggerDisplay } }) },
+    window: { scrollY: 420, scrollTo: (x, y) => { calls.scrolled = y; } },
+    getSessionById: () => freshTemplate,
+    buildWorkoutLogger: async (s) => { calls.rebuilt.push(s.exercises.map(e => e.name)); },
     // Mirrors the real one: it adds the typed exercise to the template itself and returns the name,
     // which is what lets the picker pair with something that didn't exist a second ago.
     promptTemplateCustomExercise: async () => {
@@ -81,6 +97,13 @@ const app = load({
     pickerFor: '() => editingTemplatePickerFor',
     setExerciseIds: '(m) => { EXERCISE_IDS = m; }',
     setsOf: '(n) => (editingTemplateExercises.find(e => e.name === n) || {}).sets',
+    liveSession: '() => selectedSession',
+    setLive: `(s, groups) => {
+      selectedSession = s;
+      supersetGroups = groups || [];
+      supersetsTouched = !!(groups && groups.length);
+    }`,
+    supersetState: '() => ({ groups: supersetGroups, touched: supersetsTouched })',
     reset: `(names, lib) => {
       editingTemplateExercises = names.map(n => ({ name: n, sets: 3, reps: '8–12', rest: '90s' }));
       editingTemplateGroups = [];
@@ -367,6 +390,50 @@ async function asyncCases() {
     await app.saveSessionTemplate();
     deep(calls.saved[0].map(r => r.name).slice(0, 3), ['Seated Calf Raise', 'Leg Curl', 'RDL'],
       'a deliberate ↑ is written to sort_order');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('  saving from inside the logger updates the session on screen');
+  // ═══════════════════════════════════════════════════════════════════════════
+  // The ✎ link is offered from inside the logger as "Reorder / add / remove exercises for THIS
+  // session", and until 24 Aug it did everything except that: the logger runs off a clone taken when
+  // the tile was tapped, so the exercise list on screen stayed as it was until you left and came back.
+  {
+    reset();
+    freshTemplate = { id: 'lower-b', name: 'Lower B', exercises: [...LOWER_B, 'Hack Squat'].map(n => ({ name: n, sets: 3 })) };
+
+    // Editing from the grid, with no logger open — nothing to rebuild.
+    loggerDisplay = 'none';
+    calls.rebuilt = [];
+    app.setLive({ id: 'lower-b', exercises: [] });
+    await app.saveSessionTemplate();
+    eq(calls.rebuilt.length, 0, 'no logger on screen, no rebuild');
+
+    // Editing from inside the logger, on the session being edited.
+    loggerDisplay = 'block';
+    calls.rebuilt = [];
+    calls.scrolled = null;
+    app.setLive({ id: 'lower-b', exercises: [] }, [['Seated Calf Raise', 'Leg Curl']]);
+    await app.saveSessionTemplate();
+    eq(calls.rebuilt.length, 1, 'the open logger is rebuilt');
+    deep(calls.rebuilt[0].slice(-1), ['Hack Squat'],
+      'and it is rebuilt from the template just saved, not from the clone it started with');
+    ok(app.liveSession() !== freshTemplate,
+      'selectedSession is a fresh CLONE — the logger must never hold the live SESSIONS object');
+    eq(app.supersetState().groups.length, 0,
+      'superset state is reset so it re-derives from draft/template/saved sets, rather than keeping a pairing that was just unpaired');
+    eq(app.supersetState().touched, false, 'and the touched flag with it');
+    eq(calls.scrolled, 420, 'scroll position is put back — no jump to the top between sets');
+
+    // A different session open in the logger is left exactly alone.
+    loggerDisplay = 'block';
+    calls.rebuilt = [];
+    app.setLive({ id: 'upper-a', exercises: [] });
+    await app.saveSessionTemplate();
+    eq(calls.rebuilt.length, 0, 'editing Lower B does not tear down an Upper A logger');
+
+    loggerDisplay = 'none';
+    app.setLive(null);
   }
 }
 
