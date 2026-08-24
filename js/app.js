@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-24-1214';
+const APP_BUILD = '2026-08-24-1242';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3593,6 +3593,27 @@ function renderSetRow(ex, i, prevSet, sessionId, defaultVar) {
     // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
 }
 
+// The sets pill IS the add/remove control (24 Aug 2026, Del's gym note #1, mockup D of seven).
+// It keeps the `pill pill-sets` clothes it has always worn — same blue tint, same 20px radius — so
+// the header still reads as three pills; the two arrows are carved out of its ends. The count keeps
+// id `sets-pill-<name>`, which is what addOpenSetRow/removeOpenSetRow retitle.
+// `at-min` dims the − at one set, where removeOpenSetRow is a no-op (removing the whole exercise is
+// the ✕ in the name row, not this).
+function setsStepperHtml(ex) {
+  return `<span class="pill pill-sets sets-stepper${ex.sets <= 1 ? ' at-min' : ''}" id="sets-step-${esc(ex.name)}">
+      <button type="button" class="sets-step" onclick="removeOpenSetRow('${jsAttr(ex.name)}')" aria-label="Remove last set of ${esc(ex.name)}">−</button>
+      <span class="sets-step-count" id="sets-pill-${esc(ex.name)}">${ex.sets} sets</span>
+      <button type="button" class="sets-step" onclick="addOpenSetRow('${jsAttr(ex.name)}')" aria-label="Add a set to ${esc(ex.name)}">+</button>
+    </span>`;
+}
+
+// Both handlers change the same two things about the stepper, so they say it once here.
+function syncSetsStepper(exName, sets) {
+  const count = document.getElementById(`sets-pill-${exName}`);
+  if (count) count.textContent = `${sets} sets`;
+  document.getElementById(`sets-step-${exName}`)?.classList.toggle('at-min', sets <= 1);
+}
+
 // Builds the HTML for one exercise block (header, variation toggle, set rows, Mark Done).
 // Reused for fixed-session rendering, Open Workout's initial render, and dynamic append via the Add Exercise dropdown.
 function renderExerciseBlock(ex, session) {
@@ -3624,7 +3645,7 @@ function renderExerciseBlock(ex, session) {
           </button>
         </div>
         <div class="ex-pills">
-          <span class="pill pill-sets" id="sets-pill-${esc(ex.name)}">${ex.sets} sets</span>
+          ${setsStepperHtml(ex)}
           <span class="pill pill-reps">${esc(isTimed(ex) && !looksLikeSeconds(ex.reps) ? timedTarget(ex) : ex.reps)}</span>
           <span class="pill pill-rest">${esc(ex.rest)}</span>
         </div>
@@ -3645,16 +3666,11 @@ function renderExerciseBlock(ex, session) {
     html += renderSetRow(ex, i, filteredPrev[i-1], session.id, defaultVar);
   }
 
-  // Every session, not just Open Workout. A fixed session already allows a today-only add/remove of
-  // a whole exercise (the ✕ above, addOpenExercise below) and saveDraft/peekDraftSetCounts already
-  // persist a changed row count for any non-cardio session — this button pair was the only half of
-  // that flexibility still fenced off, which is why the 3.5kg to-failure set after the lateral
-  // raises had nowhere to go, and why a set cut short mid-session could only be recorded as a blank row.
-  html += `<div class="set-row-controls" id="set-controls-${esc(ex.name)}" style="display:flex;gap:8px;margin-top:8px;">
-      <button type="button" class="btn btn-outline" style="flex:1;" onclick="addOpenSetRow('${jsAttr(ex.name)}')">+ Add Set</button>
-      <button type="button" class="btn btn-outline" style="flex:1;" onclick="removeOpenSetRow('${jsAttr(ex.name)}')">− Remove Set</button>
-    </div>`;
-
+  // The + / − pair used to live down here as two full-width outline buttons, the same weight as
+  // Mark Done — four stacked bars under three cramped inputs. Del's first gym note on 24 Aug was
+  // "adjust size of add/remove sets", and he picked the stepper off a seven-frame mockup. It is now
+  // setsStepperHtml() up in .ex-pills: the count and the control are the same object, and the block
+  // tail is one row shorter. Availability is unchanged — every session, not just Open Workout.
   html += `<button class="btn btn-outline btn-full" id="done-btn-${esc(ex.name)}" onclick="completeExercise('${jsAttr(ex.name)}')" style="margin-top:8px;">Mark Done</button>`;
   html += renderSupersetControl(ex);
   html += `</div>`;
@@ -4266,14 +4282,15 @@ function addOpenSetRow(exName) {
   const ex = selectedSession?.exercises.find(e => e.name === exName);
   if (!ex) return;
   ex.sets += 1;
-  const controls = document.getElementById(`set-controls-${exName}`);
-  if (controls) {
+  // Anchor is Mark Done since 24 Aug — the set-row-controls div the new row used to be inserted
+  // before is gone with the stepper move, and Mark Done is the first thing after the last set row.
+  const anchor = document.getElementById(`done-btn-${exName}`);
+  if (anchor) {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = renderSetRow(ex, ex.sets, null, selectedSession.id, selectedVariations[exName]);
-    while (wrapper.firstChild) controls.parentNode.insertBefore(wrapper.firstChild, controls);
+    while (wrapper.firstChild) anchor.parentNode.insertBefore(wrapper.firstChild, anchor);
   }
-  const pill = document.getElementById(`sets-pill-${exName}`);
-  if (pill) pill.textContent = `${ex.sets} sets`;
+  syncSetsStepper(exName, ex.sets);
   saveDraft(selectedSession.id);
 }
 
@@ -4286,8 +4303,7 @@ function removeOpenSetRow(exName) {
   document.getElementById(`w-${exName}-${i}`)?.closest('.set-row')?.remove();
   document.getElementById(`rest-${exName}-${i}`)?.remove();
   ex.sets -= 1;
-  const pill = document.getElementById(`sets-pill-${exName}`);
-  if (pill) pill.textContent = `${ex.sets} sets`;
+  syncSetsStepper(exName, ex.sets);
   saveDraft(selectedSession.id);
 }
 

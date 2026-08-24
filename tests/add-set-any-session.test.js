@@ -29,18 +29,21 @@ function eq(actual, expected, label) {
 }
 
 // ── harness ────────────────────────────────────────────────────────────────
-// Only the DOM the two handlers actually touch: the controls div they insert before, the sets pill
-// they retitle, and (for remove) the row + rest line they delete. `createElement('div')` hands back
-// a wrapper whose innerHTML is captured so the appended row's HTML can be asserted; firstChild
-// stays null so the transfer loop is a no-op.
+// Only the DOM the two handlers actually touch: the Mark Done button they insert before (it was the
+// set-row-controls div until the stepper move on 24 Aug), the count they retitle, the stepper whose
+// `at-min` class they toggle, and (for remove) the row + rest line they delete. `createElement('div')`
+// hands back a wrapper whose innerHTML is captured so the appended row's HTML can be asserted;
+// firstChild stays null so the transfer loop is a no-op.
 function harness({ sessionId, exercise = 'Lateral Raise', sets = 4 }) {
   const savedWith = [];
   const removedIds = [];
   let lastAppended = '';
+  let atMin = sets <= 1;
 
   const els = {};
-  els[`set-controls-${exercise}`] = { parentNode: { insertBefore: () => {} } };
+  els[`done-btn-${exercise}`] = { parentNode: { insertBefore: () => {} } };
   els[`sets-pill-${exercise}`] = { textContent: `${sets} sets` };
+  els[`sets-step-${exercise}`] = { classList: { toggle: (_c, on) => { atMin = on; } } };
   const rowEl = i => ({ closest: () => ({ remove: () => removedIds.push(`row-${i}`) }) });
 
   const deps = {
@@ -71,8 +74,8 @@ function harness({ sessionId, exercise = 'Lateral Raise', sets = 4 }) {
   };
 
   const api = load({
-    functions: ['esc', 'jsAttr', 'prevSetsForVariation', 'renderSetRow', 'renderExerciseBlock',
-                'addOpenSetRow', 'removeOpenSetRow'],
+    functions: ['esc', 'jsAttr', 'prevSetsForVariation', 'renderSetRow', 'setsStepperHtml',
+                'syncSetsStepper', 'renderExerciseBlock', 'addOpenSetRow', 'removeOpenSetRow'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets'],
     deps,
     accessors: {
@@ -85,7 +88,7 @@ function harness({ sessionId, exercise = 'Lateral Raise', sets = 4 }) {
   const session = { id: sessionId, name: sessionId, exercises: [{ name: exercise, sets, reps: '10–15', rest: '60s' }] };
   api.begin(session);
   return { ...api, session, exercise, savedWith, removedIds, pill: els[`sets-pill-${exercise}`],
-           appended: () => lastAppended };
+           appended: () => lastAppended, atMin: () => atMin };
 }
 
 console.log('+ Add Set / − Remove Set on any session');
@@ -141,6 +144,25 @@ console.log('+ Add Set / − Remove Set on any session');
   h.removeOpenSetRow(h.exercise);
   eq(h.sets(h.exercise), 1, 'never drops below one row — use the ✕ to drop the exercise');
   eq(h.savedWith.length, 2, 'the refused removal does not touch the draft');
+  eq(h.atMin(), true, 'at one set the − is flagged at-min, so a dead tap looks dead');
+}
+
+// 6. The control IS the sets pill now (24 Aug 2026, mockup D). Del's gym note was "adjust size of
+// add/remove sets" — two full-width outline buttons at Mark Done's weight, so the block tail was
+// four stacked bars. Both handlers still hang off the header pill; nothing renders below the rows.
+{
+  const h = harness({ sessionId: 'upper1', sets: 3 });
+  const html = h.renderExerciseBlock(h.session.exercises[0], h.session);
+
+  ok(html.includes('class="pill pill-sets sets-stepper"'), 'the stepper keeps the sets pill clothes');
+  ok(html.includes('>3 sets<'), 'the pill still states the count it edits');
+  ok(!html.includes('set-row-controls'), 'the two full-width buttons are gone from the block tail');
+  ok(html.indexOf('addOpenSetRow(') < html.indexOf('class="set-row"'),
+     'the control sits in the header, above the first set row');
+
+  const one = harness({ sessionId: 'upper1', sets: 1 });
+  ok(one.renderExerciseBlock(one.session.exercises[0], one.session).includes('sets-stepper at-min'),
+     'a one-set exercise renders with the − already dimmed');
 }
 
 // 5. Open Workout is unchanged: its id is 'open', so that is what it still saves under.

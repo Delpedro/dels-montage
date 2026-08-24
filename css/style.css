@@ -219,6 +219,25 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 
 .pill { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
 .pill-sets { background: color-mix(in srgb, var(--blue) 15%, transparent); color: var(--blue); }
+/* The sets pill doing a second job as the add/remove-set control (24 Aug 2026). Del's note was
+   "adjust size of add/remove sets" — the old pair were two full-width buttons at Mark Done's weight,
+   so the block tail was four stacked bars. The arrows are carved out of the pill that already states
+   the count, which is the control he picked off the mockup sheet. `padding: 0` overrides .pill's own
+   3px/8px: the padding lives on the arrows now, so the whole end of the pill is the tap target
+   (32×30, thumb-sized) rather than a glyph floating inside one. */
+.sets-stepper { display: inline-flex; align-items: stretch; padding: 0; overflow: hidden; }
+.sets-stepper .sets-step-count { align-self: center; padding: 3px 2px; font-weight: 600; white-space: nowrap; }
+.sets-stepper .sets-step {
+  width: 32px; min-height: 30px; padding: 0;
+  border: none; background: none; color: inherit;
+  font-family: 'DM Sans', sans-serif; font-size: 15px; line-height: 1; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sets-stepper .sets-step:first-child { border-right: 1px solid color-mix(in srgb, var(--blue) 22%, transparent); }
+.sets-stepper .sets-step:last-child { border-left: 1px solid color-mix(in srgb, var(--blue) 22%, transparent); }
+.sets-stepper .sets-step:active { background: color-mix(in srgb, var(--blue) 18%, transparent); }
+/* One set left: removeOpenSetRow is a no-op, so the − says so rather than failing silently. */
+.sets-stepper.at-min .sets-step:first-child { opacity: 0.3; }
 .pill-reps { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
 .pill-rest { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted2); }
 .pill-accent { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-weight: 600; }
