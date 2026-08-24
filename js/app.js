@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-23-1932';
+const APP_BUILD = '2026-08-24-1214';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -4789,6 +4789,12 @@ async function resetSessionSelection(toProgrammePicker = false) {
   currentWorkoutHasSets = false;
   selectedSession = null;
   currentWorkoutId = null;
+  // ── A REST YOU WALKED OUT ON DOES NOT GET TO BUZZ (24 Aug 2026) ──────────────────────────────────
+  // swStop() and swReset() were the only two callers of cancelRestAlert(), and neither of them runs
+  // when you simply leave the session with the watch still counting. The booking outlives the
+  // workout, and the phone goes off in the car park. Nothing else here needs the timer, so this ends
+  // it outright rather than only silencing the push.
+  if (swRunning) swReset(); else cancelRestAlert();
   // Backing out of CV + Pump after a failed save abandons that row rather than reusing it next time.
   // It has no notes and no sets, so every counter already hides it and autoCloseStaleWorkouts() tidies it.
   conditioningWorkoutId = null;
@@ -7081,7 +7087,46 @@ const REST_ALERTS_STORE = 'dlog_rest_alerts';
 // The token for the rest currently being counted. The Edge Function re-reads rest_alerts after
 // sleeping and stays silent unless the token still matches, which is what stops a rest you ended
 // early from buzzing you two minutes later in the middle of the next set.
-let restAlertToken = null;
+//
+// ── IT LIVES IN STORAGE, NOT IN A VARIABLE (24 Aug 2026) ─────────────────────────────────────────
+// It was a module-level `let` until Del's 24 Aug session, and that is why alerts "fired out of
+// nowhere". swRestoreFromStorage() rebuilds a running timer from sessionStorage on every navigation
+// — Stats and back, or iOS discarding the webview while the phone is in a pocket — but it cannot
+// rebuild a plain variable, so the token came back null. cancelRestAlert() opens with
+// `if (!token) return`, so after ANY navigation, stopping the watch deleted nothing: the function
+// slept on and the phone buzzed in the middle of the next set.
+//
+// localStorage rather than sessionStorage, because the case with nothing else left to cancel with is
+// the app being killed and relaunched mid-rest — sessionStorage dies with the tab, this doesn't.
+// A token left behind by a rest nobody ever ended is harmless: the next rest's upsert replaces the
+// row, so the orphaned function wakes, sees a token it doesn't recognise, and says nothing.
+const REST_TOKEN_STORE = 'dlog_rest_token';
+
+function restAlertToken() {
+  try { return localStorage.getItem(REST_TOKEN_STORE); } catch (e) { return null; }
+}
+
+function setRestAlertToken(token) {
+  try {
+    if (token) localStorage.setItem(REST_TOKEN_STORE, token);
+    else localStorage.removeItem(REST_TOKEN_STORE);
+  } catch (e) {}
+}
+
+// Closes any rest alert still sitting on the lock screen. sw.js tags every one 'rest-alert' so that a
+// new one REPLACES the last rather than stacking — and iOS does not honour the tag. Del came out of a
+// two-hour session on 24 Aug with 17 of them piled up, one per rest, not one of which had meant
+// anything since the set after it. So the app closes them itself: when the next rest starts, when a
+// rest is cancelled, and when the app comes back to the front.
+async function clearRestNotifications() {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg || typeof reg.getNotifications !== 'function') return;
+    const open = await reg.getNotifications({ tag: 'rest-alert' });
+    (open || []).forEach(n => n.close());
+  } catch (e) { /* not supported, or no registration yet — nothing to close either way */ }
+}
 
 function pushSupported() {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -7195,12 +7240,20 @@ function paintRestAlertsButton() {
 // beep and the wake lock are unaffected by that — this is an addition to the cue, never the cue.
 async function scheduleRestAlert(exName, seconds) {
   if (!restAlertsOn() || !(seconds >= 1)) return;
+  // ── THE DEADLINE IS STAMPED HERE, AT THE TAP (24 Aug 2026) ─────────────────────────────────────
+  // The function used to be handed a DURATION and started counting it out when it began running, so
+  // the upsert below, the token check, the dispatch, the Deno cold start and — on a 180s rest — a
+  // second cold start for the chain hop were all added on top of the rest itself. That is the 4–6s
+  // late Del measured in the gym on 24 Aug. An absolute deadline absorbs all of it: however slow the
+  // round trip was, the function still counts to the same instant.
+  const dueAt = Date.now() + seconds * 1000;
   const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  restAlertToken = token;
+  setRestAlertToken(token);
+  clearRestNotifications();   // the last rest's alert is stale the moment this one starts
   try {
     const row = {
       token,
-      due_at: new Date(Date.now() + seconds * 1000).toISOString(),
+      due_at: new Date(dueAt).toISOString(),
       exercise: exName || null,
       updated_at: new Date().toISOString(),
     };
@@ -7209,10 +7262,12 @@ async function scheduleRestAlert(exName, seconds) {
     const jwt = await validAccessToken();
     if (!jwt) return;
     // Not awaited beyond the dispatch — this request stays open for the whole rest by design.
+    // `seconds` still travels alongside `dueAt` so a function deployed before this change keeps
+    // working; the new one prefers the deadline and ignores it.
     netFetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
       method: 'POST',
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seconds, token, exercise: exName || '' }),
+      body: JSON.stringify({ seconds, dueAt, token, exercise: exName || '' }),
     }).catch(() => {});
   } catch (e) { /* no signal — the beep and the wake lock still stand */ }
 }
@@ -7220,10 +7275,22 @@ async function scheduleRestAlert(exName, seconds) {
 // Called when a rest ends by any route: stopped, reset, or already announced by the in-app beep.
 // Deleting the row is what makes the sleeping function stay quiet.
 async function cancelRestAlert() {
-  if (!restAlertToken) return;
-  restAlertToken = null;
-  if (!restAlertsOn()) return;
-  try { await sb('rest_alerts', 'DELETE', null, { quiet: true }); } catch (e) {}
+  // Read the token synchronously, before the first await. swStart() calls swStop() and then books the
+  // next rest in the same tick, so a token read after that point would name the rest that has just
+  // STARTED rather than the one being cancelled.
+  const token = restAlertToken();
+  setRestAlertToken(null);
+  clearRestNotifications();
+  if (!token || !restAlertsOn()) return;
+  try {
+    // ── SCOPED TO THE TOKEN, NOT TO THE USER (24 Aug 2026) ───────────────────────────────────────
+    // This was `DELETE rest_alerts` with no filter, which deletes whatever row happens to be there —
+    // including a rest booked microseconds earlier by swStart(). The delete and the upsert are two
+    // unordered requests, and when the delete landed second it silently disarmed the rest that had
+    // just started. That is Del's lateral raise first set, 24 Aug: no alert, no error, no pattern.
+    // Filtered by token, the order stops mattering — a stale cancel can only ever delete its own row.
+    await sb(`rest_alerts?token=eq.${encodeURIComponent(token)}`, 'DELETE', null, { quiet: true });
+  } catch (e) {}
 }
 
 // The whole point of shipping this on a Sunday: Del can prove the route works from his sofa instead
@@ -7236,9 +7303,11 @@ async function testRestAlert() {
   }
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   const token = `test-${Date.now()}`;
-  restAlertToken = token;
+  const dueAt = Date.now() + 5000;
+  setRestAlertToken(token);
+  clearRestNotifications();
   try {
-    const row = { token, due_at: new Date(Date.now() + 5000).toISOString(), exercise: 'Test', updated_at: new Date().toISOString() };
+    const row = { token, due_at: new Date(dueAt).toISOString(), exercise: 'Test', updated_at: new Date().toISOString() };
     const res = await sb('rest_alerts?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true });
     const jwt = await validAccessToken();
     if (!res.ok || !jwt) {
@@ -7247,7 +7316,7 @@ async function testRestAlert() {
       netFetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
         method: 'POST',
         headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seconds: 5, token, exercise: 'Test' }),
+        body: JSON.stringify({ seconds: 5, dueAt, token, exercise: 'Test' }),
       }).catch(() => {});
       showToast('Lock your phone — it should buzz in 5s', 'success');
     }
@@ -7300,6 +7369,9 @@ function swReleaseWakeLock() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   if (swRunning && !swCompletionBeeped) swAcquireWakeLock();
+  // If you are looking at the app you have had the cue. Anything still on the lock screen from an
+  // earlier rest is now just clutter Del has to swipe away one at a time — see clearRestNotifications().
+  clearRestNotifications();
 });
 
 // Parse "180s" / "90s" / "2min" into a number of seconds, default 60

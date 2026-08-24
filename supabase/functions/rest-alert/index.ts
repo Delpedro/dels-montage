@@ -8,8 +8,16 @@
 // session: it chimes and hands it straight back.
 //
 // The web has no LOCAL scheduled notification, so on iOS this has to be a real push from a server.
-// This function is that server. It is called when a rest starts, waits out the remaining seconds,
-// then pushes.
+// This function is that server. It is called when a rest starts, waits until the rest is up, then
+// pushes.
+//
+// IT COUNTS TO A DEADLINE, NOT OUT A DURATION (24 Aug 2026). The client sends `dueAt` — the instant
+// the rest is up, stamped when the watch was tapped — and every sleep below is measured against it.
+// It used to be handed `seconds` and start counting when it began running, which quietly added the
+// client's upsert, its token check, the dispatch, and this function's cold start onto the front of
+// every rest. Del measured the result at 4–6s late, worst on the longest rests because the chain hop
+// pays a second cold start. A deadline absorbs all of that: whatever the round trip cost, the target
+// instant is the same one.
 //
 // THE 150-SECOND WALL. Supabase caps a free-tier function at 150s of wall clock, and Del's longest
 // programmed rest is 180s (session_exercises holds 45/60/90/120/150/180). So one sleep cannot cover
@@ -34,6 +42,19 @@ webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 
 // Leaves ~30s of the 150s budget for the send and for the chain hop itself.
 const CHAIN_AFTER = 120;
+
+// Sent this far BEFORE the deadline. The push still has to cross the push service, APNs, the phone
+// and — for Del, who reads it on his wrist — the Watch relay, and none of that is free. A cue 1.2s
+// early is invisible; the 4–6s late one is what he came out of the gym complaining about.
+const SEND_LEAD_MS = 1200;
+
+// How far the client's stamped deadline may differ from the duration it sent alongside it before the
+// deadline is treated as coming off a wrong clock. Ten seconds is far wider than any round trip and
+// far narrower than a clock actually being wrong.
+const SKEW_TOLERANCE_MS = 10_000;
+
+// Seconds from now until the alert should go out.
+const secondsUntil = (dueAt: number) => (dueAt - SEND_LEAD_MS - Date.now()) / 1000;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -74,7 +95,7 @@ async function stillPending(userId: string, token: string): Promise<boolean> {
   return Array.isArray(rows) && rows.length > 0 && rows[0].token === token;
 }
 
-async function sendToUser(userId: string, title: string, body: string) {
+async function sendToUser(userId: string, title: string, body: string, dueAt: number) {
   const res = await admin(`push_subscriptions?user_id=eq.${userId}&select=endpoint,p256dh,auth`);
   if (!res.ok) return { sent: 0, gone: 0 };
   const subs = await res.json();
@@ -85,7 +106,8 @@ async function sendToUser(userId: string, title: string, body: string) {
     try {
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-        JSON.stringify({ title, body, tag: 'rest-alert' }),
+        // dueAt travels so sw.js can refuse to show a cue that arrives long after the rest ended.
+        JSON.stringify({ title, body, dueAt, tag: 'rest-alert' }),
         { TTL: 60 },
       );
       sent++;
@@ -121,28 +143,43 @@ Deno.serve(async (req) => {
   // Two ways in. A chain hop carries the service-role key and already knows whose rest it is; a
   // client call carries a user token and is only ever allowed to schedule for itself.
   let userId: string;
-  let remaining: number;
+  let dueAt: number;
   let token: string;
   let exercise: string;
 
   if (payload.chain === true) {
     if (bearer !== SERVICE_KEY) return json({ error: 'forbidden' }, 403);
     userId = String(payload.userId ?? '');
-    remaining = Number(payload.remaining ?? 0);
+    dueAt = Number(payload.dueAt ?? 0);
     token = String(payload.token ?? '');
     exercise = String(payload.exercise ?? '');
-    if (!userId || !token) return json({ error: 'bad chain payload' }, 400);
+    if (!userId || !token || !dueAt) return json({ error: 'bad chain payload' }, 400);
   } else {
     const id = await userIdFromToken(bearer);
     if (!id) return json({ error: 'unauthorised' }, 401);
     userId = id;
-    remaining = Number(payload.seconds ?? 0);
     token = String(payload.token ?? '');
     exercise = String(payload.exercise ?? '');
     if (!token) return json({ error: 'token required' }, 400);
+    // `seconds` is the pre-24-Aug wire format. It is still sent, and it is still useful: a deadline
+    // is a point on the CLIENT's clock being read against the SERVER's, so it is only better than a
+    // duration while the two agree. They normally do — an iPhone is NTP-synced — but a phone whose
+    // clock is minutes out would otherwise fire the alert minutes out, which a duration never could.
+    // So take the stamped deadline, and fall back to the duration if the two disagree by more than
+    // the round trip could possibly explain.
+    const stamped = Number(payload.dueAt ?? 0);
+    const secondsSent = Number(payload.seconds ?? 0);
+    const byDuration = Date.now() + secondsSent * 1000;
+    dueAt = stamped || byDuration;
+    if (stamped && secondsSent >= 1 && Math.abs(stamped - byDuration) > SKEW_TOLERANCE_MS) {
+      console.log('clock skew — falling back to the duration', stamped - byDuration);
+      dueAt = byDuration;
+    }
+    const seconds = (dueAt - Date.now()) / 1000;
     // A rest is at most 180s today; the ceiling stops a bad client parking a function for hours,
-    // and the floor keeps the test button honest.
-    if (!(remaining >= 1 && remaining <= 600)) return json({ error: 'seconds out of range' }, 400);
+    // and the floor keeps the test button honest. A deadline already in the past fails it too, which
+    // is right — there is nothing left to wait for.
+    if (!(seconds >= 1 && seconds <= 600)) return json({ error: 'seconds out of range' }, 400);
   }
 
   // ── THE WAIT DOES NOT HAPPEN ON THE CALLER'S CONNECTION ──────────────────────────────────────
@@ -153,16 +190,17 @@ Deno.serve(async (req) => {
   // where nothing the client does can interrupt it. The wall-clock cap still covers the whole
   // invocation, which is why CHAIN_AFTER stays well under it.
   const work = (async () => {
-    const leg = Math.min(remaining, CHAIN_AFTER);
-    await sleep(leg);
-    const left = remaining - leg;
+    const leg = Math.min(secondsUntil(dueAt), CHAIN_AFTER);
+    if (leg > 0) await sleep(leg);
 
-    if (left > 0) {
-      // Hand the remainder to a fresh function so neither leg goes near the 150s wall.
+    // Re-measured against the deadline rather than subtracted from a running total, so a slow leg or
+    // a slow hop is corrected by the next one instead of compounding.
+    if (secondsUntil(dueAt) > 1) {
+      // Hand the rest of the wait to a fresh function so neither leg goes near the 150s wall.
       await fetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain: true, userId, remaining: left, token, exercise }),
+        body: JSON.stringify({ chain: true, userId, dueAt, token, exercise }),
       }).catch((e) => console.error('chain hop failed', e?.message));
       return;
     }
@@ -173,7 +211,7 @@ Deno.serve(async (req) => {
     }
 
     const body = exercise ? `${exercise} — next set` : 'Next set';
-    const result = await sendToUser(userId, 'Rest over', body);
+    const result = await sendToUser(userId, 'Rest over', body, dueAt);
     console.log('sent', JSON.stringify(result));
 
     await admin(`rest_alerts?user_id=eq.${userId}&token=eq.${encodeURIComponent(token)}`, { method: 'DELETE' });
@@ -185,5 +223,5 @@ Deno.serve(async (req) => {
   if (rt && typeof rt.waitUntil === 'function') rt.waitUntil(work);
   else await work;
 
-  return json({ accepted: true, seconds: remaining });
+  return json({ accepted: true, dueAt, seconds: Math.round(secondsUntil(dueAt)) });
 });

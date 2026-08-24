@@ -12,7 +12,7 @@
 // on the way out and refreshes it on the way back. Combined with the ?v= build stamp on the asset
 // URLs in index.html and the version.json check in app.js, there is no longer any layer that can
 // hold a stale build.
-const CACHE_NAME = 'dlog-2026-08-23-1932';
+const CACHE_NAME = 'dlog-2026-08-24-1214';
 const APP_SHELL = [
   './',
   './index.html',
@@ -116,21 +116,46 @@ function isNavigation(request) {
 // The push is sent by the rest-alert Edge Function, which sleeps out the remaining rest and then
 // posts here. Everything this handler needs is in the payload — it must never fetch, because the
 // phone that most needs this notification is the one in a gym basement.
+// A rest alert is worth showing for about as long as the rest was. Two limits enforce that, because
+// neither one covers the other:
+//
+//   STALE_AFTER  — a push that arrives long after its deadline is not shown at all. The deadline
+//                  travels in the payload, so this catches a delivery the push service sat on, or a
+//                  phone that came back into signal with an hour-old alert queued behind it.
+//   CLOSE_AFTER  — a push that WAS shown closes itself. The tag below is supposed to make each rest
+//                  replace the last, and on iOS it does not: Del finished a two-hour session on
+//                  24 Aug with 17 of them stacked down his lock screen. The app closes them too when
+//                  it next opens (clearRestNotifications in app.js) — this is the half that works
+//                  while the app is closed, which is exactly when they pile up.
+const STALE_AFTER = 90 * 1000;
+const CLOSE_AFTER = 60 * 1000;
+
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = {}; }
 
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'Rest over', {
+  if (data.dueAt && Date.now() > Number(data.dueAt) + STALE_AFTER) return;
+
+  const tag = data.tag || 'rest-alert';
+
+  event.waitUntil((async () => {
+    // One tag for every rest alert, so a second rest REPLACES the first notification instead of
+    // stacking a column of them down the lock screen. renotify makes the replacement still chime.
+    // Honoured on Chrome, not on iOS — hence the close below.
+    await self.registration.showNotification(data.title || 'Rest over', {
       body: data.body || 'Next set',
-      // One tag for every rest alert, so a second rest REPLACES the first notification instead of
-      // stacking a column of them down the lock screen. renotify makes the replacement still chime.
-      tag: data.tag || 'rest-alert',
+      tag,
       renotify: true,
       icon: './icons/icon-192.png',
       badge: './icons/icon-192.png',
-    })
-  );
+    });
+
+    await new Promise((r) => setTimeout(r, CLOSE_AFTER));
+    // Re-read rather than closing a handle: the user may have dismissed it, and a rest that started
+    // in the meantime may have posted a newer one under the same tag that should be left alone.
+    const open = await self.registration.getNotifications({ tag });
+    open.filter((n) => Date.now() - (n.timestamp || 0) >= CLOSE_AFTER).forEach((n) => n.close());
+  })());
 });
 
 // Tapping the notification should land on the workout that is already open, not a second copy of it.
