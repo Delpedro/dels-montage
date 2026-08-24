@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-24-1616">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-24-2140">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -550,6 +550,17 @@
   <div class="confirm-box">
     <div class="confirm-title" id="confirm-title"></div>
     <div class="confirm-body" id="confirm-body"></div>
+    <!-- askPrompt() (24 Aug 2026): the same box, with one labelled field in it. This is the last
+         native dialog in the app — "+ Type a new exercise…" and "Name this session" were still
+         calling prompt(), which on iOS renders an OS sheet captioned "delpedro.github.io says"
+         over a hand-built app. Extending the control that is already here, rather than adding a
+         second modal, is why the two share every style, every dismiss rule and every z-index. -->
+    <div class="confirm-field" id="confirm-field" style="display:none;">
+      <label class="field-label" id="confirm-field-label" for="confirm-input"></label>
+      <input type="text" class="field-input" id="confirm-input"
+             autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false"
+             enterkeyhint="done" maxlength="60" />
+    </div>
     <div class="confirm-actions">
       <button type="button" class="btn btn-outline" id="confirm-no"></button>
       <button type="button" class="btn btn-save" id="confirm-yes"></button>
@@ -761,6 +772,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-24-1616"></script>
+<script src="js/app.js?v=2026-08-24-2140"></script>
 </body>
 </html>

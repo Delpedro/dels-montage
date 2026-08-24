@@ -974,6 +974,12 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .confirm-actions .btn { flex: 1; min-width: 0; }
 .confirm-yes-danger { background: var(--red); }
 .confirm-yes-danger:active { background: #8e3428; }
+/* askPrompt() (24 Aug 2026) — the confirm box with one field in it, replacing the last native
+   prompt() in the app. No styles of its own beyond the spacing: .field-label and .field-input are
+   the same two classes every other form in the app uses, so a typed exercise name looks like a
+   typed anything-else rather than like a dialog bolted on. */
+.confirm-field { margin-top: 0.875rem; }
+.confirm-field .field-input { width: 100%; }
 
 /* ─── ONBOARDING (22 Aug 2026) ────────────────────────────────────────────────
    Layout C off the contact sheet: one question a screen, the question set in Bebas at the size a

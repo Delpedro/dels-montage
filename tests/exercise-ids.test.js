@@ -73,9 +73,9 @@ async function main() {
 
     const app = load({
       functions: ['collectExerciseSets', 'exerciseIdFields', 'timedTarget', 'isTimed',
-                  'isOptionalWeight', 'optionalWeightValue'],
+                  'isOptionalWeight', 'optionalWeightValue', 'catalogueKey'],
       decls: ['EXERCISE_IDS', 'currentWorkoutId', 'selectedVariations', 'pendingRest',
-              'TIMED_EXERCISES', 'OPTIONAL_WEIGHT_EXERCISES'],
+              'TIMED_EXERCISES', 'OPTIONAL_WEIGHT_EXERCISES', 'CATALOGUE_BY_KEY'],
       deps: {
         document: { getElementById: id => boxes[id] || null },
         swPaintRestLine: () => {},
@@ -129,7 +129,7 @@ async function main() {
   {
     const app = load({
       functions: ['buildExerciseLibrary'],
-      decls: ['SESSIONS', 'EXERCISE_VARIATIONS'],
+      decls: ['SESSIONS', 'EXERCISE_VARIATIONS', 'EXERCISE_CATALOGUE'],
       accessors: {
         seed: `(sessions, variations) => { SESSIONS = sessions; EXERCISE_VARIATIONS = variations; }`,
       },

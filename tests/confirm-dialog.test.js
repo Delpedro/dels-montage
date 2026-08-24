@@ -36,16 +36,18 @@ function eq(actual, expected, label) {
 function harness() {
   const mk = () => ({
     textContent: '', style: {}, onclick: null,
-    classList: { names: new Set(), toggle(n, on) { if (on) this.names.add(n); else this.names.delete(n); }, has(n) { return this.names.has(n); } },
+    value: '', placeholder: '', maxLength: 0, onkeydown: null, focus() { this.focused = true; }, select() {},
+    classList: { names: new Set(), toggle(n, on) { if (on) this.names.add(n); else this.names.delete(n); }, add(n) { this.names.add(n); }, remove(n) { this.names.delete(n); }, has(n) { return this.names.has(n); } },
   });
   const els = {
     'confirm-modal': mk(), 'confirm-title': mk(), 'confirm-body': mk(),
     'confirm-yes': mk(), 'confirm-no': mk(),
+    'confirm-field': mk(), 'confirm-field-label': mk(), 'confirm-input': mk(),
   };
   const app = load({
-    functions: ['askConfirm'],
+    functions: ['askConfirm', 'askPrompt', 'ensureConfirmField'],
     decls: ['confirmResolve'],
-    deps: { document: { getElementById: (id) => els[id] } },
+    deps: { document: { getElementById: (id) => els[id] }, showToast: () => {} },
   });
   return { app, els };
 }
@@ -152,6 +154,111 @@ console.log('the app asks its own questions now');
   setTimeout(() => eq(count, 1, 'a double tap on the action resolves exactly once'), 20);
 }
 
+
+// ── askPrompt(): the same box, with a field in it (24 Aug 2026) ─────────────
+// Two places still called the browser's prompt() — "+ Type a new exercise…" in both pickers, and
+// "Name this session". On a brand-new account the exercise picker was EMPTY, so that native dialog
+// was not an edge case: it was every exercise of the first session anyone ever logged.
+//
+// It shares askConfirm's promise slot, so it inherits the same risk this whole file exists for —
+// settle exactly once, or a caller awaits forever behind a screen that looks frozen.
+{
+  const { app, els } = harness();
+  const p = app.askPrompt({ title: 'New exercise', label: 'Exercise name', yes: 'Add it' });
+  eq(els['confirm-modal'].style.display, 'block', 'opening it shows the shared modal');
+  eq(els['confirm-field'].style.display, 'block', 'and reveals the field');
+  eq(els['confirm-title'].textContent, 'New exercise', 'the title is set');
+  eq(els['confirm-field-label'].textContent, 'Exercise name',
+     'the field is LABELLED, not placeheld — a placeholder vanishes exactly when you start typing');
+  eq(els['confirm-yes'].textContent, 'Add it', 'the action says what it does');
+  ok(els['confirm-input'].focused, 'the field takes focus, so the keyboard is already up');
+  ok(!els['confirm-yes'].classList.has('confirm-yes-danger'),
+     'never the destructive red face — this dialog creates something');
+
+  els['confirm-input'].value = '  Neutral Grip Pull-ups  ';
+  els['confirm-yes'].onclick();
+  p.then(v => {
+    eq(v, 'Neutral Grip Pull-ups', 'it resolves the TRIMMED name');
+    eq(els['confirm-modal'].style.display, 'none', 'and closes');
+    eq(els['confirm-field'].style.display, 'none', 'putting the field away behind it');
+  });
+}
+
+// ── Every way out settles, and settles with null ────────────────────────────
+// null and not '' — every call site guards with `if (!name) return;`, and both are falsy, but null
+// is the one that says "they said no" rather than "they typed nothing".
+{
+  const cases = [
+    ['cancel', (els) => els['confirm-no'].onclick()],
+    ['the backdrop', (els) => els['confirm-modal'].onclick({ target: els['confirm-modal'] })],
+    ['an empty field', (els) => { els['confirm-input'].value = '   '; els['confirm-yes'].onclick(); }],
+  ];
+  for (const [label, act] of cases) {
+    const { app, els } = harness();
+    const p = app.askPrompt({ title: 'New exercise' });
+    act(els);
+    p.then(v => eq(v, null, `${label} resolves null`));
+  }
+}
+
+// ── A tap that lands INSIDE the box is not a dismissal ──────────────────────
+{
+  const { app, els } = harness();
+  let settled = false;
+  app.askPrompt({ title: 'New exercise' }).then(() => { settled = true; });
+  els['confirm-modal'].onclick({ target: els['confirm-input'] });
+  setTimeout(() => ok(!settled, 'tapping the field itself does not cancel the dialog'), 20);
+}
+
+// ── Enter submits ───────────────────────────────────────────────────────────
+// enterkeyhint="done" already labels the iOS return key. Without a handler it would label a key
+// that does nothing, and return is the first thing anyone tries in a one-field form.
+{
+  const { app, els } = harness();
+  const p = app.askPrompt({ title: 'Name this session' });
+  els['confirm-input'].value = 'Arms Blast';
+  let prevented = false;
+  els['confirm-input'].onkeydown({ key: 'Enter', preventDefault: () => { prevented = true; } });
+  ok(prevented, 'Enter is intercepted rather than left to the browser');
+  p.then(v => eq(v, 'Arms Blast', 'and submits the typed name'));
+}
+{
+  const { app, els } = harness();
+  let settled = false;
+  app.askPrompt({ title: 'New exercise' }).then(() => { settled = true; });
+  els['confirm-input'].onkeydown({ key: 'a', preventDefault: () => {} });
+  setTimeout(() => ok(!settled, 'any other key just types'), 20);
+}
+
+// ── The two dialogs share one promise slot, so one must never strand the other ──
+{
+  const { app, els } = harness();
+  const first = app.askPrompt({ title: 'New exercise' });
+  const second = app.askConfirm({ title: 'Delete this workout?' });
+  first.then(v => eq(v, false, 'a confirm opened over a prompt answers the prompt rather than stranding it'));
+  els['confirm-yes'].onclick();
+  second.then(v => eq(v, true, 'and the confirm still answers for itself'));
+}
+{
+  const { app, els } = harness();
+  const first = app.askConfirm({ title: 'Delete this workout?' });
+  const second = app.askPrompt({ title: 'New exercise' });
+  first.then(v => eq(v, null, 'and a prompt opened over a confirm cancels the confirm'));
+  els['confirm-input'].value = 'Dips';
+  els['confirm-yes'].onclick();
+  second.then(v => eq(v, 'Dips', 'while the prompt answers for itself'));
+}
+
+// ── A confirm after a prompt does not inherit its field ─────────────────────
+{
+  const { app, els } = harness();
+  app.askPrompt({ title: 'New exercise' });
+  els['confirm-no'].onclick();
+  app.askConfirm({ title: 'Finish workout?' });
+  eq(els['confirm-field'].style.display, 'none',
+     'a plain yes/no question is not asked over a stray text box left behind by the last one');
+}
+
 // ── Source guards ───────────────────────────────────────────────────────────
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
@@ -186,6 +293,30 @@ console.log('the app asks its own questions now');
      'the body keeps its line breaks, so a list of exercise names reads as a list');
   ok(/\.confirm-actions \.btn\s*\{[^}]*flex:\s*1/.test(css),
      'both buttons share the width, so a long label cannot squeeze the other to nothing');
+
+  // ── The same guard, for the other native dialog (24 Aug 2026) ──
+  // A behavioural test cannot notice a FOURTH native prompt() being added next month, which is
+  // exactly how the app still had these three four months in.
+  // `prompt(` also matches askPrompt( and promptCustomExercise(, hence the leading boundary.
+  const nativePrompts = code.match(/(^|[^a-zA-Z.])prompt\s*\(/g) || [];
+  eq(nativePrompts.length, 0, 'no native prompt() survives anywhere in app.js either');
+
+  const typed = code.match(/await askPrompt\(\{/g) || [];
+  eq(typed.length, 3, 'all three typed-name dialogs go through askPrompt()');
+
+  ok(/return Promise\.resolve\(null\)/.test(code),
+     'and the one unrecoverable case answers null rather than falling back to a native dialog');
+
+  ['confirm-field', 'confirm-field-label', 'confirm-input'].forEach(id => {
+    ok(html.includes('id="' + id + '"'), 'index.html carries #' + id);
+  });
+  ok(/id="confirm-input"[^>]*enterkeyhint="done"/.test(html),
+     'the iOS return key is labelled, and askPrompt handles Enter so it is not labelled for nothing');
+  ok(/id="confirm-input"[^>]*maxlength=/.test(html),
+     'the field is length-capped — names flow into tiles and inline handlers');
+  ok(/\.confirm-field\s*\{/.test(css), 'the field has spacing of its own');
+  ok(/id="confirm-field-label"[^>]*class="field-label"|class="field-label"[^>]*id="confirm-field-label"/.test(html) && /class="field-input"[^>]*id="confirm-input"/.test(html),
+     'and it reuses the app\'s own two form classes rather than inventing a dialog-only look');
 }
 
 setTimeout(() => {

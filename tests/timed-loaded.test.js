@@ -32,12 +32,16 @@ function eq(actual, expected, label) {
 }
 
 const {
-  timedTarget, isTimed, isOptionalWeight, looksLikeSeconds,
+  timedTarget, isTimed, isOptionalWeight, looksLikeSeconds, setCatalogue,
   TIMED_EXERCISES, OPTIONAL_WEIGHT_EXERCISES,
 } = load({
-  decls: ['TIMED_EXERCISES', 'OPTIONAL_WEIGHT_EXERCISES'],
-  functions: ['timedTarget', 'isTimed', 'isOptionalWeight', 'looksLikeSeconds'],
-  accessors: { TIMED_EXERCISES: '() => TIMED_EXERCISES', OPTIONAL_WEIGHT_EXERCISES: '() => OPTIONAL_WEIGHT_EXERCISES' },
+  decls: ['TIMED_EXERCISES', 'OPTIONAL_WEIGHT_EXERCISES', 'CATALOGUE_BY_KEY'],
+  functions: ['timedTarget', 'isTimed', 'isOptionalWeight', 'looksLikeSeconds', 'catalogueKey'],
+  accessors: {
+    TIMED_EXERCISES: '() => TIMED_EXERCISES',
+    OPTIONAL_WEIGHT_EXERCISES: '() => OPTIONAL_WEIGHT_EXERCISES',
+    setCatalogue: '(m) => { CATALOGUE_BY_KEY = m; }',
+  },
 });
 
 const TIMED = TIMED_EXERCISES();
@@ -95,6 +99,48 @@ for (const key of Object.keys(TIMED)) {
     ok(OPTIONAL.includes(key), `"${key}" is timed AND a carry, so it must also be optional-weight or its load is discarded`);
   }
 }
+
+
+// ── THE SHARED CATALOGUE (24 Aug 2026) ────────────────────────────────────────────────────────
+// The two lists above can only ever match a SPELLING, which is why one lift needs six of them and
+// why "Neutral Grip Pull-ups" — a name no list author thought of — silently loses its kg box and
+// with it every loaded rep the user records. The catalogue matches a ROW instead, so a name nobody
+// enumerated behaves correctly by construction.
+//
+// The precedence is asserted in BOTH directions on purpose. Each direction is a different data
+// loss: a catalogue that cannot ADD optional-weight loses the load off a stranger's belt, and a
+// catalogue that can REMOVE it would lose the load off Del's.
+setCatalogue({
+  'neutral grip pull-ups': { name: 'Neutral Grip Pull-ups', timed_target: null,  optional_weight: true  },
+  'wall sit':              { name: 'Wall Sit',              timed_target: '45s', optional_weight: false },
+  // Deliberately disagrees with TIMED_EXERCISES, which holds 'side plank' at '30–45s'.
+  'side plank':            { name: 'Side Plank',            timed_target: null,  optional_weight: false },
+});
+
+ok(isOptionalWeight('Neutral Grip Pull-ups'),
+  'a catalogue row makes a spelling nobody enumerated optional-weight — the exact store bug this fixes');
+ok(isOptionalWeight('  NEUTRAL grip PULL-ups '),
+  'and the catalogue lookup trims and lowercases, like the list lookup it replaces');
+ok(!isBodyweight({ name: 'Neutral Grip Pull-ups' }),
+  'so its kg box survives — which is the whole point, a loaded rep stays recordable');
+
+eq(timedTarget('Wall Sit'), '45s', 'a catalogue row supplies its own time target');
+ok(isTimed('Wall Sit'), 'and reads as timed');
+ok(isBodyweight({ name: 'Wall Sit' }), 'a timed, unloaded catalogue lift is bodyweight');
+
+eq(timedTarget('Side Plank'), '30–45s',
+  'a catalogue row with a null timed_target does NOT veto the shipped list — this change can never ' +
+  'take timed-ness away from something that already had it');
+ok(isOptionalWeight('Pull-Ups'),
+  'a name the catalogue has never heard of still falls back to the shipped list');
+
+// ── And with no catalogue at all: a failed read, a first paint, an offline start. Every original
+//    answer has to stand, because this is what Del's phone does on a bad gym connection. ──
+setCatalogue({});
+eq(timedTarget('Side Plank'), '30–45s', 'no catalogue — Side Plank is still timed');
+eq(timedTarget('Farmers Walk'), '40s', 'no catalogue — a carry still has its target');
+ok(isOptionalWeight('Dips'), 'no catalogue — Dips is still optionally loaded');
+ok(!isOptionalWeight('Neutral Grip Pull-ups'), 'no catalogue — and the unenumerated name is back to being unknown');
 
 // ── Prove the copied rule above still matches the source. The whole point of this file is that one
 //    expression; a test asserting a private copy of it would pass forever after app.js changed. ──

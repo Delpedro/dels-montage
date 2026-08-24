@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-24-1616';
+const APP_BUILD = '2026-08-24-2140';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -368,6 +368,31 @@ function buildExerciseLibrary() {
     if (!map[name]) map[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
     if (!map[name].variations) map[name].variations = variations;
   });
+  // The shared catalogue goes in LAST and never overwrites — precedence is exactly the precedence
+  // that already existed for EXERCISE_VARIATIONS, one rung lower. Your own template wins, then your
+  // own exercises row, then the catalogue. That ordering is the whole reason a store user can be
+  // given 58 known lifts without any of it touching what Del has already built: for him, every
+  // catalogue name is already a key in `map` by the time this runs, so this loop changes nothing.
+  //
+  // Only fills gaps on an entry that already exists (variations, the bodyweight flag) — a template
+  // that deliberately says 4 sets of 6 keeps saying it.
+  Object.values(EXERCISE_CATALOGUE).forEach(row => {
+    const name = row.name;
+    if (!map[name]) {
+      map[name] = {
+        name,
+        sets: 3,
+        // A timed exercise's "reps" mean seconds, so a fresh add reads "30–45s" rather than the
+        // "8–12" a hold can never do. See TIMED_EXERCISES / looksLikeSeconds().
+        reps: row.timed_target || '8–12',
+        rest: '90s'
+      };
+      if (row.bodyweight) map[name].bodyweight = true;
+    }
+    if (!map[name].variations && Array.isArray(row.variations) && row.variations.length) {
+      map[name].variations = row.variations;
+    }
+  });
   return map;
 }
 let EXERCISE_LIBRARY = {};  // populated after loadSessionTemplates() resolves — see initApp()
@@ -399,6 +424,32 @@ async function loadExerciseIds() {
   });
   EXERCISE_IDS = ids;
   EXERCISE_VARIATIONS = variations;
+}
+
+// ─── THE SHARED CATALOGUE (24 Aug 2026) ───────────────────
+// `exercise_catalogue` is the one table besides `quotes` that belongs to nobody: readable by every
+// signed-in user, writable through the API by none of them. It exists because EXERCISE_LIBRARY is
+// built from YOUR templates and YOUR exercises rows, so a brand-new account had an EMPTY picker and
+// the only way past it was typing every lift into a native prompt().
+//
+// Two maps, both needed:
+//   CATALOGUE       — name → row, folded into EXERCISE_LIBRARY as the lowest-priority source.
+//   CATALOGUE_BY_KEY — lowercase/trimmed name → row, which is what replaces the hand-enumerated
+//                      spellings in TIMED_EXERCISES and OPTIONAL_WEIGHT_EXERCISES.
+//
+// Never throws and never blocks a start: a failed read leaves both empty and the app behaves
+// exactly as it did before the catalogue existed. Del's own 58 exercises come from his own rows.
+let EXERCISE_CATALOGUE = {};        // name → catalogue row
+let CATALOGUE_BY_KEY = {};          // lower(trim(name)) → catalogue row
+
+function catalogueKey(name) { return (name || '').trim().toLowerCase(); }
+
+async function loadExerciseCatalogue() {
+  const rows = await sb('exercise_catalogue?select=name,variations,timed_target,optional_weight,bodyweight,muscle_group,equipment&order=name.asc');
+  const byName = {}, byKey = {};
+  (rows || []).forEach(r => { byName[r.name] = r; byKey[catalogueKey(r.name)] = r; });
+  EXERCISE_CATALOGUE = byName;
+  CATALOGUE_BY_KEY = byKey;
 }
 
 // Returns { exercise_id } to spread into a row, or {} when the name isn't known yet — a brand new
@@ -653,7 +704,59 @@ const AUTH_STORE = 'dlog_session';
 let authSession = null;      // { access_token, refresh_token, expires_at (ms), email }
 let refreshInFlight = null;  // dedupes concurrent refreshes — initApp fires many requests at once
 
+// ─── PER-DEVICE STATE BELONGS TO WHOEVER IS SIGNED IN (24 Aug 2026) ───
+// Most of what the app keeps in localStorage is keyed by nothing at all, because until multi-user
+// there was only ever one person. Two accounts on one browser — Del and a beta tester on the
+// laptop, or a shared iPad — inherited each other's:
+//
+//   dlog_last_backup      the WORST one. B is shown A's backup date and believes their own data is
+//                         backed up when nothing of theirs ever has been.
+//   dlog_history_filters  B's History opens filtered by A's search and reads as "my history is
+//                         gone" — the one failure mode this app has already caused a panic over.
+//   dlog_stats_range      cosmetic, but wrong.
+//   dlog_rest_alerts      B inherits A's alert preference.
+//   dlog_rest_token       a live rest token belonging to someone else's session.
+//   workout_draft         half a logged workout, in the wrong account's hands.
+//   sw_state / del_page   in-flight rest timer and last page, both A's.
+//
+// Doing this by renaming every key to `key:<email>` was the other option and is worse: those keys
+// are read on the very first paint, before authSession is loaded, so a per-account key would
+// resolve to `dlog_rest_token:` on boot — which is EXACTLY the null-token bug fixed on 24 Aug that
+// made rest alerts fire out of nowhere. Twenty read paths, each with that hazard.
+//
+// So the rule lives at the account boundary instead: one function, one call, run at a point where
+// the email is known for certain. It also covers keys nobody has written yet, which the rename
+// approach could never do.
+const LAST_ACCOUNT_STORE = 'dlog_last_account';
+
+// Referenced (not copied) so a key can never drift, and read inside the function rather than at
+// module scope so the consts declared further down this file are all initialised by call time.
+// tests/empty-account.test.js asserts this list still covers every device key in app.js.
+function perDeviceKeys() {
+  return [
+    BACKUP_STORE, HISTORY_FILTER_STORE, STATS_RANGE_STORE, REST_ALERTS_STORE, REST_TOKEN_STORE,
+    'workout_draft', 'sw_state', 'del_page',
+  ];
+}
+
+// Wipes device-local state when the account changes. A no-op in the only case that happens on a
+// phone — the same person signing in again — because it compares before it clears.
+function claimDeviceForAccount(email) {
+  if (!email) return;                       // a refresh with no user payload: nothing to decide on
+  try {
+    const previous = localStorage.getItem(LAST_ACCOUNT_STORE);
+    if (previous && previous !== email) {
+      perDeviceKeys().forEach(k => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
+    }
+    localStorage.setItem(LAST_ACCOUNT_STORE, email);
+  } catch (e) { /* private mode / storage disabled — the app works without any of this */ }
+}
+
 function storeSession(tok) {
+  // Before the write, so the comparison still has the OUTGOING account to compare against.
+  // storeSession is the single funnel for both a fresh login and a token refresh; a refresh carries
+  // no user payload, falls through to the existing email, and therefore never clears anything.
+  claimDeviceForAccount(tok.user?.email ?? '');
   authSession = {
     access_token: tok.access_token,
     refresh_token: tok.refresh_token,
@@ -2458,7 +2561,11 @@ async function initApp(page = 'home') {
   lastTemplateRefresh = Date.now();
   // Before the build, not after: buildExerciseLibrary() folds EXERCISE_VARIATIONS in, and every
   // workout_sets write consults EXERCISE_IDS — the logger can open the moment initApp returns.
-  await loadExerciseIds();
+  // Both before the build, and together rather than one after the other — this runs on every app
+  // start, sometimes on a gym connection. The catalogue is what a brand-new account's picker is
+  // made of, so it cannot be a background read the way loadCustomExercises() is: the dropdown would
+  // be empty for the first second of the first session anyone ever logs.
+  await Promise.all([loadExerciseIds(), loadExerciseCatalogue()]);
   EXERCISE_LIBRARY = buildExerciseLibrary();
   loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
   // Two independent single-row reads, so they go together rather than one after the other — this
@@ -2940,6 +3047,14 @@ async function startNextSession() {
   if (!await btn.select(openRows)) showWorkoutView('grid');
 }
 
+// Whether a programme has anything in it. Its own function rather than an inline .some() so the
+// empty-tile rule can be tested without standing up a DOM — see tests/empty-account.test.js. The
+// rule it encodes is the one thing standing between a new account and a dead end, so it is worth
+// being able to assert directly.
+function programmeHasSessions(programmeId) {
+  return SESSIONS.some(s => s.programme === programmeId);
+}
+
 async function buildSessionGrid(programmeId = null) {
   const grid = document.getElementById('session-grid');
   const sub = document.getElementById('workout-subtitle');
@@ -2966,6 +3081,17 @@ async function buildSessionGrid(programmeId = null) {
 
     TRAINING_PROGRAMMES.forEach(p => {
       if (p.id === CUSTOM_PROGRAMME_ID) return;   // never a folder tile — see customSessions below
+      // A programme with nothing in it is a dead end, and on a new account BOTH of them are
+      // (24 Aug 2026). TRAINING_PROGRAMMES is a hardcoded literal while the sessions themselves
+      // live in session_templates, so a stranger was advertised "Upper / Lower — Upper 1, Lower 1,
+      // Upper 2, Lower 2", tapped it, and landed on a back button over a band reading "0 sessions"
+      // — inside the first minute of the first run.
+      //
+      // Rendering only what can actually be trained degrades correctly in every case including the
+      // store, and needs no new table: Del still sees both his tiles, a stranger sees Open Workout
+      // until they save a session of their own, and the tile reappears by itself the moment there
+      // is something behind it.
+      if (!programmeHasSessions(p.id)) return;
       const btn = document.createElement('div');
       btn.className = `session-btn programme-btn tinted sc-prog-${p.id}`;
       btn.id = `programme-btn-${p.id}`;
@@ -3319,7 +3445,12 @@ function addTemplateExercise(name) {
 // Same validation/persistence as Open Workout's promptCustomExercise() — names flow into inline
 // onclick handlers throughout the app, so quote characters are rejected client-side.
 async function promptTemplateCustomExercise() {
-  const raw = prompt('Exercise name:');
+  const raw = await askPrompt({
+    title: 'New exercise',
+    label: 'Exercise name',
+    placeholder: 'e.g. Incline DB Press',
+    yes: 'Add it',
+  });
   renderTemplateEditorRows();  // reset dropdown back to placeholder regardless of outcome
   const name = raw ? raw.trim() : '';
   if (!name) return;
@@ -3438,7 +3569,107 @@ function askConfirm({ title, body = '', yes = 'OK', no = 'Cancel', danger = fals
   // on the card itself — or on a button inside it — never reads as one.
   modal.onclick = (e) => { if (e.target === modal) settle(false); };
 
+  // askPrompt() shares this box and leaves its field on screen, so a plain confirm has to put it
+  // away again — otherwise the question after a "New exercise" would ask itself over a stray input.
+  //
+  // Optional, and that is not defensive padding. This app is a PWA: the service worker can be
+  // serving a cached index.html from before this field existed while app.js is already the new one.
+  // A hard throw here would take out all eight yes/no dialogs — including "Delete this workout?" —
+  // on a version mismatch that resolves itself on the next update. Never let the new thing break
+  // the old thing.
+  const field = document.getElementById('confirm-field');
+  if (field) field.style.display = 'none';
   modal.style.display = 'block';
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
+
+// ─── askPrompt() — THE LAST NATIVE DIALOG (24 Aug 2026) ───
+// Two places still called prompt(): "+ Type a new exercise…" in Open Workout and in the ✎ template
+// editor, and "Name this session" when saving an Open Workout. On iOS that is an OS sheet captioned
+// "delpedro.github.io says" sitting on top of a hand-built app — the same objection confirm() got
+// on 19 Aug, and the same objection the native <select> got on 17 Aug.
+//
+// It mattered more than it looked. On a brand-new account the exercise picker was EMPTY, so typing
+// into that system dialog was not an edge case — it was every exercise of the first session anyone
+// ever logged. The shared catalogue fixes the emptiness; this fixes what is left.
+//
+// Same box, same dismiss rules, same promise slot as askConfirm — deliberately not a second modal.
+// Resolves to a TRIMMED, non-empty string, or null for cancel/backdrop/empty, so every caller's
+// existing `if (!name) return;` guard keeps working unchanged.
+// Finds the field, or builds it. Same PWA reasoning as the guard in askConfirm above, in the
+// direction that matters more: a cached index.html predating this markup would leave a brand-new
+// account with no way at all to name an exercise, which is the exact dead end this work removes.
+// Constructing it is a few lines and turns a hard stop into a cosmetic one.
+function ensureConfirmField() {
+  const existing = document.getElementById('confirm-field');
+  if (existing) return existing;
+  const box = document.querySelector?.('.confirm-box');
+  if (!box) return null;
+  const field = document.createElement('div');
+  field.id = 'confirm-field';
+  field.className = 'confirm-field';
+  field.innerHTML =
+    '<label class="field-label" id="confirm-field-label" for="confirm-input"></label>' +
+    '<input type="text" class="field-input" id="confirm-input" autocomplete="off" ' +
+    'autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="done" maxlength="60" />';
+  box.insertBefore(field, document.querySelector('.confirm-actions'));
+  return field;
+}
+
+function askPrompt({ title, body = '', label = 'Name', value = '', placeholder = '', yes = 'Save', no = 'Cancel', maxlength = 60 }) {
+  // Same reasoning as askConfirm: a second question asked while one is open would strand the first
+  // promise forever, and an await that never settles is a frozen screen. Cancel is always safe.
+  if (confirmResolve) { const stale = confirmResolve; confirmResolve = null; stale(null); }
+
+  const modal = document.getElementById('confirm-modal');
+  const bodyEl = document.getElementById('confirm-body');
+  const field = ensureConfirmField();
+  const input = document.getElementById('confirm-input');
+  const yesBtn = document.getElementById('confirm-yes');
+  const noBtn = document.getElementById('confirm-no');
+
+  // The one unrecoverable case: an old cached index.html AND no way to build the field into it.
+  // Answering null is the honest outcome — the caller's `if (!name) return;` takes over and nothing
+  // is half-created. It does NOT fall back to prompt(): a native dialog is the thing being removed.
+  if (!field || !input) {
+    showToast('Update the app to type a new name', 'error');
+    return Promise.resolve(null);
+  }
+
+  document.getElementById('confirm-title').textContent = title;
+  bodyEl.textContent = body;
+  bodyEl.style.display = body ? 'block' : 'none';
+  // Labelled, not placeheld. A placeholder disappears the moment you type, which is exactly when a
+  // one-field dialog stops saying what the field is for.
+  document.getElementById('confirm-field-label').textContent = label;
+  input.value = value || '';
+  input.placeholder = placeholder;
+  input.maxLength = maxlength;
+  field.style.display = 'block';
+  yesBtn.textContent = yes;
+  noBtn.textContent = no;
+  yesBtn.classList.remove('confirm-yes-danger');   // never the destructive face — this one creates
+
+  const settle = (answer) => {
+    modal.style.display = 'none';
+    field.style.display = 'none';
+    input.onkeydown = null;
+    const done = confirmResolve;
+    confirmResolve = null;
+    if (done) done(answer);
+  };
+  const submit = () => settle(input.value.trim() || null);
+  // Assigned, not addEventListener — re-opening can never leave two handlers resolving two promises.
+  yesBtn.onclick = submit;
+  noBtn.onclick = () => settle(null);
+  modal.onclick = (e) => { if (e.target === modal) settle(null); };
+  // enterkeyhint="done" already labels the iOS return key; without this it would label a key that
+  // does nothing, and pressing return is the first thing anyone tries in a one-field form.
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
+
+  modal.style.display = 'block';
+  input.focus();   // after display: focusing a hidden input is a no-op
+  input.select();
   return new Promise(resolve => { confirmResolve = resolve; });
 }
 
@@ -3646,9 +3877,21 @@ const TIMED_EXERCISES = {
 };
 
 // The default time target for a timed exercise, or null if it isn't timed.
+//
+// Catalogue first, hardcoded list second (24 Aug 2026). The list above is now a FALLBACK, not the
+// source of truth: it only ever answers for a name the shared catalogue has never heard of — one
+// the user typed themselves, or a name reached before loadExerciseCatalogue() resolved.
+//
+// The fall-through is deliberate in both directions. A catalogue row with a null timed_target does
+// NOT veto the list, so this change cannot take timed-ness away from anything the shipped app
+// already treated as timed — the two agree today, and if they ever diverge the app keeps behaving
+// the way it behaved before.
 function timedTarget(ex) {
   const name = typeof ex === 'string' ? ex : ex?.name;
-  return TIMED_EXERCISES[(name || '').trim().toLowerCase()] || null;
+  const key = catalogueKey(name);
+  const row = CATALOGUE_BY_KEY[key];
+  if (row && row.timed_target) return row.timed_target;
+  return TIMED_EXERCISES[key] || null;
 }
 function isTimed(ex) { return timedTarget(ex) !== null; }
 
@@ -3675,9 +3918,17 @@ const OPTIONAL_WEIGHT_EXERCISES = [
   // the weight column is forced to null and a Farmers Walk can never show progression.
   'farmers walk', 'farmers walks', 'farmer walk'
 ];
+// Catalogue first, list second — same fallback rule as timedTarget() above, and the same reason.
+//
+// This is the one that most needed it. The list below enumerates SIX spellings of pull-up and six
+// of chin-up because a spelling was the only thing it could match on; a stranger typing "Neutral
+// Grip Pull-ups" got none of them, lost the kg box, and could never record what they hung off the
+// belt. A boolean on a shared row fixes that by construction for every name in the catalogue.
 function isOptionalWeight(ex) {
   const name = typeof ex === 'string' ? ex : ex?.name;
-  return OPTIONAL_WEIGHT_EXERCISES.includes((name || '').trim().toLowerCase());
+  const key = catalogueKey(name);
+  if (CATALOGUE_BY_KEY[key]?.optional_weight) return true;
+  return OPTIONAL_WEIGHT_EXERCISES.includes(key);
 }
 
 // What to store in workout_sets.weight for a typed-in weight box.
@@ -4559,7 +4810,13 @@ async function offerSaveOpenAsTemplate(exercises, supersetTags = {}) {
   });
   if (!save) return;
 
-  const raw = prompt('Name this session:', '');
+  const raw = await askPrompt({
+    title: 'Name this session',
+    label: 'Session name',
+    placeholder: 'e.g. Arms Blast',
+    yes: 'Save it',
+    no: 'Not now',
+  });
   const name = raw ? raw.trim() : '';
   if (!name) return;
   // Same rule as custom exercise names — these flow into inline onclick="…('${id}')" handlers.
@@ -4659,7 +4916,12 @@ async function handleOpenExerciseSelect(selectEl) {
 }
 
 async function promptCustomExercise() {
-  const raw = prompt('Exercise name:');
+  const raw = await askPrompt({
+    title: 'New exercise',
+    label: 'Exercise name',
+    placeholder: 'e.g. Incline DB Press',
+    yes: 'Add it',
+  });
   renderOpenAddExerciseOptions();  // reset dropdown back to placeholder regardless of outcome
   const name = raw ? raw.trim() : '';
   if (!name) return;
