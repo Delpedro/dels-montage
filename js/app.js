@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-24-1604';
+const APP_BUILD = '2026-08-24-1616';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -987,7 +987,7 @@ function resetRecoveryState() {
   recoveryAttempts = 0;
   recoveryResendAt = 0;
   if (recoveryTimer) { clearInterval(recoveryTimer); recoveryTimer = null; }
-  for (const id of ['reset-email', 'reset-code', 'reset-new', 'reset-confirm-pw']) {
+  for (const id of ['reset-email', 'reset-code', 'reset-new', 'reset-confirm-pw', 'reset-sent-to']) {
     const el = document.getElementById(id);
     if (el) el.value = '';
   }
@@ -1094,7 +1094,7 @@ async function sendRecoveryCode() {
   recoveryEmail = email;
   recoveryAttempts = 0;
   const sentTo = document.getElementById('reset-sent-to');
-  if (sentTo) sentTo.textContent = email;
+  if (sentTo) sentTo.value = email;
   showLoginPanel('confirm');
   startResendCooldown();
   loginStep('reset · code sent · http ' + res.status);
@@ -1239,14 +1239,8 @@ document.getElementById('login-password').addEventListener('keydown', e => {
   if (e.key === 'Enter') handleLogin();
 });
 
-// Enter submits whichever panel is up. On the reset panels it is bound to the LAST field of each,
-// so a password manager or an autofilled code still lands on a keystroke that means "go".
-document.getElementById('reset-email').addEventListener('keydown', e => {
-  if (e.key === 'Enter') sendRecoveryCode();
-});
-document.getElementById('reset-confirm-pw').addEventListener('keydown', e => {
-  if (e.key === 'Enter') completePasswordReset();
-});
+// No keydown handlers for the two reset panels: each is a real <form> with a submit button, so Enter
+// already submits it. Binding one on top of that would run the handler twice on a single Enter.
 
 window.addEventListener('load', async () => {
   renderLoginDiag();

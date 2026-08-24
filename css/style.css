@@ -65,6 +65,10 @@ html.login-active { overflow: hidden; }
 .login-link:disabled { opacity: 0.55; cursor: default; text-decoration: none; }
 .login-step { font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 1px; line-height: 1.1; margin-bottom: 6px; }
 .login-note { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 1.5rem; }
+/* The account field is there to tell the password manager which login changed, so it must be a real
+   focusable input — but it is not something to type in, and it should not look like one. */
+.form-group input[readonly] { color: var(--muted); cursor: default; }
+.form-group input[readonly]:focus { border-color: var(--border2); }
 /* `.form-group input` is (0,1,1), so a bare `.code-input` would lose to it and the digits would
    come out at 15px like any other field. It has to be qualified to win. */
 /* Sized for the longest code GoTrue can be set to emit (10), not the six it was written for. */

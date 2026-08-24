@@ -151,7 +151,7 @@ const stop = h => h.app.resetRecoveryState();   // kills the resend interval so 
     ok(panel(unknown, 'reset-confirm'), 'an UNKNOWN address moves on to the code panel too');
     eq(shown(unknown), null, 'an unknown address raises no error — the screen must not confirm who has an account');
     eq(shown(real), shown(unknown), 'both addresses leave the error line in the same state');
-    eq(real.els['reset-sent-to'].textContent, unknown.els['reset-sent-to'].textContent, 'both echo back the address the same way');
+    eq(real.els['reset-sent-to'].value, unknown.els['reset-sent-to'].value, 'both echo back the address the same way');
     stop(real); stop(unknown);
   }
 
@@ -378,6 +378,37 @@ const stop = h => h.app.resetRecoveryState();   // kills the resend interval so 
     const h = await atCodeStep(router({ '/auth/v1/recover': res(200) }));
     ok(/reset/.test(h.els['login-diag'].textContent), 'the login screen black box reports the reset steps as well as the sign-in ones');
     stop(h);
+  }
+
+  // ── What the password manager needs, asserted against index.html itself ─────────────────────
+  // 1Password offered to save nothing after Del's first successful reset (24 Aug). A manager needs a
+  // real submit event and a username field in the SAME form to know which login just changed; the
+  // panels were bare divs and the email sat on the panel behind. All three are markup, so they are
+  // checked here rather than through the extracted functions — a future tidy that unwraps the form
+  // or drops the readonly field would silently take the behaviour with it.
+  {
+    const fsx = require('fs');
+    const pathx = require('path');
+    const root = pathx.join(__dirname, '..');
+    const html = fsx.readFileSync(pathx.join(root, 'index.html'), 'utf8');
+    const appSrc = fsx.readFileSync(pathx.join(root, 'js', 'app.js'), 'utf8');
+    const confirmPanel = html.slice(html.indexOf('id="reset-confirm"'), html.indexOf('id="login-error"'));
+    const requestPanel = html.slice(html.indexOf('id="reset-request"'), html.indexOf('id="reset-confirm"'));
+
+    ok(confirmPanel.includes('<form onsubmit="completePasswordReset(); return false;">'),
+       'the reset panel is a real form — a manager captures a change on the submit event');
+    ok(confirmPanel.includes('<button type="submit" class="btn-primary" id="reset-save-btn">'),
+       'Set password is that form\'s submit button');
+    ok(!confirmPanel.includes('onclick="completePasswordReset()"'),
+       'no onclick left alongside the submit — that would run the handler twice on one tap');
+    ok(confirmPanel.includes('id="reset-sent-to" autocomplete="username" readonly'),
+       'the address rides along as a readonly username field, so the manager knows WHICH login changed');
+    ok((confirmPanel.match(/autocomplete="new-password"/g) || []).length === 2,
+       'both new-password boxes are marked new-password');
+    ok(requestPanel.includes('<form onsubmit="sendRecoveryCode(); return false;">'),
+       'the request panel is a form too, so Enter submits it without a keydown handler');
+    ok(!appSrc.includes("getElementById('reset-confirm-pw').addEventListener"),
+       'and no keydown handler survives on the reset fields, which would double-fire on Enter');
   }
 
   console.log(`password-reset: ${pass} passed, ${fail} failed`);
