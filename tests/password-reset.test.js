@@ -75,12 +75,15 @@ function harness(fetchImpl) {
     functions: [
       'showLoginPanel', 'loginFail', 'resetRecoveryState', 'showForgotPassword', 'backToSignIn',
       'startResendCooldown', 'sendRecoveryCode', 'resendRecoveryCode', 'completePasswordReset',
+      'newPasswordProblem', 'resetSignupState',
       'revokeOtherSessions', 'showLoginScreen', 'loginStep', 'renderLoginDiag', 'netFetch',
     ],
     decls: [
       'RECOVERY_MAX_ATTEMPTS', 'RECOVERY_RESEND_MS', 'RECOVERY_CODE_MIN', 'RECOVERY_CODE_MAX',
       'recoverySession', 'recoveryEmail',
       'recoveryAttempts', 'recoveryResendAt', 'recoveryTimer', 'NET_TIMEOUT_MS', 'APP_BUILD',
+      // showLoginScreen() clears a half-finished SIGNUP too now, so its state has to exist in here.
+      'signupEmail', 'signupAttempts', 'signupResendAt', 'signupTimer',
       'serverBuild', 'loginStatus',
     ],
     deps: {
@@ -392,7 +395,9 @@ const stop = h => h.app.resetRecoveryState();   // kills the resend interval so 
     const root = pathx.join(__dirname, '..');
     const html = fsx.readFileSync(pathx.join(root, 'index.html'), 'utf8');
     const appSrc = fsx.readFileSync(pathx.join(root, 'js', 'app.js'), 'utf8');
-    const confirmPanel = html.slice(html.indexOf('id="reset-confirm"'), html.indexOf('id="login-error"'));
+    // Ends at the signup panel, not at #login-error: the two signup panels now sit between the
+    // reset panel and the shared error line, and they carry new-password boxes of their own.
+    const confirmPanel = html.slice(html.indexOf('id="reset-confirm"'), html.indexOf('id="signup-request"'));
     const requestPanel = html.slice(html.indexOf('id="reset-request"'), html.indexOf('id="reset-confirm"'));
 
     ok(confirmPanel.includes('<form onsubmit="completePasswordReset(); return false;">'),

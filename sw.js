@@ -12,7 +12,7 @@
 // on the way out and refreshes it on the way back. Combined with the ?v= build stamp on the asset
 // URLs in index.html and the version.json check in app.js, there is no longer any layer that can
 // hold a stale build.
-const CACHE_NAME = 'dlog-2026-08-25-1352';
+const CACHE_NAME = 'dlog-2026-08-25-1542';
 const APP_SHELL = [
   './',
   './index.html',
@@ -108,10 +108,11 @@ function isNavigation(request) {
 }
 
 // ─── REST ALERTS (23 Aug 2026) ───────────────────────────────────────────────────────────────────
-// The only cue that reaches a locked phone. The in-app beep needs a render tick, which a locked
-// screen doesn't give, and the 21 Aug attempt to fix that with a long silent WAV was binned because
-// holding the iOS audio session stopped Spotify for the whole rest. A notification chimes off the
-// notification channel and gives the audio session straight back.
+// The only cue that reaches a locked phone, and since 25 Aug 2026 the only audible cue D-LOG has at
+// all — Del killed the in-app beep. It needed a render tick, which a locked screen doesn't give, and
+// the 21 Aug attempt to fix that with a long silent WAV was binned because holding the iOS audio
+// session stopped Spotify for the whole rest. A notification chimes off the notification channel and
+// gives the audio session straight back.
 //
 // The push is sent by the rest-alert Edge Function, which sleeps out the remaining rest and then
 // posts here. Everything this handler needs is in the payload — it must never fetch, because the

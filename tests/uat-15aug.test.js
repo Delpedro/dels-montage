@@ -7,7 +7,7 @@
 // CURRENT_STATUS.md. Nothing to assert here.
 //
 // The watch half is weighted at the hand-over rather than at the hiding: hiding a button is one line
-// and obviously right, whereas a RUNNING timer left on a hidden button keeps counting and beeping
+// and obviously right, whereas a RUNNING timer left on a hidden button keeps counting and cueing
 // with its own stop control off screen. That's the failure worth a test.
 //
 // Run: node tests/uat-15aug.test.js
@@ -61,7 +61,7 @@ const app = load({
     swActiveExercise: null,
     swStartTimestamp: null,
     swTargetSeconds: 60,
-    swCompletionBeeped: false,
+    swCompletionCued: false,
     swSaveOnStop: true,
     swInterval: null,
     swRenderWatch: n => calls.rendered.push(n),
@@ -76,7 +76,7 @@ const app = load({
     clearInterval: id => calls.cleared.push(id),
   },
   accessors: {
-    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionBeeped, swSaveOnStop, swInterval })',
+    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionCued, swSaveOnStop, swInterval })',
     setup: `(session, groups, watch) => {
       selectedSession = session;
       supersetGroups = groups;
@@ -84,7 +84,7 @@ const app = load({
       swActiveExercise = watch ? watch.exercise : null;
       swStartTimestamp = watch ? watch.start : null;
       swTargetSeconds = watch ? watch.target : 60;
-      swCompletionBeeped = watch ? !!watch.beeped : false;
+      swCompletionCued = watch ? !!watch.cued : false;
       swSaveOnStop = watch ? watch.save !== false : true;
       swInterval = watch ? 7 : null;
     }`,
@@ -170,13 +170,13 @@ eq(calls.cleared.length, 1, 'the old 1s re-render interval is cleared, not left 
 eq(JSON.parse(store.sw_state).exercise, 'Rear Delts', 'sw_state follows, so a trip to Stats and back restores the right block');
 eq(JSON.parse(store.sw_state).start, NOW - 30000, 'sw_state keeps the original start');
 
-// 30s elapsed against a 60s target: the beep is still to come.
-eq(app.state().swCompletionBeeped, false, 'not yet past the new target — the beep is still owed');
+// 30s elapsed against a 60s target: the end-of-rest cue is still to come.
+eq(app.state().swCompletionCued, false, 'not yet past the new target — the cue is still owed');
 
 // Same hand-over, but the new target is SHORTER than the time already elapsed. Carrying the old
-// flag over would fire a second beep for one rest.
-render([['Cable Flys', 'Rear Delts']], { exercise: 'Cable Flys', start: NOW - 120000, target: 180, beeped: false });
-eq(app.state().swCompletionBeeped, true, 'already past the new target — no second beep for one rest');
+// flag over would fire a second cue for one rest.
+render([['Cable Flys', 'Rear Delts']], { exercise: 'Cable Flys', start: NOW - 120000, target: 180, cued: false });
+eq(app.state().swCompletionCued, true, 'already past the new target — no second cue for one rest');
 
 // save:false (a Mark Done rest) must survive the move, or the walk to the next machine gets written
 // onto a set as though it were a real rest — the exact bug fixed on 14 Aug.

@@ -27,7 +27,7 @@ console.log('auto-start rest on Mark Done');
 // slicer doesn't take, so they're supplied as bindings instead. Assignments inside the real swStart()
 // land on these and the accessor reads the same bindings — a rename in the source would leave the
 // state frozen here and fail every assertion below, which is the protection that matters.
-const calls = { stop: 0, vibrate: [], render: [], cleared: [], unlocked: 0, locked: 0, scheduled: [] };
+const calls = { stop: 0, vibrate: [], render: [], cleared: [], locked: 0, scheduled: [] };
 const store = {};
 let nextInterval = 1;
 
@@ -38,12 +38,11 @@ const app = load({
     swActiveExercise: null,
     swStartTimestamp: null,
     swTargetSeconds: 60,
-    swCompletionBeeped: false,
+    swCompletionCued: false,
     swSaveOnStop: true,
     swInterval: null,
     selectedSession: null,
     swStop: () => { calls.stop++; },
-    swUnlockAudio: () => { calls.unlocked++; },
     swAcquireWakeLock: () => { calls.locked++; },
     scheduleRestAlert: (name, secs) => calls.scheduled.push([name, secs]),
     swVibrate: v => calls.vibrate.push(v),
@@ -57,10 +56,10 @@ const app = load({
     clearInterval: id => calls.cleared.push(id),
   },
   accessors: {
-    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionBeeped, swSaveOnStop, swInterval })',
+    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionCued, swSaveOnStop, swInterval })',
     reset: `(session) => {
       swRunning = false; swActiveExercise = null; swStartTimestamp = null;
-      swTargetSeconds = 60; swCompletionBeeped = false; swSaveOnStop = true; swInterval = null;
+      swTargetSeconds = 60; swCompletionCued = false; swSaveOnStop = true; swInterval = null;
       selectedSession = session;
     }`,
   },
@@ -77,7 +76,7 @@ const SESSION = {
 
 function fresh() {
   app.reset(SESSION);
-  calls.stop = 0; calls.vibrate = []; calls.render = []; calls.cleared = []; calls.unlocked = 0;
+  calls.stop = 0; calls.vibrate = []; calls.render = []; calls.cleared = [];
   calls.locked = 0; calls.scheduled = [];
   Object.keys(store).forEach(k => delete store[k]);
 }
@@ -93,12 +92,12 @@ function fresh() {
   eq(s.swActiveExercise, 'Bench Press', 'and it is attached to the exercise that was just completed');
   ok(s.swStartTimestamp >= before, 'it starts from now, not from whenever the watch was last touched');
   eq(s.swTargetSeconds, 180, "the target comes from the exercise's own rest field");
-  eq(s.swCompletionBeeped, false, 'and the beep is armed for this period');
+  eq(s.swCompletionCued, false, 'and the end-of-rest cue is armed for this period');
   ok(JSON.parse(store.sw_state).exercise === 'Bench Press',
     'persisted to sessionStorage, so a trip to Stats and back does not lose the rest');
   eq(calls.render.length, 1, 'the watch is repainted immediately rather than waiting a second for the interval');
-  // The screen has to stay awake or the render tick that owns the beep stops before the rest ends —
-  // the auto-started timer is the one most likely to run with the phone already face-down.
+  // The screen has to stay awake or the render tick that finishes the ring stops before the rest
+  // ends — the auto-started timer is the one most likely to run with the phone already face-down.
   eq(calls.locked, 1, 'the screen wake lock is taken when the rest starts');
   // The push has to be booked with the target the timer actually adopted, not the one the caller
   // guessed — a notification for 90s on a 180s rest is worse than no notification.
@@ -162,7 +161,7 @@ function fresh() {
 
   eq(calls.stop, 0, 'a re-tap on the same exercise never goes through swStop, so no rest is written');
   ok(second.swStartTimestamp >= first.swStartTimestamp, 'the period restarts from the second tap');
-  eq(second.swCompletionBeeped, false, 'and the completion beep is re-armed for it');
+  eq(second.swCompletionCued, false, 'and the completion cue is re-armed for it');
   eq(calls.cleared.length, 2, 'the old ring interval is cleared rather than left running alongside the new one');
 }
 
@@ -195,12 +194,11 @@ function fresh() {
   ok(body.indexOf('lastCompletedExercise = saved[saved.length - 1]') < start,
     'and it times the last member of a superset — the block the single Mark Done button sits on');
 
-  // iOS only allows an AudioContext to be created or resumed inside a user gesture. completeExercise
-  // awaits the network before it reaches swStart(), so the unlock has to happen before the first
-  // await or the auto-started timer counts down in silence.
-  const unlock = body.indexOf('swUnlockAudio()');
-  ok(unlock > 0, 'completeExercise unlocks audio itself');
-  ok(unlock < body.indexOf('await '), 'before its first await, while it is still inside the tap');
+  // Del killed the completion beep on 25 Aug 2026. This used to assert the AudioContext was
+  // unlocked inside the tap; it now asserts there is no audio left to unlock. Sound is not a missing
+  // feature to be helpfully restored — see the note above swElapsed() in app.js.
+  ok(!/swBeep|swUnlockAudio|swAudioCtx|AudioContext|webkitAudioContext/.test(src),
+    'no audio survives anywhere in app.js — the beep is gone on purpose');
 
   // One call site. A second one somewhere else would be a rest timer starting for reasons the user
   // can't see, which is exactly the class of bug the watch's manual tap never had.

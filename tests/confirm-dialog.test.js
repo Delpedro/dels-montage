@@ -271,7 +271,7 @@ console.log('the app asks its own questions now');
   // `await askConfirm({` rather than `askConfirm({`: the latter also matches the definition, and a
   // call site that forgot its await would be a bug this test should catch rather than count.
   const asks = code.match(/await askConfirm\(\{/g) || [];
-  eq(asks.length, 8, 'all eight questions go through askConfirm()');
+  eq(asks.length, 9, 'all nine questions go through askConfirm() — the ninth is Delete your account?');
 
   ok(/bodyEl\.textContent = body;/.test(code),
      'the body is written with textContent — session and exercise names are user-typed');
@@ -295,14 +295,16 @@ console.log('the app asks its own questions now');
      'both buttons share the width, so a long label cannot squeeze the other to nothing');
 
   // ── The same guard, for the other native dialog (24 Aug 2026) ──
-  // A behavioural test cannot notice a FOURTH native prompt() being added next month, which is
-  // exactly how the app still had these three four months in.
+  // A behavioural test cannot notice a native prompt() being added next month, which is exactly how
+  // the app still had three of them four months in.
   // `prompt(` also matches askPrompt( and promptCustomExercise(, hence the leading boundary.
   const nativePrompts = code.match(/(^|[^a-zA-Z.])prompt\s*\(/g) || [];
   eq(nativePrompts.length, 0, 'no native prompt() survives anywhere in app.js either');
 
   const typed = code.match(/await askPrompt\(\{/g) || [];
-  eq(typed.length, 3, 'all three typed-name dialogs go through askPrompt()');
+  // The fourth is not a name: it is the word DELETE, typed to confirm an account deletion. Same box,
+  // same rule — the most destructive screen in the app is not the one that gets a native dialog.
+  eq(typed.length, 4, 'all four typed-in dialogs go through askPrompt()');
 
   ok(/return Promise\.resolve\(null\)/.test(code),
      'and the one unrecoverable case answers null rather than falling back to a native dialog');

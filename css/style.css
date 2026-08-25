@@ -936,6 +936,9 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    stay evenly spaced, and wrap onto two lines on a narrow phone instead of running together. */
 .account-row { display: flex; justify-content: center; align-items: center; gap: 14px; flex-wrap: wrap; }
 .account-link[disabled] { opacity: 0.5; cursor: default; }
+/* --red is ATTENTION, and the destructive confirm button already wears it (.confirm-yes-danger).
+   This is the same job on the link that opens that dialog — no new colour, no new token. */
+.account-link.danger { color: var(--red); }
 .account-link { font-size: 12px; color: var(--muted); background: none; border: none; padding: 4px 8px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font-family: 'DM Sans', sans-serif; }
 
 .build-tag { margin: 0.5rem 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.05em; color: var(--muted2); opacity: 0.6; cursor: pointer; }

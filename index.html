@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-25-1352">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-25-1542">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -26,9 +26,10 @@
     <div class="login-title">D-LOG</div>
     <div class="login-sub">Training Journal 2026</div>
 
-    <!-- Three panels in one card: sign in, ask for a code, type the code. They share the one
-         #login-error and the one #login-diag underneath, so every message this screen can produce
-         still comes out in the same two places. See the FORGOTTEN PASSWORD block in js/app.js. -->
+    <!-- Five panels in one card: sign in, ask for a code, type the code, create an account, confirm
+         the account. They share the one #login-error and the one #login-diag underneath, so every
+         message this screen can produce still comes out in the same two places. See the FORGOTTEN
+         PASSWORD and CREATE AN ACCOUNT blocks in js/app.js. -->
     <div id="login-form">
       <div class="form-group">
         <label>Email</label>
@@ -40,6 +41,10 @@
       </div>
       <button class="btn-primary" id="login-btn" onclick="handleLogin()">Get In</button>
       <button type="button" class="login-link" onclick="showForgotPassword()">Forgot your password?</button>
+      <!-- The whole beta walks through here. Del sends a link and nothing else — no address, no
+           password, no invite code — so this button is the only thing standing between a tester
+           opening the link and having an account. See CREATE AN ACCOUNT in js/app.js. -->
+      <button type="button" class="login-link" onclick="showSignUp()">New here? Create an account</button>
     </div>
 
     <div id="reset-request" style="display:none;">
@@ -87,6 +92,50 @@
         <button type="submit" class="btn-primary" id="reset-save-btn">Set password</button>
       </form>
       <button type="button" class="login-link" id="reset-resend" onclick="resendRecoveryCode()">Send a new code</button>
+      <button type="button" class="login-link" onclick="backToSignIn()">Back to sign in</button>
+    </div>
+
+    <div id="signup-request" style="display:none;">
+      <div class="login-step">Create your account</div>
+      <div class="login-note">Your email and a password you choose. Nobody else ever sees it.</div>
+      <!-- A real form with a submit button, and both password boxes marked as new ones, so a
+           password manager offers to generate one and then offers to save it. Same reasoning as the
+           reset panel above: bare divs fire no submit event and managers ignore them. -->
+      <form onsubmit="submitSignUp(); return false;">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="signup-email" placeholder="your@email.com" autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="signup-password" placeholder="At least 8 characters" autocomplete="new-password" />
+        </div>
+        <div class="form-group">
+          <label>Confirm password</label>
+          <input type="password" id="signup-confirm-pw" placeholder="Type it again" autocomplete="new-password" />
+        </div>
+        <button type="submit" class="btn-primary" id="signup-btn">Create account</button>
+      </form>
+      <button type="button" class="login-link" onclick="backToSignIn()">I already have an account</button>
+    </div>
+
+    <!-- Same conditional wording rule as the reset panel: the send never branches on whether the
+         address is already taken, so this sentence must not either. -->
+    <div id="signup-verify" style="display:none;">
+      <div class="login-step">Check your email</div>
+      <div class="login-note">We've sent you a code. It expires in ten minutes.</div>
+      <form onsubmit="confirmSignUp(); return false;">
+        <div class="form-group">
+          <label>Account</label>
+          <input type="email" id="signup-sent-to" autocomplete="username" readonly />
+        </div>
+        <div class="form-group">
+          <label>Code</label>
+          <input type="text" id="signup-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="10" />
+        </div>
+        <button type="submit" class="btn-primary" id="signup-verify-btn">Confirm account</button>
+      </form>
+      <button type="button" class="login-link" id="signup-resend" onclick="resendSignupCode()">Send a new code</button>
       <button type="button" class="login-link" onclick="backToSignIn()">Back to sign in</button>
     </div>
 
@@ -186,6 +235,10 @@
              permission prompt once ever and a refusal can only be undone in Settings. -->
         <button type="button" class="account-link" id="rest-alerts-btn" onclick="toggleRestAlerts()">Rest alerts: off</button>
         <button type="button" class="account-link" id="rest-alerts-test" onclick="testRestAlert()">Test alert</button>
+        <!-- Ships with the signup screen, not after it: an app that lets you make an account has to
+             let you delete it from inside the app or Apple rejects it. Deliberately last on the row
+             and one along from Export my data, which is the only copy anyone will ever get. -->
+        <button type="button" class="account-link danger" id="delete-account-btn" onclick="deleteAccount()">Delete account</button>
       </div>
       <!-- Which build the phone is actually running. Read this out before reporting a missing feature. -->
       <div class="build-tag" id="build-tag" onclick="checkForUpdate(true)"></div>
@@ -772,6 +825,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-25-1352"></script>
+<script src="js/app.js?v=2026-08-25-1542"></script>
 </body>
 </html>

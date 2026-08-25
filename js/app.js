@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-25-1352';
+const APP_BUILD = '2026-08-25-1542';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -988,10 +988,11 @@ function showLoginScreen(message) {
   // way (z-index 999 against 900), but leaving it mounted means the NEXT person to log in on this
   // phone lands on somebody else's half-answered form the moment the login screen hides.
   closeOnboarding();
-  // It can expire with a password reset half-finished too, and that one leaves a code box and a
-  // typed-out new password on screen for whoever picks the phone up next. Both go back to the
-  // sign-in panel. This runs before the message because showLoginPanel() clears the error line.
+  // It can expire with a password reset or a signup half-finished too, and either one leaves a code
+  // box and a typed-out password on screen for whoever picks the phone up next. All of them go back
+  // to the sign-in panel. This runs before the message because showLoginPanel() clears the error.
   resetRecoveryState();
+  resetSignupState();
   showLoginPanel('signin');
   const err = document.getElementById('login-error');
   if (message) { err.textContent = message; err.style.display = 'block'; }
@@ -1085,14 +1086,18 @@ let recoveryAttempts = 0;
 let recoveryResendAt = 0;
 let recoveryTimer = null;
 
-// The login screen is three panels inside one card — sign in, ask for a code, type the code — and
-// they share a single #login-error and #login-diag. Every message this screen can produce comes out
-// in the same two places no matter which panel is up, which is the whole reason the diag readout
-// was worth keeping: it stays the one instrument pointed at getting into the app.
+// The login screen is five panels inside one card — sign in, ask for a code, type the code, create
+// an account, confirm the account — and they share a single #login-error and #login-diag. Every
+// message this screen can produce comes out in the same two places no matter which panel is up,
+// which is the whole reason the diag readout was worth keeping: it stays the one instrument
+// pointed at getting into the app.
 function showLoginPanel(which) {
   const err = document.getElementById('login-error');
   if (err) err.style.display = 'none';
-  const panels = [['login-form', 'signin'], ['reset-request', 'request'], ['reset-confirm', 'confirm']];
+  const panels = [
+    ['login-form', 'signin'], ['reset-request', 'request'], ['reset-confirm', 'confirm'],
+    ['signup-request', 'signup'], ['signup-verify', 'signup-code'],
+  ];
   for (const [id, name] of panels) {
     const el = document.getElementById(id);
     if (el) el.style.display = which === name ? '' : 'none';
@@ -1135,8 +1140,25 @@ function showForgotPassword() {
 
 function backToSignIn() {
   resetRecoveryState();
+  resetSignupState();
   showLoginPanel('signin');
   loginStep('sign in');
+}
+
+// The rules for a password being CHOSEN, shared by the reset panel and the signup panel so the two
+// cannot drift apart. Order matters and so does the noun: every message names the field it means,
+// which is the lesson savePassword() carries — an empty box falling through to the length check
+// reads as a complaint about the box above it. Returns the message, or null when it is fine.
+function newPasswordProblem(pw, again, email, noun = 'new password') {
+  if (!pw) return 'Enter a ' + noun;
+  // GoTrue's own floor is a dashboard setting (8 since 25 Aug 2026). This is the client saying the
+  // same number rather than trusting it: a server default that quietly moves must not silently
+  // start accepting weaker passwords than every string on this screen promises.
+  if (pw.length < 8) return 'Your ' + noun + ' needs at least 8 characters';
+  if (!again) return 'Type your ' + noun + ' again to confirm it';
+  if (pw !== again) return "Those don't match";
+  if (email && pw.toLowerCase() === email.toLowerCase()) return "Don't use your email address as your password";
+  return null;
 }
 
 // The button counts its own cooldown down. A dead "Send a new code" button with no explanation is
@@ -1250,14 +1272,9 @@ async function completePasswordReset() {
     loginStep('reset · attempts spent', true);
     return;
   }
-  // Every message names the field it means — the same lesson savePassword() carries: an empty
-  // password box falling through to the length check reads as a complaint about the box above it.
   if (code.length < RECOVERY_CODE_MIN || code.length > RECOVERY_CODE_MAX) return loginFail('The code is the digits from the email');
-  if (!pw) return loginFail('Enter a new password');
-  if (pw.length < 8) return loginFail('Your new password needs at least 8 characters');
-  if (!again) return loginFail('Type your new password again to confirm it');
-  if (pw !== again) return loginFail("Those don't match");
-  if (pw.toLowerCase() === recoveryEmail.toLowerCase()) return loginFail("Don't use your email address as your password");
+  const pwProblem = newPasswordProblem(pw, again, recoveryEmail);
+  if (pwProblem) return loginFail(pwProblem);
   if (btn && btn.disabled) { loginStep('reset · already saving - wait'); return; }
 
   if (btn) { btn.disabled = true; btn.textContent = 'Setting…'; }
@@ -1361,6 +1378,292 @@ function revokeOtherSessions(token) {
     method: 'POST',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + token }
   }).catch(() => {});
+}
+
+// ─── CREATE AN ACCOUNT ────────────────────────────────────
+// 25 August 2026. D-LOG had no signup screen for four months, and that was deliberate: there was one
+// account, it was Del's, and a signup page is for strangers. The beta ends it. Three testers need
+// accounts, and the two shortcuts that would have avoided this screen were both closed by Del on the
+// same day — an account made for them in the Supabase dashboard ("im not adding a user via Supa,
+// never - i disagree with that. end of."), and a password sent to them in a message ("i will not be
+// sending them a fucking email address and a password"). An invite code was designed to replace
+// those and thrown away too: it was throwaway work that did not survive to the store, while a real
+// signup page is item 24 on his own list and is what a paying stranger will meet.
+//
+// So: Del sends a link and nothing else. The person who will use the account types their own email
+// and their own password, and nobody else ever knows it.
+//
+// This is the recovery flow's twin on purpose — same panels, same code-not-link decision, same
+// anti-enumeration rule, same never-a-silent-return rule. The long note above RECOVERY_MAX_ATTEMPTS
+// argues all of it and applies here unchanged; read that one first.
+//
+// TWO DASHBOARD SETTINGS THIS SCREEN CANNOT DO FOR ITSELF, and it says so on screen when they bite:
+//
+//   1. Authentication → Sign In / Providers → "Allow new users to sign up" must be ON. It was OFF
+//      as of 25 Aug (/auth/v1/settings answered disable_signup: true), and while it is off every
+//      POST below comes back 422 signup_disabled and this screen says new accounts are closed.
+//   2. Authentication → Emails → "Confirm signup" must contain {{ .Token }} rather than the stock
+//      {{ .ConfirmationURL }}. The template to paste is in the repo at
+//      supabase/templates/confirmation.html. Same reason as recovery.html: a code can be typed into
+//      an installed PWA from any mail client on any device, and a link cannot be relied on to
+//      re-enter one — that is a universal-link entitlement and a domain-association file, i.e. a
+//      mountain, for the store build later.
+//
+// Email confirmation itself stays ON. An unconfirmed address can never use password recovery, so
+// autoconfirming would make the only way back into an account depend on a mailbox nobody has proved
+// they hold — and the whole reason the reset flow was built before the beta was to stop Del being
+// the recovery mechanism.
+//
+// WHAT THIS SCREEN WILL NOT TELL YOU is whether an address already has an account. GoTrue answers a
+// repeat signup with an obfuscated user rather than an error; that property is kept rather than
+// unpicked, so the same sentence comes back either way — exactly as sendRecoveryCode() does.
+const SIGNUP_MAX_ATTEMPTS = 5;
+const SIGNUP_RESEND_MS = 60000;
+
+// The address the code was sent to. No password is held anywhere: it went to the server with the
+// signup POST and the session comes back from the code, so there is nothing to keep between panels.
+let signupEmail = '';
+let signupAttempts = 0;
+let signupResendAt = 0;
+let signupTimer = null;
+
+// Leaves nothing behind — not the typed password, not the code, not the resend interval. Called on
+// every way out, including a session expiring elsewhere and putting the login screen back up.
+function resetSignupState() {
+  signupEmail = '';
+  signupAttempts = 0;
+  signupResendAt = 0;
+  if (signupTimer) { clearInterval(signupTimer); signupTimer = null; }
+  for (const id of ['signup-email', 'signup-password', 'signup-confirm-pw', 'signup-code', 'signup-sent-to']) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+}
+
+function showSignUp() {
+  resetSignupState();
+  // Anyone who has typed an address into the sign-in box and then realised they have no account
+  // should not have to type it again.
+  const typed = (document.getElementById('login-email')?.value || '').trim();
+  const box = document.getElementById('signup-email');
+  if (box) box.value = typed;
+  showLoginPanel('signup');
+  loginStep('signup · email');
+  if (box && box.focus) box.focus();
+}
+
+// Same reasoning as startResendCooldown(): a dead button with no explanation is the bug this app
+// has already paid for once, so the button counts its own cooldown down out loud.
+function startSignupCooldown() {
+  signupResendAt = Date.now() + SIGNUP_RESEND_MS;
+  if (signupTimer) clearInterval(signupTimer);
+  const paint = () => {
+    const btn = document.getElementById('signup-resend');
+    if (!btn) return;
+    const left = Math.ceil((signupResendAt - Date.now()) / 1000);
+    if (left > 0) {
+      btn.textContent = 'Send a new code (' + left + 's)';
+      btn.disabled = true;
+      return;
+    }
+    btn.textContent = 'Send a new code';
+    btn.disabled = false;
+    if (signupTimer) { clearInterval(signupTimer); signupTimer = null; }
+  };
+  paint();
+  signupTimer = setInterval(paint, 1000);
+}
+
+async function submitSignUp() {
+  const email = (document.getElementById('signup-email')?.value || '').trim();
+  const pw = document.getElementById('signup-password')?.value || '';
+  const again = document.getElementById('signup-confirm-pw')?.value || '';
+  const btn = document.getElementById('signup-btn');
+  const release = () => { if (btn) { btn.disabled = false; btn.textContent = 'Create account'; } };
+
+  if (!email || !email.includes('@')) {
+    loginFail('Enter the email address you want to sign in with');
+    loginStep('signup · no email', true);
+    return;
+  }
+  const problem = newPasswordProblem(pw, again, email, 'password');
+  if (problem) { loginFail(problem); loginStep('signup · password rejected', true); return; }
+  if (btn && btn.disabled) { loginStep('signup · already sending - wait'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+  loginStep('signup · sending');
+
+  let res;
+  try {
+    res = await netFetch(SUPABASE_URL + '/auth/v1/signup', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pw })
+    });
+  } catch (e) {
+    loginFail("Can't reach the server — check your connection");
+    loginStep('signup · network: ' + ((e && e.name) || 'unknown'), true);
+    release();
+    return;
+  }
+
+  if (res.status === 429) {
+    loginFail('Too many requests — wait a few minutes and try again');
+    loginStep('signup · http 429', true);
+    release();
+    return;
+  }
+
+  if (!res.ok) {
+    let detail = '', code = '';
+    try { const body = await res.json(); detail = body?.msg || body?.error_description || ''; code = body?.error_code || ''; } catch (e) {}
+    // An address that already has an account must not be confirmed as one. GoTrue normally
+    // obfuscates this while email confirmation is on, but it does not on every path, so the one
+    // case that could leak is folded into the ordinary "a code is on its way" outcome below.
+    if (/already/i.test(detail) || /already/i.test(code)) {
+      loginStep('signup · existing address · http ' + res.status);
+      signupSent(email);
+      release();
+      return;
+    }
+    // The setting this screen cannot switch on for itself. Say what is true — new accounts are shut
+    // — rather than a status code, and leave the detail in the diag line for whoever is debugging.
+    if (/signup.*disabled|disabled.*signup/i.test(detail + ' ' + code) || res.status === 422) {
+      loginFail("New accounts aren't open yet — try again shortly");
+      loginStep('signup · http ' + res.status + ' ' + (code || detail).slice(0, 40), true);
+      release();
+      return;
+    }
+    loginFail(detail || "Couldn't create the account (" + res.status + ')');
+    loginStep('signup · http ' + res.status, true);
+    release();
+    return;
+  }
+
+  loginStep('signup · code sent · http ' + res.status);
+  signupSent(email);
+  release();
+}
+
+// The move to the code panel, from both the first send and the already-has-an-account path above,
+// so the two are identical from the outside down to which field has focus.
+function signupSent(email) {
+  signupEmail = email;
+  signupAttempts = 0;
+  const sentTo = document.getElementById('signup-sent-to');
+  if (sentTo) sentTo.value = email;
+  showLoginPanel('signup-code');
+  startSignupCooldown();
+  const codeBox = document.getElementById('signup-code');
+  if (codeBox && codeBox.focus) codeBox.focus();
+}
+
+// A second code for the same address. /auth/v1/resend, not /signup — re-posting the signup would
+// need the password again, and this panel deliberately no longer holds it.
+async function resendSignupCode() {
+  if (!signupEmail) { backToSignIn(); return; }
+  if (Date.now() < signupResendAt) {
+    loginFail('Wait ' + Math.ceil((signupResendAt - Date.now()) / 1000) + 's before asking for another code');
+    return;
+  }
+  const btn = document.getElementById('signup-resend');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  loginStep('signup · resending');
+  let res;
+  try {
+    res = await netFetch(SUPABASE_URL + '/auth/v1/resend', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'signup', email: signupEmail })
+    });
+  } catch (e) {
+    loginFail("Can't reach the server — check your connection");
+    loginStep('signup · resend network: ' + ((e && e.name) || 'unknown'), true);
+    startSignupCooldown();
+    return;
+  }
+  if (res.status === 429) loginFail('Too many requests — wait a few minutes and try again');
+  loginStep('signup · resend http ' + res.status, res.status === 429);
+  startSignupCooldown();
+}
+
+async function confirmSignUp() {
+  const codeEl = document.getElementById('signup-code');
+  // Digits only, so a code pasted out of the email as "148 209" is the same code as "148209".
+  const code = ((codeEl && codeEl.value) || '').replace(/\D/g, '');
+  const btn = document.getElementById('signup-verify-btn');
+  const release = () => { if (btn) { btn.disabled = false; btn.textContent = 'Confirm account'; } };
+
+  if (signupAttempts >= SIGNUP_MAX_ATTEMPTS) {
+    loginFail('Too many wrong codes — ask for a new one');
+    loginStep('signup · attempts spent', true);
+    return;
+  }
+  if (code.length < RECOVERY_CODE_MIN || code.length > RECOVERY_CODE_MAX) return loginFail('The code is the digits from the email');
+  if (btn && btn.disabled) { loginStep('signup · already confirming - wait'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Confirming…'; }
+  loginStep('signup · verifying');
+
+  let res;
+  try {
+    res = await netFetch(SUPABASE_URL + '/auth/v1/verify', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'signup', email: signupEmail, token: code })
+    });
+  } catch (e) {
+    loginFail("Can't reach the server — check your connection");
+    loginStep('signup · verify network: ' + ((e && e.name) || 'unknown'), true);
+    release();
+    return;
+  }
+
+  if (!res.ok) {
+    signupAttempts++;
+    const left = SIGNUP_MAX_ATTEMPTS - signupAttempts;
+    // One sentence for a wrong code, an expired code, and a code for an address that already had a
+    // confirmed account. Same reason as the send step: this screen does not answer "who is a member".
+    loginFail(left > 0
+      ? 'That code is wrong or has expired — ' + left + (left === 1 ? ' try left' : ' tries left')
+      : 'Too many wrong codes — ask for a new one');
+    loginStep('signup · verify http ' + res.status, true);
+    release();
+    return;
+  }
+
+  let session = null;
+  try { session = await res.json(); } catch (e) { session = null; }
+  if (!session || !session.access_token) {
+    // Confirmed but not signed in. The account exists and the password is the one they just chose,
+    // so the honest instruction is to sign in with it rather than to try the code again.
+    resetSignupState();
+    // Panel first, message second: showLoginPanel() clears the error line, so saying it before the
+    // swap says it into a div that is about to be blanked. Same order showLoginScreen() uses.
+    showLoginPanel('signin');
+    loginFail('Account confirmed — sign in with the password you just chose');
+    loginStep('signup · verify ok, no token', true);
+    release();
+    return;
+  }
+
+  // Past this line the account exists and the session is good, so anything that throws leaves a
+  // brand-new user looking at a torn-down login screen with no message — which reads exactly like
+  // "the button did nothing". Put the screen back and say what broke, as handleLogin() does.
+  try {
+    loginStep('signup · confirmed · opening');
+    storeSession(session);
+    resetSignupState();
+    showLoginPanel('signin');
+    sessionStorage.setItem('del_page', 'home');
+    await enterApp('home');
+    showToast('Welcome to D-LOG', 'success');
+  } catch (e) {
+    showLoginScreen('Account created — sign in with your new password');
+    loginStep('signup · open failed: ' + ((e && e.message) || e), true);
+  } finally {
+    release();
+  }
 }
 
 document.getElementById('login-password').addEventListener('keydown', e => {
@@ -1472,6 +1775,89 @@ async function savePassword() {
 
   closePasswordModal();
   showToast('Password changed', 'success');
+}
+
+// ─── DELETE THIS ACCOUNT ──────────────────────────────────
+// 25 August 2026, shipped in the same build as the signup screen and not a day later. Apple's
+// guideline 5.1.1(v) is that an app which lets you create an account must let you delete it from
+// inside the app — so a signup screen without this one is a rejection, and the two are one job.
+// It is also the honest other half of "make your own account": three friends being asked to put
+// real training data into a beta should be able to take it all back out again without asking Del.
+//
+// TWO GATES, and neither is theatre. This is the only irreversible action in D-LOG: every table
+// hangs off auth.users with ON DELETE CASCADE, so removing the auth row takes the workouts, the
+// sets, the daily logs, the goals, the profile and the custom exercises with it. There is no undo
+// and no soft-delete to restore from.
+//   1. askConfirm(), danger-faced, telling them what goes and pointing at Export my data — which is
+//      one button along on the same row, and is the only copy of the data they will ever get.
+//   2. askPrompt() for the literal word DELETE. A mis-tap cannot produce five specific letters.
+// Both are the app's own dialogs. A native confirm() was ruled out on 19 Aug and there is no case
+// for making the single most destructive screen in the app the exception.
+//
+// THE DELETE ITSELF IS SERVER-SIDE. Removing an auth user needs the service-role key, which must
+// never be in a page anyone can view-source, so it lives in the delete-account Edge Function — it
+// re-checks the caller's JWT and deletes that user and no other. The client cannot name a victim:
+// there is no user id in the request at all, only the bearer token.
+async function deleteAccount() {
+  const ok = await askConfirm({
+    title: 'Delete your account?',
+    body: 'This removes your workouts, sets, daily logs, goals and profile permanently. It cannot be undone, and Del cannot get it back for you. If you want a copy, tap Export my data first.',
+    yes: 'Delete everything',
+    no: 'Keep my account',
+    danger: true,
+  });
+  if (!ok) return;
+
+  const typed = await askPrompt({
+    title: 'Type DELETE to confirm',
+    body: 'Last check. This is permanent.',
+    label: 'Confirm',
+    placeholder: 'DELETE',
+    yes: 'Delete my account',
+    no: 'Cancel',
+    maxlength: 10,
+  });
+  if (!typed) return;
+  if (typed.trim().toUpperCase() !== 'DELETE') {
+    showToast('Not deleted — the word did not match', 'error');
+    return;
+  }
+
+  const token = await validAccessToken();
+  if (!token) { showToast('Session expired — log out and back in', 'error'); return; }
+
+  const btn = document.getElementById('delete-account-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+
+  let res;
+  try {
+    res = await netFetch(SUPABASE_URL + '/functions/v1/delete-account', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: '{}'
+    });
+  } catch (e) {
+    showToast("Can't reach the server — nothing was deleted", 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Delete account'; }
+    return;
+  }
+
+  if (!res || !res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error || ''; } catch (e) {}
+    showToast(detail || 'Delete failed (' + ((res && res.status) || '?') + ') — nothing was deleted', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Delete account'; }
+    return;
+  }
+
+  // The account is gone server-side, so this device must not keep anything that looks like a way
+  // back into it. clearSession() takes the tokens; the rest is the per-device state
+  // claimDeviceForAccount() manages, and leaving it would show the NEXT person to sign in on this
+  // phone a backup date and a draft belonging to an account that no longer exists.
+  clearSession();
+  sessionStorage.clear();
+  localStorage.removeItem('workout_draft');
+  showLoginScreen('Your account and everything in it has been deleted');
 }
 
 // ─── DATA EXPORT ──────────────────────────────────────────
@@ -5400,11 +5786,6 @@ function markExerciseBlockDone(exName) {
 // are when the round actually ends). A solo exercise is a group of one, so this is the same path
 // either way. Members with nothing typed in are skipped rather than blocking the ones that have data.
 async function completeExercise(exName) {
-  // Unlocked here, not in the swStart() below, and this is the whole reason it's a separate call:
-  // iOS only lets a page create/resume an AudioContext inside a user gesture, and by the time the
-  // save has awaited the network this handler is no longer one. Without it, a rest timer that was
-  // started by Mark Done rather than by tapping the watch would count down in silence.
-  swUnlockAudio();
   if (!selectedSession) return;
   if (!currentWorkoutId) {
     showToast('Session error — go back and re-select the workout', 'error');
@@ -7802,7 +8183,7 @@ let swInterval = null;         // only used to re-render the ring every second
 let swActiveExercise = null;   // which exercise the watch is attached to
 let swLongPressTimer = null;
 let swLongPressFired = false;
-let swCompletionBeeped = false; // so we beep only once per rest
+let swCompletionCued = false; // the end-of-rest cue fires once per rest, not on every tick
 // False when the running timer was auto-started by Mark Done — it counts down the gap before the
 // NEXT exercise, which is not a rest for any set, so swStop() must not write it. See swStop().
 let swSaveOnStop = true;
@@ -8107,21 +8488,19 @@ async function testRestAlert() {
   if (btn) { btn.disabled = false; btn.textContent = 'Test alert'; }
 }
 
-// ─── SCREEN WAKE LOCK — THE HALF THAT NEEDS NO NETWORK (23 Aug 2026) ─────────────────────────────
-// swBeep() can only fire while the page is still rendering: screen on, app in front, logger visible.
-// Four months of gym use say that is precisely when it isn't — the phone goes in a pocket and the
-// rest ends in silence. The 21 Aug fix for that (a long silent WAV so the tones landed on wall-clock
-// time) worked and was binned after one session, because a page playing audio owns the iOS audio
-// session for the length of the file and Spotify stopped for the WHOLE rest. See the note above
-// swElapsed() — that trade has been refused and must not be reintroduced.
+// ─── SCREEN WAKE LOCK — KEEP THE RENDER TICK ALIVE (23 Aug 2026, rewritten 25 Aug) ───────────────
+// Everything the app itself can do when a rest ends — turn the ring green, ask for a haptic —
+// happens on the render tick, and that tick only runs while the page is rendering: screen on, app in
+// front, logger visible. Four months of gym use say that is precisely when it isn't; the phone goes
+// in a pocket. So while a rest is counting, ask iOS not to sleep the screen.
 //
-// This is the cheap half of the replacement: while a rest is counting, ask iOS not to sleep the
-// screen. The render tick keeps ticking, so the beep that already exists fires on time. The only
-// thing the page takes from the system is the backlight — it never touches the audio session, so
-// Spotify plays straight through. No keys, no permission prompt, no network, works in a basement.
-// Web Push is the other half and is the only thing that covers the pocket; this covers the bench.
+// The only thing the page takes from the system is the backlight — it never touches the audio
+// session, so Spotify plays straight through. No keys, no permission prompt, no network, works in a
+// basement. The rest-alert notification is the other half and is the only thing that covers the
+// pocket; this covers the bench. There used to be a beep on this tick as well — Del killed it on
+// 25 Aug, and the note above swElapsed() has the story and what must not come back.
 //
-// Held for the REST PERIOD ONLY — dropped the instant the completion beep fires, and on stop/reset.
+// Held for the REST PERIOD ONLY — dropped the instant the rest completes, and on stop/reset.
 // A lock held for a whole session would drain the battery long after the cue it was taken for.
 let swWakeLock = null;
 
@@ -8133,8 +8512,9 @@ async function swAcquireWakeLock() {
     // make the guard above skip a re-acquire forever. Null it here so the handler below can retake.
     swWakeLock.addEventListener('release', () => { swWakeLock = null; });
   } catch (e) {
-    // Denied, low-power mode, or a browser without it. The beep is unaffected — this is an upgrade
-    // to the odds it is heard, never a dependency of it.
+    // Denied, low-power mode, or a browser without it. Nothing depends on this — the rest still
+    // finishes on wall-clock time and the notification is booked either way. It only improves the
+    // odds the ring is on screen to be seen.
     swWakeLock = null;
   }
 }
@@ -8149,7 +8529,7 @@ function swReleaseWakeLock() {
 // this the screen sleeps again a few seconds later and the beep is lost exactly as before.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  if (swRunning && !swCompletionBeeped) swAcquireWakeLock();
+  if (swRunning && !swCompletionCued) swAcquireWakeLock();
   // If you are looking at the app you have had the cue. Anything still on the lock screen from an
   // earlier rest is now just clutter Del has to swipe away one at a time — see clearRestNotifications().
   clearRestNotifications();
@@ -8162,74 +8542,27 @@ function swParseRest(restStr) {
   return m ? parseInt(m[1]) : 60;
 }
 
-// WEB AUDIO BEEP — two short tones when the target rest is reached.
-// Lazy-init so the audio context is only created when needed.
-// iOS requires audio to be triggered from a user gesture, which tapping
-// the watch counts as, so the first beep will work after that first tap.
-// ─── AUDIO (iOS-aware) ───────────────────────────────────
-// iOS blocks Web Audio until the user has tapped something. We unlock the
-// context on the first watch tap and re-resume it on every subsequent tap,
-// because iOS suspends the context on screen lock (common during gym rest).
-let swAudioCtx = null;
-
-// Called from swStart — runs INSIDE a user-gesture callback.
-// Creates the context on first call; on every subsequent call it re-resumes it,
-// because iOS suspends the context whenever the screen locks (common during gym rest).
-function swUnlockAudio() {
-  try {
-    if (!swAudioCtx) {
-      swAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // Play a 1ms silent buffer to convince iOS this context is "alive"
-      const buf = swAudioCtx.createBuffer(1, 1, 22050);
-      const src = swAudioCtx.createBufferSource();
-      src.buffer = buf;
-      src.connect(swAudioCtx.destination);
-      src.start(0);
-    }
-    // Always resume — cheap/idempotent if already running, essential if iOS suspended it
-    if (swAudioCtx.state === 'suspended') swAudioCtx.resume();
-  } catch (e) { /* device without audio */ }
-}
-
-// await the resume before scheduling oscillators — if iOS suspended the context
-// while the screen was locked, scheduling without waiting produces silence.
-async function swBeep() {
-  if (!swAudioCtx) return;
-  try {
-    if (swAudioCtx.state === 'suspended') await swAudioCtx.resume();
-    const now = swAudioCtx.currentTime;
-    [0, 0.18].forEach(offset => {
-      const osc = swAudioCtx.createOscillator();
-      const gain = swAudioCtx.createGain();
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.4, now + offset + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
-      osc.connect(gain); gain.connect(swAudioCtx.destination);
-      osc.start(now + offset); osc.stop(now + offset + 0.16);
-    });
-  } catch (e) { /* silent fail */ }
-}
-
-// ─── WHY THERE IS NO SCHEDULED CUE (22 Aug 2026) ─────────────────────────────────────────────────
-// There was one, for a day. It handed iOS a WAV of N seconds of near-silence followed by the two
-// tones, so the beep arrived on wall-clock time with the screen locked and the app backgrounded —
-// the one case swBeep() above can never cover, because iOS suspends the AudioContext on lock and
-// setInterval is frozen by then anyway.
+// ─── THERE IS NO SOUND IN D-LOG (25 Aug 2026) ────────────────────────────────────────────────────
+// Del killed the completion beep — "do we still got old code and the beep beep?!" — and this is the
+// answer to that question, not an oversight. Two 880Hz tones used to fire off the render tick when a
+// rest hit its target, with a Web Audio context unlocked inside the tap that started the timer.
+// Context, unlock, oscillators and call site are all gone. Silence is the design.
 //
-// It worked, and Del binned it after one session. A page playing audio holds the audio session for
-// as long as the file lasts, so Spotify stopped for the WHOLE rest rather than for the beep. iOS
-// picks duck-or-pause and a web page cannot ask for either, nor can it claim the session late. He
-// stopped using rest at all rather than put up with it, and a timer nobody starts records nothing.
+// What cues the end of a rest now: the rest-alert notification, which lands on Del's Apple Watch
+// (scheduleRestAlert() here, push handler in sw.js). It was already firing alongside the beep, so
+// this leaves the half that actually worked — a wrist tap beats a phone beep in a loud gym with
+// Spotify playing, and beats it outright once the phone is in a pocket. In-app, the ring goes green
+// and swVibrate() asks for a haptic; iOS Safari ignores vibrate, so on Del's phone the wrist is it.
 //
-// So the beep is swBeep() on the render tick again: app open, screen on, logger visible. The real
-// fix is a notification rather than audio — a chime off the notification channel fires with the
-// screen locked and hands Spotify straight back within the half-second. The web has no LOCAL
-// scheduled notification, so on iOS that means Web Push: VAPID keys, a subscription table, a push
-// handler in sw.js, an Edge Function that waits out the remaining seconds, and D-LOG installed to
-// the Home Screen (Safari tabs get no push, no exception). Queued as its own job on 22 Aug.
-//
-// Do not reintroduce a long silent audio file. This is the trade, and it has already been refused.
+// TWO THINGS MUST NOT COME BACK.
+// 1. A long silent WAV to land audio on wall-clock time. It worked, for a day, on 21 Aug, and Del
+//    binned it after one session: a page playing audio holds the iOS audio session for the length of
+//    the file, so Spotify stopped for the WHOLE rest rather than for the beep. iOS picks duck-or-
+//    pause and a web page can ask for neither, nor claim the session late. He stopped starting rests
+//    at all rather than put up with it, and a timer nobody starts records nothing.
+// 2. The beep itself. If a sound is ever wanted here again it comes off the notification channel,
+//    which chimes with the screen locked and hands the audio session straight back — never out of
+//    the page.
 
 // ─── STOPWATCH STATE ──────────────────────────────────────
 // Computes elapsed seconds from swStartTimestamp — wall-clock based,
@@ -8274,21 +8607,19 @@ function swRenderWatch(exName) {
     // Replace the icon with the live time text
     inner.innerHTML = `<span class="ex-watch-time">${swFormat(secs)}</span>`;
 
-    // The beep, such as it is: only reachable with the logger on screen and the tab awake. That is
-    // the whole limitation, and the note above swElapsed() is why it cannot be fixed from in here.
-    if (pct >= 1 && !swCompletionBeeped) {
-      swCompletionBeeped = true;
-      swBeep();
+    // The in-app end-of-rest cue: the ring goes green and a haptic is asked for. There is no sound
+    // any more — the note above swElapsed() is why, and why one must not be added back in here.
+    if (pct >= 1 && !swCompletionCued) {
+      swCompletionCued = true;
       swVibrate([80, 60, 80]);
       // The cue has landed — the screen has no further job to do, so give the battery back.
       swReleaseWakeLock();
-      // ── THE BEEP DOES NOT CALL OFF THE NOTIFICATION (23 Aug 2026) ──────────────────────────────
+      // ── THIS DOES NOT CALL OFF THE NOTIFICATION (23 Aug 2026, still true 25 Aug) ───────────────
       // It used to, for half a morning, on the reasoning that being told twice is worse than being
       // told once. That was wrong for this phone. The notification lands on Del's Apple Watch, and
-      // the wake lock above now holds the screen on for the whole rest — so the beep fires nearly
-      // every time, and cancelling here meant the wrist tap essentially never arrived. A phone beep
-      // in a loud gym with Spotify playing is the cue most likely to be missed; the wrist tap is the
-      // one least likely to be. So both fire, and the redundant one is the cheap one.
+      // reaching this branch only proves the app was in front with the screen on — cancelling here
+      // meant the wrist tap essentially never arrived. Now that the beep is gone, cancelling would
+      // throw away the only cue there is.
       // Stopping a rest early still cancels — see swStop(). That is the case the token exists for.
     }
   } else {
@@ -8301,9 +8632,8 @@ function swRenderWatch(exName) {
 
 // ─── START / STOP / RESET ────────────────────────────────
 function swStart(exName, { save = true } = {}) {
-  // UNLOCK AUDIO — must happen inside this tap handler or iOS blocks sound
-  swUnlockAudio();
-  // Keep the screen alive for the rest so the beep above actually has a render tick to fire on.
+  // Keep the screen alive for the rest so the render tick that finishes the ring is still running
+  // when the rest ends. See the wake-lock note for what this does and does not buy.
   swAcquireWakeLock();
 
   // If a different exercise was running, stop it first (no orphan timers)
@@ -8314,7 +8644,7 @@ function swStart(exName, { save = true } = {}) {
   swStartTimestamp = Date.now();
   swActiveExercise = exName;
   swRunning = true;
-  swCompletionBeeped = false;
+  swCompletionCued = false;
   swSaveOnStop = save;
 
   // Persist across page navigation — sessionStorage survives Stats→Workout
@@ -8392,7 +8722,7 @@ function swHandOverWatch(toExName) {
   swTargetSeconds = swParseRest(ex?.rest);
   // Re-derived, not carried over: the new target can be shorter than the elapsed time (already past
   // it, don't beep again) or longer than it (not there yet, so the beep is still to come).
-  swCompletionBeeped = swElapsed() >= swTargetSeconds;
+  swCompletionCued = swElapsed() >= swTargetSeconds;
   sessionStorage.setItem('sw_state', JSON.stringify({
     start: swStartTimestamp,
     target: swTargetSeconds,
@@ -8487,8 +8817,8 @@ function swRestoreFromStorage() {
     swRunning = true;
     // `!== false` so a state written by an older build (no `save` key) keeps saving, as it did then.
     swSaveOnStop = s.save !== false;
-    swCompletionBeeped = (Date.now() - s.start) / 1000 >= s.target;
-    if (!swCompletionBeeped) swAcquireWakeLock();
+    swCompletionCued = (Date.now() - s.start) / 1000 >= s.target;
+    if (!swCompletionCued) swAcquireWakeLock();
     swRenderWatch(s.exercise);
     clearInterval(swInterval);
     swInterval = setInterval(() => swRenderWatch(s.exercise), 1000);

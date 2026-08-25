@@ -1,11 +1,12 @@
 // rest-alert — the half of the rest cue that reaches a locked phone.
 //
-// Why this exists at all: swBeep() in the app can only make a sound while the page is rendering,
-// which means screen on and app in front. A phone in a pocket gets nothing. The 21 Aug attempt to
-// fix that inside the page — a long silent WAV so the tones landed on wall-clock time — worked and
-// was binned after one session, because a page playing audio owns the iOS audio session for the
-// length of the file, so Spotify stopped for the WHOLE rest. A notification never touches the audio
-// session: it chimes and hands it straight back.
+// Why this exists at all: the app itself can only cue the end of a rest while the page is
+// rendering, which means screen on and app in front. A phone in a pocket gets nothing. The 21 Aug
+// attempt to fix that inside the page — a long silent WAV so tones landed on wall-clock time —
+// worked and was binned after one session, because a page playing audio owns the iOS audio session
+// for the length of the file, so Spotify stopped for the WHOLE rest. A notification never touches
+// the audio session: it chimes and hands it straight back. The in-app beep that this backed up was
+// killed outright on 25 Aug 2026, so this is now the only audible cue D-LOG has.
 //
 // The web has no LOCAL scheduled notification, so on iOS this has to be a real push from a server.
 // This function is that server. It is called when a rest starts, waits until the rest is up, then
