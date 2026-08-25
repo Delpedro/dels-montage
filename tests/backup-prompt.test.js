@@ -224,6 +224,39 @@ const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
   }
 })();
 
+
+// ── An account with nothing in it is never nagged (25 Aug 2026) ────────────────────────────────
+// The first thing a brand-new account was told was "No backup yet — tap to save a copy of your
+// training history", about a history that did not exist. Del, on the second test account: "ITS
+// ASKING THIS USER TO BACK UP - NO !!!!" The reminder is about losing something; until there is
+// something, it says nothing.
+(() => {
+  const el = { textContent: 'x', style: { display: 'flex' } };
+  const app = load({
+    functions: ['renderBackupPrompt', 'backupPromptText', 'daysSince', 'lastBackupAt', 'readLocalBackup', 'laterIso'],
+    decls: ['BACKUP_STALE_DAYS', 'BACKUP_STORE', 'accountHasWorkouts', 'remoteLastBackup'],
+    deps: {
+      document: { getElementById: () => el },
+      localStorage: { getItem: () => null, setItem() {} },
+    },
+    accessors: { setHasWorkouts: '(v) => { accountHasWorkouts = v; }' },
+  });
+
+  app.setHasWorkouts(null);
+  app.renderBackupPrompt();
+  eq(el.style.display, 'none', 'before the account has been asked about, the nudge stays hidden');
+
+  app.setHasWorkouts(false);
+  app.renderBackupPrompt();
+  eq(el.style.display, 'none', 'an account with no workouts is never told to back up');
+  eq(el.textContent, '', 'and the line is emptied, not just hidden behind a stale string');
+
+  app.setHasWorkouts(true);
+  app.renderBackupPrompt();
+  eq(el.style.display, 'flex', 'once there is training to lose, the never-backed-up nudge returns');
+  ok(/no backup yet/i.test(el.textContent), 'saying so in the words the pure function chose');
+})();
+
 process.on('exit', () => {
   console.log(`  ${pass} passed, ${fail} failed`);
   if (fail) process.exitCode = 1;

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-25-1621';
+const APP_BUILD = '2026-08-25-1626';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -2106,10 +2106,34 @@ async function pushBackupTimestamp(iso) {
     { quiet: true, upsert: true });
 }
 
+// Whether this account has any training history at all. null means "not asked yet".
+//
+// THE NUDGE IS ABOUT LOSING SOMETHING (25 Aug 2026). A brand-new account was being told
+// "No backup yet — tap to save a copy of your training history" before it had any: the first
+// thing D-LOG said to a new user was a chore, about data that does not exist, and it made the app
+// look like it had already lost track of what was in it. Del, on the second test account: "ITS
+// ASKING THIS USER TO BACK UP - NO !!!!"
+//
+// Gated on WORKOUTS, not on daily_logs, and that is deliberate: finishing onboarding writes one
+// daily_logs row (the start weight, which the form says becomes today's weigh-in), so a daily_logs
+// test would go true for an account that has still never trained. There is nothing worth calling a
+// training history until a workout exists.
+//
+// A FAILED READ HIDES THE NUDGE, and that is the safe direction. `sb()` answers a failed GET with
+// `[]`, so a gym connection is indistinguishable from an empty account from here — and a missing
+// reminder costs nothing, while nagging someone about backing up nothing is the bug being fixed.
+// It repaints on the next app open.
+let accountHasWorkouts = null;
 // Reconciles the two stores on app open. Runs after the first paint, so a slow or dead network only
 // ever delays the cross-device half — the localStorage value has already rendered.
 async function syncBackupState() {
-  const rows = await sb('app_meta?select=last_backup_at&limit=1', 'GET', null, { quiet: true });
+  // Together rather than one after the other: both are single-row reads on every app open, sometimes
+  // on a gym connection.
+  const [rows, anyWorkout] = await Promise.all([
+    sb('app_meta?select=last_backup_at&limit=1', 'GET', null, { quiet: true }),
+    sb('workouts?select=id&limit=1', 'GET', null, { quiet: true }),
+  ]);
+  accountHasWorkouts = !!(anyWorkout && anyWorkout.length);
   const local = readLocalBackup();
 
   if (rows && rows.length) {
@@ -2135,6 +2159,8 @@ async function syncBackupState() {
 function renderBackupPrompt() {
   const el = document.getElementById('backup-nudge');
   if (!el) return;
+  // Nothing logged, or not yet known: say nothing. See accountHasWorkouts.
+  if (!accountHasWorkouts) { el.textContent = ''; el.style.display = 'none'; return; }
   const text = backupPromptText(lastBackupAt());
   el.textContent = text || '';
   el.style.display = text ? 'flex' : 'none';
