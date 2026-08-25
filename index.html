@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-25-1620">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-25-1621">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -802,9 +802,17 @@
      22 Aug. The eight questions, their copy and every rule live in ONBOARD_STEPS in js/app.js; this
      is only the frame they are rendered into, which is why there are no field markup blocks here. -->
 <div id="onboarding" style="display:none;">
+  <!-- THE WAY OUT (25 Aug 2026). This overlay covers the whole app, it re-opens on every launch
+       until the form is finished, and the only logout button lives on Home underneath it. So an
+       account you did not mean to be in was a one-way door: Del hit it on the second test account
+       and could not get back to his own. It is the SAME control as the topbar's, same class and
+       same word, because it does the same thing and the topbar is where anyone will look first. -->
   <div class="ob-top">
     <span class="ob-brand">D-LOG</span>
-    <span class="ob-date" id="ob-date"></span>
+    <span class="ob-top-right">
+      <span class="ob-date" id="ob-date"></span>
+      <button type="button" class="logout-btn" onclick="handleLogout()">logout</button>
+    </span>
   </div>
   <div class="ob-body">
     <div class="ob-rail" id="ob-rail"></div>
@@ -830,6 +838,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-25-1620"></script>
+<script src="js/app.js?v=2026-08-25-1621"></script>
 </body>
 </html>

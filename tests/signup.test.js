@@ -504,6 +504,19 @@ const HAPPY = { '/auth/v1/signup': res(200, { id: 'u1' }), '/auth/v1/verify': re
     }
   }
 
+  // ── THE ONBOARDING FORM IS NOT A ONE-WAY DOOR ──────────────────────────────────────────────
+  // It covers the whole app, it re-opens on every launch until it is finished, and the only logout
+  // button lives on Home underneath it. Signing into an account you did not mean to be in was
+  // therefore unescapable without clearing site data — Del hit exactly that on the second test
+  // account, 25 Aug: "IT DOES NOT ALLOW THE USER".
+  {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+    const ob = html.slice(html.indexOf('id="onboarding"'), html.indexOf('id="toast"'));
+    ok(ob.includes('onclick="handleLogout()"'), 'the onboarding overlay carries a way out');
+    ok(ob.includes('class="logout-btn"'),
+      'and it is the topbar\'s own logout control, not a second thing that does the same job');
+  }
+
   console.log(`signup: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 })();
