@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-25-1611">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-25-1620">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -160,7 +160,12 @@
 
   <!-- HOME / LANDING -->
   <div class="page active" id="page-home">
-    <div class="landing-greeting" id="landing-greeting">Good morning, Del</div>
+    <!-- EMPTY, and it stays empty. This shipped as the literal text "Good morning, Del" — harmless
+         placeholder while there was one account, and the first thing a brand-new account saw on
+         25 Aug 2026: somebody else's name, at the wrong time of day, until loadHomePage() replaced
+         it. initApp() now fills it before Home is shown. Never put sample text in a node that
+         renders per-user data; an unreplaced placeholder is indistinguishable from a data leak. -->
+    <div class="landing-greeting" id="landing-greeting"></div>
     <div class="landing-date" id="landing-date"></div>
     <div class="daily-quote" id="daily-quote" style="display:none;">
       <span class="quote-text" id="quote-text"></span>
@@ -825,6 +830,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-25-1611"></script>
+<script src="js/app.js?v=2026-08-25-1620"></script>
 </body>
 </html>

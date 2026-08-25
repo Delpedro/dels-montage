@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-25-1611';
+const APP_BUILD = '2026-08-25-1620';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3015,6 +3015,11 @@ async function initApp(page = 'home') {
   await Promise.all([loadProfile(), loadGoals()]);
   buildSessionGrid();
   renderCheckinSummary();
+  // Before showPage(), not inside it. loadHomePage() sets this too, but it is async and the
+  // onboarding overlay opens immediately after — so on a brand-new account an unpainted greeting is
+  // what they look at for the whole eight-step form.
+  const greet = document.getElementById('landing-greeting');
+  if (greet) greet.textContent = getGreeting();
   showPage(page);
   // Last, and after showPage() on purpose: the overlay opens over an app that has already painted,
   // so finishing the form reveals a Home that is ready rather than a blank frame. See

@@ -488,6 +488,22 @@ const HAPPY = { '/auth/v1/signup': res(200, { id: 'u1' }), '/auth/v1/verify': re
     eq(reloads.length, 1, 'it reloads instead, so no global and no painted value survives the switch');
   }
 
+  // ── NO SAMPLE TEXT IN A PER-USER NODE ──────────────────────────────────────────────────────
+  // #landing-greeting shipped as the literal string "Good morning, Del" — placeholder text from
+  // when there was one account and one name. On 25 Aug a brand-new account read it as its own
+  // greeting: somebody else's name, at the wrong time of day, sitting there for the length of the
+  // onboarding form. An unreplaced placeholder is indistinguishable from a data leak to the person
+  // reading it, and it is the sort of thing nobody sees again for four months.
+  {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+    const perUser = ['landing-greeting', 'landing-date', 'quote-text', 'quote-author'];
+    for (const id of perUser) {
+      const m = html.match(new RegExp('id="' + id + '"[^>]*>([^<]*)<'));
+      ok(m !== null, 'index.html carries #' + id);
+      eq((m && m[1] || '').trim(), '', '#' + id + ' ships empty — it renders one person\'s data');
+    }
+  }
+
   console.log(`signup: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 })();
