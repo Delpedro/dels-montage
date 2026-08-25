@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-24-2225';
+const APP_BUILD = '2026-08-25-1352';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -7991,6 +7991,29 @@ function paintRestAlertsButton() {
 // Books the notification for a rest that has just started. Fire-and-forget on purpose: a rest must
 // start the instant the watch is tapped, and in a gym basement both calls below simply fail. The
 // beep and the wake lock are unaffected by that — this is an addition to the cue, never the cue.
+// ── THE READOUT (25 Aug 2026) ────────────────────────────────────────────────────────────────────
+// Booking a rest alert can fail in four places and every one of them is silent: sb() turns a dead
+// gym connection into a not-ok Response, validAccessToken() hands back null when a refresh cannot
+// reach GoTrue, and the dispatch below is fire-and-forget by design. So a rest that never booked and
+// a rest that booked and was cancelled correctly look identical afterwards — which is why two fixes
+// have now been made to a miss that is still happening.
+//
+// This writes what happened to rest_alert_log, where the Edge Function writes its half too. Absence
+// is a reading: no client row means the write itself could not get out, which is the network answer.
+// Fire-and-forget and never awaited — the readout must never delay the start of a rest.
+//
+// TEMPORARY. Goes, with the table, once the miss is explained.
+function logRestPhase(phase, token, exercise, detail) {
+  try {
+    sb('rest_alert_log', 'POST', {
+      phase,
+      token: (token || '').slice(0, 80),
+      exercise: exercise ? String(exercise).slice(0, 80) : null,
+      detail: detail ? String(detail).slice(0, 300) : null,
+    }, { quiet: true }).catch(() => {});
+  } catch (e) {}
+}
+
 async function scheduleRestAlert(exName, seconds) {
   if (!restAlertsOn() || !(seconds >= 1)) return;
   // ── THE DEADLINE IS STAMPED HERE, AT THE TAP (24 Aug 2026) ─────────────────────────────────────
@@ -8011,9 +8034,10 @@ async function scheduleRestAlert(exName, seconds) {
       updated_at: new Date().toISOString(),
     };
     const res = await sb('rest_alerts?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true });
-    if (!res.ok) return;
+    if (!res.ok) { logRestPhase('upsert-failed', token, exName, 'status ' + res.status); return; }
     const jwt = await validAccessToken();
-    if (!jwt) return;
+    if (!jwt) { logRestPhase('no-jwt', token, exName); return; }
+    logRestPhase('booked', token, exName, seconds + 's rest');
     // Not awaited beyond the dispatch — this request stays open for the whole rest by design.
     // `seconds` still travels alongside `dueAt` so a function deployed before this change keeps
     // working; the new one prefers the deadline and ignores it.
@@ -8021,8 +8045,11 @@ async function scheduleRestAlert(exName, seconds) {
       method: 'POST',
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ seconds, dueAt, token, exercise: exName || '' }),
-    }).catch(() => {});
-  } catch (e) { /* no signal — the beep and the wake lock still stand */ }
+    }).catch(e => logRestPhase('dispatch-failed', token, exName, String(e && e.message || e)));
+  } catch (e) {
+    // No signal — the beep and the wake lock still stand.
+    logRestPhase('book-threw', token, exName, String(e && e.message || e));
+  }
 }
 
 // Called when a rest ends by any route: stopped, reset, or already announced by the in-app beep.
@@ -8043,6 +8070,7 @@ async function cancelRestAlert() {
     // just started. That is Del's lateral raise first set, 24 Aug: no alert, no error, no pattern.
     // Filtered by token, the order stops mattering — a stale cancel can only ever delete its own row.
     await sb(`rest_alerts?token=eq.${encodeURIComponent(token)}`, 'DELETE', null, { quiet: true });
+    logRestPhase('cancelled', token, null, 'rest ended before the alert was due');
   } catch (e) {}
 }
 

@@ -31,8 +31,9 @@ console.log('rest alerts — booking, cancelling, and the 24 Aug gym session');
 // `latency` is the point of the stub: both network calls advance a fake clock, because a stub that
 // resolves instantly cannot tell a deadline apart from a duration, and a gym connection is the case
 // the whole change is for.
-function mount(shared) {
+function mount(shared, { upsertOk = true } = {}) {
   const closed = [];
+  const logged = [];
   const notifications = [];
   const calls = { sb: [], push: [] };
   let clock = shared.clock;
@@ -69,8 +70,11 @@ function mount(shared) {
       sb: async (path, method) => {
         calls.sb.push({ path, method });
         clock += shared.latency;
-        return { ok: true };
+        return { ok: path.startsWith('rest_alerts') ? upsertOk : true, status: upsertOk ? 200 : 503 };
       },
+      // The 25 Aug readout. Stubbed rather than extracted: it is temporary instrumentation, and what
+      // these tests care about is that the silent paths now say something, not how it is written.
+      logRestPhase: (phase, token, exercise, detail) => logged.push({ phase, token, exercise, detail }),
       validAccessToken: async () => { clock += shared.latency; return 'jwt'; },
       netFetch: async (url, opts) => {
         calls.push.push({ url, body: JSON.parse(opts.body) });
@@ -81,7 +85,7 @@ function mount(shared) {
   });
 
   notifications.push({ tag: 'rest-alert', close() { closed.push(this); } });
-  return { ...mod, calls, closed };
+  return { ...mod, calls, closed, logged };
 }
 
 function freshShared(latency = 0) {
@@ -109,6 +113,26 @@ async function main() {
     ok(!!del, 'stopping the watch after a navigation still deletes the booking');
     ok(del && del.path.includes('token=eq.tok-a'), 'and deletes the row it actually booked');
     eq(afterNav.restAlertToken(), null, 'and leaves nothing behind to cancel twice');
+  }
+
+  // ── 1b. A BOOKING THAT NEVER HAPPENED SAYS SO (25 Aug 2026) ──────────────
+  // Del lost a Seated Leg Curl alert on 25 Aug with the phone locked, and there was no way to tell
+  // afterwards whether the booking failed, the push failed, or the rest was cancelled early — every
+  // one of those leaves the same evidence, which is none. The two client-side give-up points now
+  // write a row, so the next miss is a lookup rather than a theory.
+  {
+    const shared = freshShared();
+    const m = mount(shared);
+    await m.scheduleRestAlert('Seated Leg Curl', 60);
+    ok(m.logged.some((l) => l.phase === 'booked'), 'a booking that got through says so');
+    eq(m.calls.push.length, 1, 'and the Edge Function was actually called');
+  }
+  {
+    const shared = freshShared();
+    const m = mount(shared, { upsertOk: false });
+    await m.scheduleRestAlert('Seated Leg Curl', 60);
+    ok(m.logged.some((l) => l.phase === 'upsert-failed'), 'a booking killed by a dead gym connection says so too');
+    eq(m.calls.push.length, 0, 'and nothing is dispatched for a rest the server has no row for');
   }
 
   // ── 2. "didn't fire on lateral raise first set" ──────────────────────────

@@ -75,6 +75,28 @@ async function admin(path: string, init: RequestInit = {}) {
   });
 }
 
+// ── THE READOUT (25 Aug 2026) ────────────────────────────────────────────────────────────────────
+// Every decision below used to go to console.log, where nothing can read it afterwards. Two fixes
+// have been made to a miss that is still happening, and "the alert never arrived" and "the alert was
+// correctly cancelled" leave the same trace once the session is over: none. So each branch writes a
+// row instead. Never awaited into the critical path and never allowed to throw — a broken readout
+// must not be able to cost the push it is watching.
+//
+// TEMPORARY. This and the table both go once the miss is explained.
+function logPhase(userId: string, phase: string, token: string, exercise: string, detail?: string) {
+  admin('rest_alert_log', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      user_id: userId,
+      phase,
+      token: token.slice(0, 80),
+      exercise: exercise ? exercise.slice(0, 80) : null,
+      detail: detail ? detail.slice(0, 300) : null,
+    }),
+  }).catch(() => {});
+}
+
 // Who is calling. The user's own access token is exchanged for their id through GoTrue rather than
 // decoded here, so a forged or expired token cannot name someone else's user_id.
 async function userIdFromToken(token: string): Promise<string | null> {
@@ -97,10 +119,11 @@ async function stillPending(userId: string, token: string): Promise<boolean> {
 
 async function sendToUser(userId: string, title: string, body: string, dueAt: number) {
   const res = await admin(`push_subscriptions?user_id=eq.${userId}&select=endpoint,p256dh,auth`);
-  if (!res.ok) return { sent: 0, gone: 0 };
+  if (!res.ok) return { sent: 0, gone: 0, error: `subscription read failed ${res.status}` };
   const subs = await res.json();
   let sent = 0;
   let gone = 0;
+  let pushError = '';
 
   await Promise.all((subs ?? []).map(async (s: any) => {
     try {
@@ -120,11 +143,12 @@ async function sendToUser(userId: string, title: string, body: string, dueAt: nu
         await admin(`push_subscriptions?endpoint=eq.${encodeURIComponent(s.endpoint)}`, { method: 'DELETE' });
       } else {
         console.error('push failed', code, err?.body ?? err?.message);
+        pushError = `${code ?? '?'} ${String(err?.body ?? err?.message ?? '').slice(0, 200)}`;
       }
     }
   }));
 
-  return { sent, gone };
+  return { sent, gone, error: pushError };
 }
 
 Deno.serve(async (req) => {
@@ -190,6 +214,8 @@ Deno.serve(async (req) => {
   // where nothing the client does can interrupt it. The wall-clock cap still covers the whole
   // invocation, which is why CHAIN_AFTER stays well under it.
   const work = (async () => {
+    logPhase(userId, payload.chain === true ? 'chain-leg' : 'invoked', token, exercise,
+      `due in ${Math.round(secondsUntil(dueAt))}s`);
     const leg = Math.min(secondsUntil(dueAt), CHAIN_AFTER);
     if (leg > 0) await sleep(leg);
 
@@ -201,18 +227,24 @@ Deno.serve(async (req) => {
         method: 'POST',
         headers: { Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ chain: true, userId, dueAt, token, exercise }),
-      }).catch((e) => console.error('chain hop failed', e?.message));
+      }).catch((e) => {
+        console.error('chain hop failed', e?.message);
+        logPhase(userId, 'chain-failed', token, exercise, String(e?.message ?? e).slice(0, 300));
+      });
       return;
     }
 
     if (!(await stillPending(userId, token))) {
       console.log('skipped — rest already over');
+      logPhase(userId, 'skipped', token, exercise, 'row gone or token rotated — rest ended early');
       return;
     }
 
     const body = exercise ? `${exercise} — next set` : 'Next set';
     const result = await sendToUser(userId, 'Rest over', body, dueAt);
     console.log('sent', JSON.stringify(result));
+    logPhase(userId, result.sent ? 'sent' : 'push-error', token, exercise,
+      `sent ${result.sent} · dropped ${result.gone}${result.error ? ' · ' + result.error : ''}`);
 
     await admin(`rest_alerts?user_id=eq.${userId}&token=eq.${encodeURIComponent(token)}`, { method: 'DELETE' });
   })();
