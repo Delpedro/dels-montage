@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-25-1542';
+const APP_BUILD = '2026-08-25-1611';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -971,8 +971,35 @@ function nextFrame() {
   });
 }
 
+// ─── ONE PAGE, ONE ACCOUNT (25 Aug 2026) ──────────────────
+// The minute the signup screen worked, a brand-new account was greeted **"Good afternoon, Del"**
+// and shown Del's 80kg on Home. Nothing had leaked between accounts on the server — the page had
+// simply never been reloaded, so a second session was handed the first one's app.
+//
+// Every part of it was individually correct. `PROFILE` is a module global, and `loadProfile()`
+// returns early rather than blanking it on an empty read, because `sb()` answers a FAILED GET with
+// `[]` and wiping a good profile on a gym connection is the worse bug by far. Home writes the
+// weight tile only when there is a row, for exactly the same reason. And the DOM keeps whatever it
+// last painted — `#home-weight` still said 80 because nothing had cause to repaint it. All three are
+// right on a page that started blank, and all three are wrong on a page still holding somebody
+// else's session.
+//
+// So this is deliberately NOT another guard. Hand-clearing the globals and the DOM would hold until
+// the next global is added, and what it re-opens when it slips is showing one person another
+// person's data — the one bug a training log cannot ship with. **A page that has already been
+// initialised for a session does not get to serve a second one.** Reload, and let the stored
+// session bring the app up from scratch: that is the cold-start path, which runs on every launch
+// and is therefore the best-tested route in the app.
+//
+// No loop is possible — the flag lives in the page, so the reload clears it and the `load` handler
+// then calls this exactly once. The session is already in localStorage before any caller gets here
+// (`storeSession()` runs first in all three), and `del_page` is already set, so it comes back on
+// the right tab.
+let pageHasServedASession = false;
 // Shared by a fresh login and by restoring a stored session on load.
 async function enterApp(page = 'home') {
+  if (pageHasServedASession) { window.location.reload(); return; }
+  pageHasServedASession = true;
   document.documentElement.classList.remove('login-active');
   window.scrollTo(0, 0);
   await nextFrame();
@@ -1801,7 +1828,9 @@ async function savePassword() {
 async function deleteAccount() {
   const ok = await askConfirm({
     title: 'Delete your account?',
-    body: 'This removes your workouts, sets, daily logs, goals and profile permanently. It cannot be undone, and Del cannot get it back for you. If you want a copy, tap Export my data first.',
+    // Names nobody. This sentence is read by whoever owns the account, and on a beta that is three
+    // people who are not Del.
+    body: 'This removes your workouts, sets, daily logs, goals and profile permanently. It cannot be undone and nobody can get it back for you. If you want a copy, tap Export my data first.',
     yes: 'Delete everything',
     no: 'Keep my account',
     danger: true,

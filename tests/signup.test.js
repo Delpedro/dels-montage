@@ -454,6 +454,40 @@ const HAPPY = { '/auth/v1/signup': res(200, { id: 'u1' }), '/auth/v1/verify': re
       'and it is reachable from the app, not just defined');
   }
 
+  // ── ONE PAGE, ONE ACCOUNT ──────────────────────────────────────────────────────────────────
+  // A second account signing in without a page load inherited the first one's app: a brand-new
+  // account was greeted "Good afternoon, Del", shown his 80kg, and offered his Upper/Lower
+  // programme — PROFILE and SESSIONS are module globals and the DOM keeps what it last painted.
+  // enterApp() refuses to serve a second session on a page that has already served one; it reloads
+  // and lets the cold-start path rebuild everything from the new account's own data.
+  {
+    const reloads = [], inits = [];
+    const screen = el(); screen.style.display = 'flex';
+    const app = load({
+      functions: ['enterApp', 'nextFrame'],
+      decls: ['pageHasServedASession'],
+      deps: {
+        document: {
+          getElementById: () => screen,
+          documentElement: { classList: { add() {}, remove() {}, contains: () => false } },
+        },
+        window: { scrollTo() {}, location: { reload: () => reloads.push(1) } },
+        requestAnimationFrame: cb => cb(),
+        setTimeout: cb => cb(),
+        initApp: p => inits.push(p),
+      },
+    });
+
+    await app.enterApp('home');
+    eq(inits.length, 1, 'the first session builds the app');
+    eq(reloads.length, 0, 'and does not reload — a cold start must not bounce');
+    eq(screen.style.display, 'none', 'the login screen comes down');
+
+    await app.enterApp('home');
+    eq(inits.length, 1, 'a SECOND session does not get built on top of the first');
+    eq(reloads.length, 1, 'it reloads instead, so no global and no painted value survives the switch');
+  }
+
   console.log(`signup: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 })();
