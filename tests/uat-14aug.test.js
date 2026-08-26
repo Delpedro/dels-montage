@@ -83,7 +83,12 @@ console.log('PRs cover reps, not just weight');
 // only thing compared, so sitting at 56kg and going 8→10→12 earned nothing, and a bodyweight
 // exercise could never earn a badge in its entire history because it has no weight to beat.
 {
-  const app = load({ functions: ['computeExerciseProgress'] });
+  // computeExerciseProgress now asks isTimed() whether a null weight means "no load" or "a hold"
+  // (C2 — the delta on a timed lift), so its resolution chain comes along.
+  const app = load({
+    functions: ['computeExerciseProgress', 'isTimed', 'timedTarget', 'catalogueKey'],
+    decls: ['CATALOGUE_BY_KEY', 'TIMED_EXERCISES'],
+  });
 
   const run = sessions => {
     const workouts = sessions.map((s, i) => ({ id: `w${i}`, date: s.date }));

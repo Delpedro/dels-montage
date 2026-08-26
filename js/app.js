@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-26-1702';
+const APP_BUILD = '2026-08-26-1722';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -4580,16 +4580,25 @@ function resolveBaseOrder(session, draftBaseOrder = []) {
 // position for free. The group keeps the order it was built in — you tap ⇄ on the lift you do first —
 // while sitting at the earliest slot any of its members held.
 function displayExerciseOrder() {
-  const groups = activeSupersetGroups();
+  return snapSupersetsIntoOrder(supersetBaseOrder, activeSupersetGroups());
+}
+
+// The rule above, with the globals taken out: given a base order and the groups made against it,
+// emit the whole group the moment its first member comes up. Pure, so it can be tested, and so the
+// History card can reach the same answer from a completely different set of inputs (see
+// historyExerciseOrder — a saved workout's pairs sit together on the tile because they sat together
+// on the day, and this is the one rule that decides where "together" is).
+function snapSupersetsIntoOrder(baseOrder, groups) {
+  const groupList = groups || [];
   const groupOf = {};
-  groups.forEach((g, i) => g.forEach(n => { groupOf[n] = i; }));
+  groupList.forEach((g, i) => g.forEach(n => { groupOf[n] = i; }));
   const emitted = new Set();
   const order = [];
-  supersetBaseOrder.forEach(name => {
+  (baseOrder || []).forEach(name => {
     if (emitted.has(name)) return;
     const gi = groupOf[name];
     if (gi === undefined) { order.push(name); emitted.add(name); return; }
-    groups[gi].forEach(n => { if (!emitted.has(n)) { order.push(n); emitted.add(n); } });
+    groupList[gi].forEach(n => { if (!emitted.has(n)) { order.push(n); emitted.add(n); } });
   });
   return order;
 }
@@ -5139,6 +5148,60 @@ function peekDraftSetCounts(sessionId) {
   } catch (e) { return {}; }
 }
 
+// The template as it stood when the draft was written — `{ name: setCount }` — or null for a draft
+// that predates the stamp, and for Open Workout, which has no template to stamp. See
+// reconcileDraftAgainstTemplate for what it is for.
+function peekDraftTemplateStamp(sessionId) {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return null;
+    const draft = JSON.parse(raw);
+    if (draft.sessionId !== sessionId) return null;
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return null;
+    return draft.templateStamp || null;
+  } catch (e) { return null; }
+}
+
+// ─── C13 + C14: THE STALE DRAFT, ONE LAYER DOWN FROM C12 ─────────────────────────────────────────
+// C12 was the draft outranking the template on ORDER. These two are the same draft outranking the
+// same template on MEMBERSHIP and on SET COUNT, and they surface the moment the ✎ link's other two
+// promises — "add / remove" — are used from inside a live session:
+//   C13  an exercise deleted in the editor came straight back, because `draft.openExercises` is a
+//        flat list of names and a name in it that the fresh template no longer has could equally be
+//        today's one-off Add Exercise (must come back) or a template exercise just removed (must
+//        not). It was re-added either way.
+//   C14  a set count changed in the editor was pinned to the old number, because
+//        `draft.openSetCounts` was applied over the fresh template unconditionally.
+//
+// One stamp answers both. saveDraft() records the template as it stood at the time, so the read side
+// can finally tell the draft's own doing from the template's:
+//   • in the stamp, gone from the template   → the editor removed it. Drop it.
+//   • not in the stamp                       → today's Add Exercise. Bring it back.
+//   • a count the editor has changed since   → the editor wins, however the draft was adjusted.
+//   • a count the editor has not touched     → the draft wins, so today's −/+ survives a refresh.
+// A draft with no stamp — written by the previous build and still inside its 24h life — behaves
+// exactly as it did before. Pure: `exercises` is read, never mutated, and the caller applies the
+// two lists it hands back.
+function reconcileDraftAgainstTemplate(exercises, draftNames, draftSetCounts, stamp) {
+  const counts = draftSetCounts || {};
+  const stamped = n => !!stamp && Object.prototype.hasOwnProperty.call(stamp, n);
+  const present = new Set((exercises || []).map(e => e.name));
+  const add = [];
+  (draftNames || []).forEach(n => {
+    if (present.has(n) || add.includes(n) || stamped(n)) return;
+    add.push(n);
+  });
+  const sets = {};
+  (exercises || []).forEach(e => {
+    if (!counts[e.name]) return;
+    if (stamped(e.name) && stamp[e.name] !== e.sets) return;   // the editor moved it since → it wins
+    sets[e.name] = counts[e.name];
+  });
+  // A re-added exercise is today's own, so its row count is the draft's by definition.
+  add.forEach(n => { if (counts[n]) sets[n] = counts[n]; });
+  return { add, sets };
+}
+
 async function buildWorkoutLogger(session) {
   const logger = document.getElementById('workout-logger');
   logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
@@ -5154,15 +5217,15 @@ async function buildWorkoutLogger(session) {
     removedSessionExercises = Array.from(removedNames);
     session.exercises = session.exercises.filter(e => !removedNames.has(e.name));
 
-    const existingNames = new Set(session.exercises.map(e => e.name));
-    peekDraftOpenExercises(session.id).forEach(name => {
-      if (!existingNames.has(name) && !removedNames.has(name)) {
-        session.exercises.push({ ...(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' }) });
-        existingNames.add(name);
-      }
+    const merged = reconcileDraftAgainstTemplate(
+      session.exercises,
+      peekDraftOpenExercises(session.id).filter(n => !removedNames.has(n)),
+      peekDraftSetCounts(session.id),
+      peekDraftTemplateStamp(session.id));
+    merged.add.forEach(name => {
+      session.exercises.push({ ...(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' }) });
     });
-    const savedCounts = peekDraftSetCounts(session.id);
-    session.exercises.forEach(ex => { if (savedCounts[ex.name]) ex.sets = savedCounts[ex.name]; });
+    session.exercises.forEach(ex => { if (merged.sets[ex.name]) ex.sets = merged.sets[ex.name]; });
 
     const draftSs = peekDraftSupersets(session.id);
     if (draftSs.groups.length) { supersetGroups = draftSs.groups; supersetsTouched = true; }
@@ -5676,6 +5739,16 @@ function saveDraft(sessionId) {
     draft.removedExercises = removedSessionExercises;
     draft.supersetGroups = supersetGroups;
     draft.supersetBaseOrder = supersetBaseOrder;
+    // The template as it stands RIGHT NOW — not selectedSession, which already carries today's
+    // one-off adds, removals and −/+ adjustments. That difference is the whole point: on the way
+    // back in, comparing the two is what tells today's edits from the ✎ editor's (C13/C14 —
+    // reconcileDraftAgainstTemplate). Open Workout has no template, so it gets no stamp and every
+    // name in `openExercises` is its own, which is exactly the old behaviour.
+    const template = getSessionById(sessionId);
+    if (template) {
+      draft.templateStamp = {};
+      template.exercises.forEach(e => { draft.templateStamp[e.name] = e.sets; });
+    }
   }
   // Cardio entries are never saved to the DB until Save Workout — remember the whole list + their
   // current field values so a refresh mid-session doesn't lose them.
@@ -7478,7 +7551,29 @@ function computeExerciseProgress(workouts, setsByWorkout) {
     let runningBwReps = 0;
     list.forEach((entry, i) => {
       const prev = i > 0 ? list[i - 1] : null;
-      const delta = (entry.best !== null && prev && prev.best !== null) ? entry.best - prev.best : null;
+      // ── C2: WHAT THE DELTA IS MEASURED IN ────────────────────────────────────────────────────
+      // `best` is WEIGHT, so `entry.best - prev.best` is null for anything held rather than loaded —
+      // and a timed lift therefore earned its PR badge (the runningBwReps branch below has always
+      // counted a longer hold) while the cell beside it printed "—" forever. Del's report: the
+      // badge works, the delta does not. DeadHang and Side Plank are the unloaded cases.
+      //
+      // An unloaded hold falls back to the HOLD, in seconds — for a timed exercise `bestReps` IS
+      // seconds (see TIMED_EXERCISES), which is the only progression signal it has. `deltaUnit` is
+      // what the render site needs: the same number means kilos on one row and seconds on the next,
+      // so the cell can no longer be printed without asking.
+      //
+      // A LOADED timed lift (Farmers Walk) keeps a weight delta and is not folded in here: it has a
+      // real kg to compare, that kg is what you progress, and two units in one cell would say less
+      // than one. Non-timed bodyweight work (pull-ups, leg raises) also still prints "—" — its
+      // fallback would be reps, which is a different unit again, and it is not what was reported.
+      let delta = null;
+      let deltaUnit = 'kg';
+      if (entry.best !== null && prev && prev.best !== null) {
+        delta = entry.best - prev.best;
+      } else if (entry.best === null && prev && prev.best === null && isTimed(entry.exercise)) {
+        delta = (entry.bestReps || 0) - (prev.bestReps || 0);
+        deltaUnit = 's';
+      }
       const reps = entry.bestReps || 0;
 
       // First-ever occurrence isn't flagged as a PR — otherwise every old entry wears a badge.
@@ -7503,13 +7598,55 @@ function computeExerciseProgress(workouts, setsByWorkout) {
 
       out[`${entry.workoutId}|${key}`] = {
         exercise: entry.exercise, variation: entry.variation, supersetGroup: entry.supersetGroup,
-        best: entry.best, bestReps: entry.bestReps, delta, isPR, prKind,
+        best: entry.best, bestReps: entry.bestReps, delta, deltaUnit, isPR, prKind,
         avgRest: entry.rests.length ? Math.round(entry.rests.reduce((a, b) => a + b, 0) / entry.rests.length) : null,
         setCount: entry.setCount
       };
     });
   });
   return out;
+}
+
+// ─── C10: THE ORDER EXERCISES ARE LISTED IN ON A HISTORY TILE ────────────────────────────────────
+// Del: "why on the history workout tile is the list different from the actual day layout of the
+// training day (sequence)".
+//
+// The tile listed them in the order their rows were WRITTEN, which is not the order they were
+// trained. saveExerciseSets() replaces an exercise's rows wholesale — DELETE then POST — on every
+// Mark Done, so re-tapping Mark Done on the first lift to fix a typo restamps its created_at and
+// drops it to the bottom of the card. Supersets do the same thing honestly: a pair logged A, B, A
+// lists in whatever order the last round was saved in.
+//
+// `workout_sets` has no column for the sequence (the comment in loadHistory says as much), and this
+// is a display fix on a card that is read-only, so the session's own template order is what "the
+// training day" means here and it wins. Two deliberate consequences:
+//   • A name the template has never heard of — every Open Workout lift, and a today-only Add
+//     Exercise — keeps its logged order and is appended after the template's. A name that cannot be
+//     placed is never dropped.
+//   • Reordering a session in the ✎ editor re-orders the tiles of workouts already logged against
+//     it. It has to: the template is the only record of the sequence that exists. Nothing about the
+//     saved sets moves — this changes the reading order of one card and nothing else. The History
+//     EDIT modal is deliberately NOT given this (it builds the form that writes back, and is under
+//     standing orders to take membership, order and set count from the sets alone).
+//
+// `entries` are `{ key, name, supersetGroup }` in logged order; returns the keys in day order.
+function historyExerciseOrder(entries, templateNames) {
+  const rank = {};
+  (templateNames || []).forEach((n, i) => { if (rank[n] === undefined) rank[n] = i; });
+  // Stable sort (ES2019 guarantees it), so anything the template can't place keeps the order it
+  // was logged in rather than being shuffled among its equals.
+  const base = [...(entries || [])].sort((a, b) => {
+    const ra = rank[a.name], rb = rank[b.name];
+    if (ra === undefined && rb === undefined) return 0;
+    if (ra === undefined) return 1;
+    if (rb === undefined) return -1;
+    return ra - rb;
+  });
+  // Then the pairs snap together exactly as they did on the logger, off the tags on the saved sets.
+  const byTag = {};
+  base.forEach(e => { if (e.supersetGroup) (byTag[e.supersetGroup] ||= []).push(e.key); });
+  const groups = Object.values(byTag).filter(g => g.length > 1);
+  return snapSupersetsIntoOrder(base.map(e => e.key), groups);
 }
 
 function fmtRest(seconds) {
@@ -7789,11 +7926,18 @@ function renderHistoryPage() {
       } else {
         const w = item.data;
         const sets = window._setsByWorkout[w.id] || [];
-        const order = [];
+        const seen = [];
         sets.forEach(s => {
           const key = `${s.exercise}::${s.variation || ''}`;
-          if (!order.includes(key)) order.push(key);
+          if (!seen.some(e => e.key === key)) {
+            seen.push({ key, name: s.exercise, supersetGroup: s.superset_group || null });
+          }
         });
+        // Listed the way the session is laid out on the training day, not the way the rows were
+        // written — see historyExerciseOrder. Open Workout has no template, so getSessionById()
+        // returns nothing and the whole list keeps its logged order, which is the only order it has.
+        const order = historyExerciseOrder(seen,
+          (getSessionById(w.session_type)?.exercises || []).map(e => e.name));
         let prCount = 0, totalSets = 0;
         const allRests = [];
         const liftRows = order.map(key => {
@@ -7816,7 +7960,7 @@ function renderHistoryPage() {
           return `<div class="pf-lift${p.supersetGroup ? ' pf-ss-row' : ''}">
             <span><span class="pf-lname">${label}${ssTag}${p.isPR ? `<span class="pf-badge">${p.prKind === 'reps' ? 'REP PR' : 'PR'}</span>` : ''}</span>${restTxt ? `<div class="pf-sub">${esc(restTxt)}</div>` : ''}</span>
             <span class="pf-lval">${esc(value)}</span>
-            ${p.best !== null ? deltaCell(p.delta, {decimals:1}) : '<span class="pf-d same">—</span>'}
+            ${deltaCell(p.delta, p.deltaUnit === 's' ? {suffix:'s', decimals:0} : {decimals:1})}
           </div>`;
         }).join('');
         const cardio = window._cardioByWorkout[w.id] || [];

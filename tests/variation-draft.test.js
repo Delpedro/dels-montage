@@ -119,9 +119,12 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
   const api = load({
     // bwSyncAll is extracted rather than stubbed: restoreDraft calls it, and a stub would hide a
     // real ReferenceError there — which is exactly what the first run of this change produced.
-    functions: ['prevSetsForVariation', 'applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft', 'bwSyncAll'],
+    functions: ['prevSetsForVariation', 'applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft', 'bwSyncAll',
+                'getSessionById'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets', 'pendingRest',
-            'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder'],
+            'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder',
+            // saveDraft now stamps the draft with the live template (C13/C14) and reads it from here.
+            'SESSIONS'],
     deps,
     accessors: {
       // Live bindings, not a snapshot: restoreDraft() reassigns pendingRest outright.

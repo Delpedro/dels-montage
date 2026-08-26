@@ -34,7 +34,7 @@ const UPPER_1 = ['Incline Smith', 'Machine Chest Press', 'Smith Shoulder Press',
   'Seated Row', 'Cable Flys', 'Tricep Pushdown'];
 
 const app = load({
-  functions: ['resolveBaseOrder', 'displayExerciseOrder', 'activeSupersetGroups'],
+  functions: ['resolveBaseOrder', 'displayExerciseOrder', 'snapSupersetsIntoOrder', 'activeSupersetGroups'],
   decls: ['supersetBaseOrder', 'supersetGroups', 'selectedSession'],
   accessors: {
     setLive: '(session, groups = []) => { selectedSession = session; supersetGroups = groups; }',
