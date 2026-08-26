@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-26-1722';
+const APP_BUILD = '2026-08-26-1803';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -7750,6 +7750,28 @@ function getDateRangeFilter() {
   return { start: dateStr(startDate), end: null };
 }
 
+// E15 — what the History search actually searches. Del, 26 Aug: "the search on history is only
+// for notes, can this not be for the entire tile that includes exercises?". It matched `notes` and
+// the session name and nothing else, so "Lateral Raise" found no workout that was full of them.
+//
+// Everything the workout card prints is already in memory by the time a search runs: the exercise
+// names and their variations are in `window._setsByWorkout`, the cardio in `window._cardioByWorkout`,
+// both filled by loadHistory(). So this is a scan of loaded data, not a new request.
+//
+// The cardio activity goes in twice on purpose — the raw key AND its display name — because they
+// differ ("stairmaster" prints as "StairMaster"), and Del may type either. Both sides are
+// lower-cased, so the duplicate costs nothing and closes the gap.
+//
+// Daily-log cards are deliberately left on notes-only: the rest of a check-in tile is numbers.
+function workoutSearchText(w) {
+  const sets = (window._setsByWorkout || {})[w.id] || [];
+  const cardio = (window._cardioByWorkout || {})[w.id] || [];
+  const bits = [sessionDisplayName(w.session_type), w.notes || ''];
+  sets.forEach(s => bits.push(s.exercise || '', s.variation || ''));
+  cardio.forEach(c => bits.push(c.activity || '', cardioDisplayName(c.activity) || ''));
+  return bits.join(' ').toLowerCase();
+}
+
 function filterHistoryData() {
   const { start, end } = getDateRangeFilter();
   const inWindow = d => d >= start && (!end || d <= end);
@@ -7763,7 +7785,7 @@ function filterHistoryData() {
   if (historySearchTerm) {
     const search = historySearchTerm.toLowerCase();
     filteredLogs = filteredLogs.filter(l => (l.notes && l.notes.toLowerCase().includes(search)));
-    filteredWorkouts = filteredWorkouts.filter(w => (w.notes && w.notes.toLowerCase().includes(search)) || sessionDisplayName(w.session_type).toLowerCase().includes(search));
+    filteredWorkouts = filteredWorkouts.filter(w => workoutSearchText(w).includes(search));
   }
   
   if (historyTab === 'workouts') return { logs: [], workouts: filteredWorkouts };
@@ -7799,7 +7821,7 @@ function renderHistoryPage() {
       </select>
     </div>
 
-    <input type="text" class="history-search" id="history-search-input" placeholder="Search notes..." value="${esc(historySearchTerm)}" oninput="setHistorySearch(this.value)" />
+    <input type="text" class="history-search" id="history-search-input" placeholder="Search exercises or notes..." value="${esc(historySearchTerm)}" oninput="setHistorySearch(this.value)" />
   </div>`;
 
   if (logs.length === 0 && workouts.length === 0) {
