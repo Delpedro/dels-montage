@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-26-1647';
+const APP_BUILD = '2026-08-26-1702';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -4547,6 +4547,34 @@ function supersetGroupOf(exName) {
   return supersetGroups.find(g => g.includes(exName)) || null;
 }
 
+// The order the logger lays exercises out in BEFORE any superset snaps a pair together — what
+// displayExerciseOrder() is derived from, and what saveDraft() remembers so a mid-session browser
+// refresh comes back to the same screen.
+//
+// C12, 26 Aug 2026. This was "the draft's order, then anything new on the end", and that made the ✎
+// link's first promise — "Reorder … for this session" — a no-op from inside a live session. Log one
+// set and a draft exists; that draft's base order is the order the template had when the tile was
+// tapped; the rebuild after Save Changes then re-derived the screen from the draft and threw away the
+// order that had just been saved. B1 (the same edit arriving from the laptop) passed the same morning
+// for exactly this reason: a device that had not started the session had no draft, so the template
+// got through. Del, mid-workout: "should that not reflect straight away, if so, this is not working".
+//
+// A fixed session's exercises reach here in the TEMPLATE's own order — SESSIONS is built off
+// sort_order.asc, and saveSessionTemplate writes sort_order as the base order and deliberately never
+// the snapped display order — with today's one-off Add Exercises already appended by the caller. So
+// that list IS the base order, and the template outranks the draft every time.
+//
+// Open Workout is the exception and still reads the draft: it has no template to outrank, and its
+// list is rebuilt by reconstructSessionFromSets() in *display* order with pairs already snapped
+// together. Taking that as the base order would bake a pairing in permanently and leave unpairing
+// with nowhere to put the exercise back — the 13 Aug Lower B bug, one layer down.
+function resolveBaseOrder(session, draftBaseOrder = []) {
+  const names = (session.exercises || []).map(e => e.name);
+  const order = session.id === 'open' ? (draftBaseOrder || []).filter(n => names.includes(n)) : [];
+  names.forEach(n => { if (!order.includes(n)) order.push(n); });
+  return order;
+}
+
 // Display order: base order, except that reaching the first member of a group emits the whole group
 // together. A pure function of base order + groups, which is what makes unpairing restore the original
 // position for free. The group keeps the order it was built in — you tap ⇄ on the lift you do first —
@@ -5147,11 +5175,7 @@ async function buildWorkoutLogger(session) {
       const fromTemplate = Object.values(byTag).filter(g => g.length > 1);
       if (fromTemplate.length) { supersetGroups = fromTemplate; supersetsTouched = true; }
     }
-    // Base order comes from the draft where there is one (session.exercises is by then in *display*
-    // order, which would make unpairing a no-op); anything the draft doesn't know about goes on the end.
-    const names = session.exercises.map(e => e.name);
-    supersetBaseOrder = draftSs.baseOrder.filter(n => names.includes(n));
-    names.forEach(n => { if (!supersetBaseOrder.includes(n)) supersetBaseOrder.push(n); });
+    supersetBaseOrder = resolveBaseOrder(session, draftSs.baseOrder);
     applySupersetOrder();
   }
 
