@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-25-1626';
+const APP_BUILD = '2026-08-26-1647';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -7134,13 +7134,22 @@ function showWeeklyAverage(key) {
 
   if (nameEl) nameEl.textContent = `Week ${picked.week}`;
   if (rangeEl) rangeEl.textContent = weekRangeLabel(picked.monday);
-  valEl.innerHTML = `${picked.avg.toFixed(1)}<span class="weekavg-unit">kg</span>`;
+  // The card prints three numbers about the same two weeks — the hero, the bracketed comparison
+  // week and the delta between them — and every one of them used to be rounded independently off
+  // an unrounded mean. On 26 Aug that read "79.9kg · So far ▲ 0.1kg vs last week (79.9kg)": a real
+  // gap of 0.062 that rounded away in both figures and up in the delta. Each number was right and
+  // the card still contradicted itself. Everything below is now derived from shown(), the value
+  // the card actually displays for a week, so the arithmetic on screen always adds up.
+  const shown = n => Number(n.toFixed(1));
+  const pickedAvg = shown(picked.avg);
+  valEl.innerHTML = `${pickedAvg.toFixed(1)}<span class="weekavg-unit">kg</span>`;
 
   showWeeklyWaist(key);
   showWeeklySplit(key);
 
   const now = _weekAvgs.find(w => w.key === mondayOf(todayStr()));
   if (!now) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'No weigh-in yet this week'; return; }
+  const nowAvg = shown(now.avg);
 
   // On the current week, compare against LAST week rather than printing "This week so far" and
   // stopping. Since 19 Aug this is the view the card opens on, and a default view that says nothing
@@ -7149,24 +7158,28 @@ function showWeeklyAverage(key) {
     const i = _weekAvgs.indexOf(picked);
     const last = i > 0 ? _weekAvgs[i - 1] : null;
     if (!last) { cmpEl.className = 'weekavg-cmp flat'; cmpEl.textContent = 'This week so far'; return; }
-    const wd = now.avg - last.avg;
+    // Rounded minus rounded, so "level" means the two printed figures ARE the same figure — not
+    // that an invisible unrounded gap happened to fall under a threshold. Widening the threshold
+    // was the other option and it only moves the pair that disagrees.
+    const lastAvg = shown(last.avg);
+    const wd = nowAvg - lastAvg;
     if (Math.abs(wd) < 0.05) {
       cmpEl.className = 'weekavg-cmp flat';
-      cmpEl.textContent = `So far · level with last week (${last.avg.toFixed(1)}kg)`;
+      cmpEl.textContent = `So far · level with last week (${lastAvg.toFixed(1)}kg)`;
     } else {
       cmpEl.className = `weekavg-cmp ${wd < 0 ? 'down' : 'up'}`;
-      cmpEl.textContent = `So far · ${wd < 0 ? '▼' : '▲'} ${Math.abs(wd).toFixed(1)}kg vs last week (${last.avg.toFixed(1)}kg)`;
+      cmpEl.textContent = `So far · ${wd < 0 ? '▼' : '▲'} ${Math.abs(wd).toFixed(1)}kg vs last week (${lastAvg.toFixed(1)}kg)`;
     }
     return;
   }
 
-  const d = now.avg - picked.avg;
+  const d = nowAvg - pickedAvg;
   if (Math.abs(d) < 0.05) {
     cmpEl.className = 'weekavg-cmp flat';
-    cmpEl.textContent = `Level with this week (${now.avg.toFixed(1)}kg)`;
+    cmpEl.textContent = `Level with this week (${nowAvg.toFixed(1)}kg)`;
   } else {
     cmpEl.className = `weekavg-cmp ${d < 0 ? 'down' : 'up'}`;
-    cmpEl.textContent = `${d < 0 ? '▼' : '▲'} ${Math.abs(d).toFixed(1)}kg vs this week (${now.avg.toFixed(1)}kg)`;
+    cmpEl.textContent = `${d < 0 ? '▼' : '▲'} ${Math.abs(d).toFixed(1)}kg vs this week (${nowAvg.toFixed(1)}kg)`;
   }
 }
 
@@ -7711,24 +7724,21 @@ function renderHistoryPage() {
           return metric(label, '', cells, missCell(v, t, { suffix: unit, decimals: 0, underIsMiss: !!opts.underIsMiss }));
         };
         // Weight has no target, so it stays a day-on-day change — the one column therefore holds
-        // two different kinds of number, which is only safe because each row says which it is: the
-        // macro rows carry their target inline, weight and waist carry the date they moved from.
+        // two different kinds of number. The macro rows carry their target inline, which is what
+        // marks them out; weight and waist print a signed change against the previous reading and
+        // name no basis at all (see below).
         const prevWaist = prevWaistByDate[l.date] || null;
         const dWaist = prevWaist ? parseFloat(l.waist_cm) - parseFloat(prevWaist.waist_cm) : null;
-        const shortDate = d => new Date(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
-        // The comparison basis sits on the row it belongs to instead of a run-on legend across the
-        // top of the card ("macros vs target · weight vs Tue 18 Aug · waist vs Wed 12 Aug"), which
-        // had to be read and then mentally mapped back onto three different rows. The macro rows
-        // need no legend at all — the target is printed in the row. Waist names its date because
-        // the last waist reading is usually a week back, not the card below.
-        // The sub-line is the weighing time and nothing else. It used to name the reading being
-        // compared against as well ("08:20 · vs 07:45 Wed 19 Aug"), but the feed is already in
-        // date order, so the previous check-in is the card directly below this one — restating its
-        // date here only added a second thing to read and left a dangling separator on every row
-        // with no time recorded, which is every row before 20 Aug 2026.
+        // No row carries a "vs <date>" any more. The macro rows never needed one — the target is
+        // printed in the row — and the weight row dropped its one on 20 Aug because the feed is in
+        // date order, so the reading being compared against is the card directly below. The waist
+        // row kept "vs Mon 24 Aug" on the argument that its previous reading is usually a week
+        // back rather than the next card down; Del's read of it, 26 Aug, was simply that the same
+        // sub-line had been removed from weight and was still sitting here. Two rows of the same
+        // card explaining themselves in two different formats costs more than the date is worth,
+        // so waist now matches weight: value, change, nothing else.
+        // The one sub-line left is the weighing TIME, which is not a comparison at all.
         const weightSub = l.weight_time ? hhmm(l.weight_time) : '';
-
-        const waistSub = prevWaist ? `vs ${shortDate(prevWaist.date)}` : '';
         const footBits = [];
         if (l.steps != null) footBits.push(`<span>Steps <b>${esc(Number(l.steps).toLocaleString())}</b></span>`);
         if (l.energy) footBits.push(`<span>Energy <b>${esc(ENERGY_WORDS[l.energy] || l.energy)}</b></span>`);
@@ -7742,7 +7752,7 @@ function renderHistoryPage() {
           </div>
           <div class="pf-metrics">
             ${row('Weight', weightSub, l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, deltaCell(dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true}))}
-            ${row('Waist', waistSub, l.waist_cm !== null && l.waist_cm !== undefined ? `${l.waist_cm}cm` : null, deltaCell(dWaist, {suffix:'cm', lowerIsBetter:true}))}
+            ${row('Waist', '', l.waist_cm !== null && l.waist_cm !== undefined ? `${l.waist_cm}cm` : null, deltaCell(dWaist, {suffix:'cm', lowerIsBetter:true}))}
             ${macroRow('Calories', 'calories', goalCalories(), {unit:''})}
             ${macroRow('Protein', 'protein_g', MACRO_GOALS.protein_g, {underIsMiss:true})}
             ${macroRow('Carbs', 'carbs_g', MACRO_GOALS.carbs_g)}
