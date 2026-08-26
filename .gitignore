@@ -28,3 +28,6 @@ ROADMAP-2026.md
 
 # Beta-tester guide, 25 Aug 2026 — a doc for three friends, not repo content.
 beta-guide.html
+
+# C15 rollback snapshot (local only)
+.c15-rollback.json
