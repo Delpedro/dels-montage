@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-26-1803';
+const APP_BUILD = '2026-08-26-1814';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -7750,26 +7750,132 @@ function getDateRangeFilter() {
   return { start: dateStr(startDate), end: null };
 }
 
-// E15 — what the History search actually searches. Del, 26 Aug: "the search on history is only
-// for notes, can this not be for the entire tile that includes exercises?". It matched `notes` and
-// the session name and nothing else, so "Lateral Raise" found no workout that was full of them.
+// ─── FIND IN HISTORY ──────────────────────────────────────
+// Del asked for the search to cover the whole tile (E15), got it, and rejected it: *"na, this needs
+// to be better, like when you do ctrl+f on a pc, it needs to go to the finding"*. He is right that
+// filtering is not finding — a Push A card lists eight lifts, and cutting the feed down to the
+// cards containing "lateral raise" still left him reading all eight to see which one it was.
 //
-// Everything the workout card prints is already in memory by the time a search runs: the exercise
-// names and their variations are in `window._setsByWorkout`, the cardio in `window._cardioByWorkout`,
-// both filled by loadHistory(). So this is a scan of loaded data, not a new request.
+// So the search does what Ctrl+F does: every hit is wrapped in a <mark> where it sits, ONE of them
+// is the active hit, and the page scrolls to it. ↑ / ↓ step through them, Enter steps forward, and
+// a counter says which of how many. **The filter stays** — the box lives in a filter bar between
+// two other filters, and cutting the feed to matching cards is what keeps the hit count small
+// enough to thumb through on a phone.
 //
-// The cardio activity goes in twice on purpose — the raw key AND its display name — because they
-// differ ("stairmaster" prints as "StairMaster"), and Del may type either. Both sides are
-// lower-cased, so the duplicate costs nothing and closes the gap.
-//
-// Daily-log cards are deliberately left on notes-only: the rest of a check-in tile is numbers.
+// ⚠️ THE RULE THAT KEEPS THE TWO HALVES HONEST: **the haystack is exactly what the card prints.**
+// If the filter can match text the card does not show, a card comes back with nothing marked on it
+// and the counter disagrees with the screen. That is why the cardio line is matched through
+// `formatCardioEntry()` and the date through `historyCardDate()` — the same calls the render uses,
+// not the underlying row. It costs a real match: the DB stores `Stepper` and the card prints
+// **Stairmaster**, so "stepper" now finds nothing. That is correct — you find what you can see.
+
+// One printed date, one function, used by the cards and by the haystack. Two copies of this format
+// string is how the filter and the highlight drift apart.
+function historyCardDate(d) {
+  return new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+// Everything a workout tile puts on screen, lower-cased into one string. All of it is already in
+// memory by the time a search can run — loadHistory() fills window._setsByWorkout and
+// window._cardioByWorkout — so this is a scan of loaded data and never a new request.
 function workoutSearchText(w) {
   const sets = (window._setsByWorkout || {})[w.id] || [];
   const cardio = (window._cardioByWorkout || {})[w.id] || [];
-  const bits = [sessionDisplayName(w.session_type), w.notes || ''];
+  const bits = [sessionDisplayName(w.session_type), historyCardDate(w.date), w.notes || ''];
   sets.forEach(s => bits.push(s.exercise || '', s.variation || ''));
-  cardio.forEach(c => bits.push(c.activity || '', cardioDisplayName(c.activity) || ''));
+  if (cardio.length) bits.push(cardio.map(formatCardioEntry).join(' / '));
   return bits.join(' ').toLowerCase();
+}
+
+// The check-in tile is the header, the date and a note; the rest of it is numbers, and matching
+// those would put a check-in in front of Del every time he searched for a weight he had lifted.
+function logSearchText(l) {
+  return ['CHECK-IN', historyCardDate(l.date), l.notes || ''].join(' ').toLowerCase();
+}
+
+// Wraps every occurrence of the live search term in a <mark>, and escapes everything else.
+//
+// The term is located in the RAW text and each slice is escaped separately — never escape first and
+// search the result. Two things break that way round: a term containing a character esc() rewrites
+// would be hunting for a `&` that is now `&amp;`, and the <mark> tags would themselves be escaped
+// and print as visible angle brackets.
+function hlSearch(text) {
+  const raw = (text === null || text === undefined) ? '' : String(text);
+  const term = (historySearchTerm || '').toLowerCase();
+  if (!term) return esc(raw);
+  const hay = raw.toLowerCase();
+  let out = '', from = 0, at;
+  while ((at = hay.indexOf(term, from)) !== -1) {
+    out += esc(raw.slice(from, at)) + '<mark class="hl">' + esc(raw.slice(at, at + term.length)) + '</mark>';
+    from = at + term.length;
+  }
+  return out + esc(raw.slice(from));
+}
+
+// Which hit is the active one, and whether there are unloaded pages behind the last one.
+let _historyFindIdx = 0;
+let _historyHasMore = false;
+
+// Reads the marks the render just laid down, makes one of them active, redraws the bar and scrolls
+// to it. Called at the end of every History render, so typing moves to the first hit the same way a
+// browser's find does as you type.
+//
+// The bar is a fixed element on <body>, not part of #history-list, for two reasons: that list's
+// innerHTML is replaced on every keystroke, and the ↑ / ↓ have to stay under Del's thumb once the
+// feed has scrolled a long way down. It is the same box, in the same slot, as the update banner —
+// the app already has a floating bar and this is deliberately that object again.
+function syncHistoryFind() {
+  const marks = Array.from(document.querySelectorAll('#history-list mark.hl'));
+  let bar = document.getElementById('history-find-bar');
+  if (!marks.length) {
+    if (bar) bar.remove();
+    _historyFindIdx = 0;
+    return;
+  }
+  _historyFindIdx = Math.min(Math.max(_historyFindIdx, 0), marks.length - 1);
+  marks.forEach((m, i) => m.classList.toggle('on', i === _historyFindIdx));
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'history-find-bar';
+    bar.className = 'find-bar';
+    document.body.appendChild(bar);
+  }
+  // The "+" is not decoration: History pages 15 items at a time, so the total is only the total of
+  // what is loaded. Saying "12 matches" when Load More would find thirty would be a lie.
+  bar.innerHTML = `<span class="find-count">${_historyFindIdx + 1} of ${marks.length}${_historyHasMore ? '+' : ''} matches</span>
+    <span class="find-nav">
+      <button type="button" class="find-btn" onclick="historyFindStep(-1)" aria-label="Previous match">↑</button>
+      <button type="button" class="find-btn" onclick="historyFindStep(1)" aria-label="Next match">↓</button>
+      <button type="button" class="find-btn find-close" onclick="historyFindClear()" aria-label="Clear search">✕</button>
+    </span>`;
+  marks[_historyFindIdx].scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function historyFindStep(dir) {
+  const total = document.querySelectorAll('#history-list mark.hl').length;
+  if (!total) return;
+  // Stepping forward off the end of a paged list pulls the next page in and carries on, rather than
+  // wrapping to the top past hits Del has not been shown. renderHistoryPage() clamps the index back
+  // if that page turns out to add none.
+  if (dir > 0 && _historyFindIdx === total - 1 && _historyHasMore) {
+    captureSearchFocus();
+    _historyFindIdx++;
+    loadMoreHistory();
+    return;
+  }
+  _historyFindIdx = (_historyFindIdx + dir + total) % total;
+  syncHistoryFind();
+}
+
+function historyFindClear() {
+  setHistorySearch('');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Enter is the Ctrl+F reflex for "next", and Escape is the one for "give me the list back".
+function historySearchKey(e) {
+  if (e.key === 'Enter') { e.preventDefault(); historyFindStep(e.shiftKey ? -1 : 1); }
+  else if (e.key === 'Escape') { e.preventDefault(); historyFindClear(); }
 }
 
 function filterHistoryData() {
@@ -7784,7 +7890,7 @@ function filterHistoryData() {
   
   if (historySearchTerm) {
     const search = historySearchTerm.toLowerCase();
-    filteredLogs = filteredLogs.filter(l => (l.notes && l.notes.toLowerCase().includes(search)));
+    filteredLogs = filteredLogs.filter(l => logSearchText(l).includes(search));
     filteredWorkouts = filteredWorkouts.filter(w => workoutSearchText(w).includes(search));
   }
   
@@ -7821,13 +7927,15 @@ function renderHistoryPage() {
       </select>
     </div>
 
-    <input type="text" class="history-search" id="history-search-input" placeholder="Search exercises or notes..." value="${esc(historySearchTerm)}" oninput="setHistorySearch(this.value)" />
+    <input type="text" class="history-search" id="history-search-input" placeholder="Search exercises, notes, dates..." value="${esc(historySearchTerm)}" oninput="setHistorySearch(this.value)" onkeydown="historySearchKey(event)" />
   </div>`;
 
   if (logs.length === 0 && workouts.length === 0) {
     html += '<div class="empty">No results found</div>';
     list.innerHTML = html;
     restoreSearchFocus();
+    _historyHasMore = false;
+    syncHistoryFind();
     return;
   }
 
@@ -7840,6 +7948,7 @@ function renderHistoryPage() {
   const endIdx = historyPage * itemsPerPage;
   const paginatedItems = allItems.slice(0, endIdx);
   const hasMore = allItems.length > endIdx;
+  _historyHasMore = hasMore;
 
   const byDate = {};
   paginatedItems.forEach(item => {
@@ -7865,7 +7974,7 @@ function renderHistoryPage() {
 
   Object.keys(byDate).sort((a, b) => b.localeCompare(a)).forEach(date => {
     const dateStr = new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-    html += `<div class="history-date-group"><div class="history-date-header">${dateStr}</div>`;
+    html += `<div class="history-date-group"><div class="history-date-header">${hlSearch(dateStr)}</div>`;
 
     byDate[date].forEach(item => {
       if (item.type === 'log') {
@@ -7930,8 +8039,8 @@ function renderHistoryPage() {
         // out of this JS string into executable code. esc() escapes & first, which stops that.
         html += `<div class="pf-card log" onclick="openEditLog(${esc(JSON.stringify(l))})">
           <div class="pf-head">
-            <span class="pf-name">CHECK-IN</span>
-            <span class="pf-date">${new Date(l.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
+            <span class="pf-name">${hlSearch('CHECK-IN')}</span>
+            <span class="pf-date">${hlSearch(historyCardDate(l.date))}</span>
           </div>
           <div class="pf-metrics">
             ${row('Weight', weightSub, l.weight_kg !== null && l.weight_kg !== undefined ? `${l.weight_kg}kg` : null, deltaCell(dnum('weight_kg'), {suffix:'kg', lowerIsBetter:true}))}
@@ -7942,7 +8051,7 @@ function renderHistoryPage() {
             ${macroRow('Fat', 'fat_g', MACRO_GOALS.fat_g)}
             ${macroRow('Fibre', 'fibre_g', MACRO_GOALS.fibre_g, {underIsMiss:true})}
           </div>
-          ${l.notes ? `<div class="history-card-notes">${esc(l.notes)}</div>` : ''}
+          ${l.notes ? `<div class="history-card-notes">${hlSearch(l.notes)}</div>` : ''}
           ${footBits.length ? `<div class="pf-foot">${footBits.join('')}</div>` : ''}
         </div>`;
       } else {
@@ -7976,7 +8085,7 @@ function renderHistoryPage() {
           // this printed a bare `rest —` under a third of the lifts on the card. The logger's
           // lastTimeRestLabel() has always returned '' in the same situation; History now matches.
           const restTxt = p.avgRest !== null ? `rest ${fmtRest(p.avgRest)} avg` : '';
-          const label = `${esc(p.exercise)}${p.variation ? ` <span style="color:var(--muted);">· ${esc(p.variation)}</span>` : ''}`;
+          const label = `${hlSearch(p.exercise)}${p.variation ? ` <span style="color:var(--muted);">· ${hlSearch(p.variation)}</span>` : ''}`;
           // Supersets: the lifts in one group carry the same tag, so they read as a pair on the card.
           const ssTag = p.supersetGroup ? `<span class="pf-ss">s/s ${esc(p.supersetGroup)}</span>` : '';
           return `<div class="pf-lift${p.supersetGroup ? ' pf-ss-row' : ''}">
@@ -7989,12 +8098,12 @@ function renderHistoryPage() {
         const sessionRest = allRests.length ? Math.round(allRests.reduce((a,b)=>a+b,0)/allRests.length) : null;
         html += `<div class="pf-card" onclick="openEditWorkout('${jsAttr(w.id)}', '${jsAttr(w.session_type)}', ${esc(JSON.stringify(w.notes||''))})">
           <div class="pf-head">
-            <span class="pf-name">${esc(sessionDisplayName(w.session_type))}</span>
-            <span class="pf-date">${new Date(w.date).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}</span>
+            <span class="pf-name">${hlSearch(sessionDisplayName(w.session_type))}</span>
+            <span class="pf-date">${hlSearch(historyCardDate(w.date))}</span>
           </div>
           ${liftRows || '<div class="pf-sub" style="padding:4px 0;">No sets logged</div>'}
-          ${cardio.length ? `<div class="pf-sub" style="margin-top:6px;">${esc(cardio.map(formatCardioEntry).join(' / '))}</div>` : ''}
-          ${w.notes ? `<div class="history-card-notes">${esc(w.notes)}</div>` : ''}
+          ${cardio.length ? `<div class="pf-sub" style="margin-top:6px;">${hlSearch(cardio.map(formatCardioEntry).join(' / '))}</div>` : ''}
+          ${w.notes ? `<div class="history-card-notes">${hlSearch(w.notes)}</div>` : ''}
           <div class="pf-foot">
             <span>Sets <b>${totalSets}</b></span>
             <span>PRs <b>${prCount}</b></span>
@@ -8014,6 +8123,7 @@ function renderHistoryPage() {
 
   list.innerHTML = html;
   restoreSearchFocus();
+  syncHistoryFind();
 }
 
 // Keeps cursor/focus in search box across re-renders (otherwise typing loses focus every keystroke)
@@ -8031,6 +8141,7 @@ function restoreSearchFocus() {
 function setHistoryTab(tab) {
   historyTab = tab;
   historyPage = 1;
+  _historyFindIdx = 0;
   saveHistoryFilters();
   renderHistoryPage();
 }
@@ -8038,6 +8149,7 @@ function setHistoryTab(tab) {
 function setHistoryDateRange(range) {
   historyDateRange = range;
   historyPage = 1;
+  _historyFindIdx = 0;
   saveHistoryFilters();
   renderHistoryPage();
 }
@@ -8045,18 +8157,26 @@ function setHistoryDateRange(range) {
 function setHistoryWorkoutFilter(type) {
   historyWorkoutFilter = type;
   historyPage = 1;
+  _historyFindIdx = 0;
   saveHistoryFilters();
   renderHistoryPage();
 }
 
-function setHistorySearch(term) {
-  // Remember where cursor was so it survives the re-render
+// Remember where the cursor was so it survives the re-render. Shared with historyFindStep(), which
+// re-renders the whole list when it turns a page and would otherwise drop the keyboard mid-search.
+function captureSearchFocus() {
   const input = document.getElementById('history-search-input');
   if (input && document.activeElement === input) {
     _searchFocusState = { focused: true, pos: input.selectionStart };
   }
+}
+
+function setHistorySearch(term) {
+  captureSearchFocus();
   historySearchTerm = term;
   historyPage = 1;
+  // A new term is a new search: back to the first hit, the way retyping in a find bar behaves.
+  _historyFindIdx = 0;
   renderHistoryPage();
 }
 
@@ -8067,6 +8187,12 @@ function loadMoreHistory() {
 
 // ─── NAV ─────────────────────────────────────────────────
 function showPage(name) {
+  // The find bar is a fixed element on <body>, not inside the History page, so nothing else hides
+  // it. Leaving History without this leaves a floating "3 of 12 matches" over the Home screen.
+  if (name !== 'history') {
+    const findBar = document.getElementById('history-find-bar');
+    if (findBar) findBar.remove();
+  }
   // Any tab change away from an opened-but-never-logged session deletes its empty
   // workouts row. Home used to be excluded, which left the row behind and showed it
   // as a blank entry in History.

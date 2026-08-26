@@ -549,6 +549,72 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 }
 .history-search:focus { border-color: var(--accent); }
 
+/* ─── FIND IN HISTORY (26 Aug 2026) ────────────────────────
+   Del asked for Ctrl+F, so the hits are marked where they sit and one of them is the active one.
+
+   --accent, tinted, is the "this is the thing you searched for" wash. It does not fight
+   accent-as-tappable: this only ever paints behind text inside a card, never on or near a control,
+   and the one control it does colour (the find bar's arrows) is the control FOR the search. The
+   active hit inverts to solid accent so the row the page has just scrolled to is unmistakable at
+   arm's length, which is the whole point of the feature. */
+mark.hl {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+mark.hl.on { background: var(--accent); color: #fff; }
+
+/* Same box, same slot, same shadow as .update-banner. The app already has exactly one floating bar
+   and this is deliberately that object again rather than a second idea about what a bar looks like.
+   Fixed rather than in the filter row because the feed scrolls a long way to reach a hit and the
+   arrows have to still be under a thumb when it gets there.
+
+   z-index 90: under the bottom nav's 100 (it sits above it, they never overlap) and well under the
+   200/300 modals, so opening a card's edit sheet covers it. */
+.find-bar {
+  position: fixed;
+  left: 12px; right: 12px; bottom: 78px;
+  z-index: 90;
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px 7px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(35,31,26,0.16);
+}
+/* "3 of 12+ matches" — a counter, so --muted2 rather than the accent: it is a readout, not
+   something to tap. tabular-nums stops the bar twitching as the number changes while typing. */
+.find-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted2);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.find-nav { display: flex; gap: 6px; }
+.find-btn {
+  min-width: 40px;
+  padding: 7px 10px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+}
+.find-btn:active { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+/* Clear is the way out, not the action — it recedes. */
+.find-close { color: var(--muted); background: transparent; border-color: transparent; }
+
 .history-date-group { margin-bottom: 1.5rem; }
 .history-date-header {
   font-size: 11px;
