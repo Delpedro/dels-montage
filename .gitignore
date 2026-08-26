@@ -31,3 +31,4 @@ beta-guide.html
 
 # C15 rollback snapshot (local only)
 .c15-rollback.json
+.hacksquat-rollback.json
