@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-26-1814">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-27-1000">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -29,23 +29,31 @@
     <!-- Five panels in one card: sign in, ask for a code, type the code, create an account, confirm
          the account. They share the one #login-error and the one #login-diag underneath, so every
          message this screen can produce still comes out in the same two places. See the FORGOTTEN
-         PASSWORD and CREATE AN ACCOUNT blocks in js/app.js. -->
-    <div id="login-form">
+         PASSWORD and CREATE AN ACCOUNT blocks in js/app.js.
+
+         EVERY FIELD BELOW THAT IS NOT ON THE SIGN-IN PANEL SHIPS `disabled`, and showLoginPanel()
+         flips that as the panels change. A password manager reads the whole document, not the
+         visible part of it, so five panels on one URL put four email boxes and five password boxes
+         in front of 1Password at once and it keyed Del's login on the wrong pair (C8, 25 Aug 2026).
+         A disabled field is the one thing every manager skips — the same fact #reset-sent-to relies
+         on by being readonly rather than disabled. The SIGN-IN panel ships ENABLED, so if
+         showLoginPanel() never runs, the one panel that still works is the one that has to. -->
+    <form id="login-form" onsubmit="event.preventDefault(); handleLogin();">
       <div class="form-group">
         <label>Email</label>
-        <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email" />
+        <input type="email" id="login-email" placeholder="your@email.com" autocomplete="username" />
       </div>
       <div class="form-group">
         <label>Password</label>
         <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" />
       </div>
-      <button class="btn-primary" id="login-btn" onclick="handleLogin()">Get In</button>
+      <button type="submit" class="btn-primary" id="login-btn">Get In</button>
       <button type="button" class="login-link" onclick="showForgotPassword()">Forgot your password?</button>
       <!-- The whole beta walks through here. Del sends a link and nothing else — no address, no
            password, no invite code — so this button is the only thing standing between a tester
            opening the link and having an account. See CREATE AN ACCOUNT in js/app.js. -->
       <button type="button" class="login-link" onclick="showSignUp()">New here? Create an account</button>
-    </div>
+    </form>
 
     <div id="reset-request" style="display:none;">
       <div class="login-step">Reset your password</div>
@@ -53,7 +61,7 @@
       <form onsubmit="sendRecoveryCode(); return false;">
         <div class="form-group">
           <label>Email</label>
-          <input type="email" id="reset-email" placeholder="your@email.com" autocomplete="username" />
+          <input type="email" id="reset-email" placeholder="your@email.com" autocomplete="username" disabled />
         </div>
         <button type="submit" class="btn-primary" id="reset-send-btn">Send me a code</button>
       </form>
@@ -75,19 +83,19 @@
       <form onsubmit="completePasswordReset(); return false;">
         <div class="form-group">
           <label>Account</label>
-          <input type="email" id="reset-sent-to" autocomplete="username" readonly />
+          <input type="email" id="reset-sent-to" autocomplete="username" readonly disabled />
         </div>
         <div class="form-group">
           <label>Code</label>
-          <input type="text" id="reset-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="10" />
+          <input type="text" id="reset-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="10" disabled />
         </div>
         <div class="form-group">
           <label>New password</label>
-          <input type="password" id="reset-new" placeholder="At least 8 characters" autocomplete="new-password" />
+          <input type="password" id="reset-new" placeholder="At least 8 characters" autocomplete="new-password" disabled />
         </div>
         <div class="form-group">
           <label>Confirm new password</label>
-          <input type="password" id="reset-confirm-pw" placeholder="Type it again" autocomplete="new-password" />
+          <input type="password" id="reset-confirm-pw" placeholder="Type it again" autocomplete="new-password" disabled />
         </div>
         <button type="submit" class="btn-primary" id="reset-save-btn">Set password</button>
       </form>
@@ -104,15 +112,15 @@
       <form onsubmit="submitSignUp(); return false;">
         <div class="form-group">
           <label>Email</label>
-          <input type="email" id="signup-email" placeholder="your@email.com" autocomplete="username" />
+          <input type="email" id="signup-email" placeholder="your@email.com" autocomplete="username" disabled />
         </div>
         <div class="form-group">
           <label>Password</label>
-          <input type="password" id="signup-password" placeholder="At least 8 characters" autocomplete="new-password" />
+          <input type="password" id="signup-password" placeholder="At least 8 characters" autocomplete="new-password" disabled />
         </div>
         <div class="form-group">
           <label>Confirm password</label>
-          <input type="password" id="signup-confirm-pw" placeholder="Type it again" autocomplete="new-password" />
+          <input type="password" id="signup-confirm-pw" placeholder="Type it again" autocomplete="new-password" disabled />
         </div>
         <button type="submit" class="btn-primary" id="signup-btn">Create account</button>
       </form>
@@ -127,11 +135,11 @@
       <form onsubmit="confirmSignUp(); return false;">
         <div class="form-group">
           <label>Account</label>
-          <input type="email" id="signup-sent-to" autocomplete="username" readonly />
+          <input type="email" id="signup-sent-to" autocomplete="username" readonly disabled />
         </div>
         <div class="form-group">
           <label>Code</label>
-          <input type="text" id="signup-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="10" />
+          <input type="text" id="signup-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="10" disabled />
         </div>
         <button type="submit" class="btn-primary" id="signup-verify-btn">Confirm account</button>
       </form>
@@ -838,6 +846,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-26-1814"></script>
+<script src="js/app.js?v=2026-08-27-1000"></script>
 </body>
 </html>

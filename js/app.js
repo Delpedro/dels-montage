@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-26-1814';
+const APP_BUILD = '2026-08-27-1000';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -1127,7 +1127,21 @@ function showLoginPanel(which) {
   ];
   for (const [id, name] of panels) {
     const el = document.getElementById(id);
-    if (el) el.style.display = which === name ? '' : 'none';
+    if (!el) continue;
+    const shown = which === name;
+    el.style.display = shown ? '' : 'none';
+    // C8, 25 Aug 2026. Hiding a panel is enough for Del and not enough for 1Password: a password
+    // manager reads the whole DOM, so all five panels were offering it four email boxes and five
+    // password boxes on one URL and it keyed his login on the wrong pair — the sign-in box then
+    // kept refilling an account he was not typing, and the saved item stopped working. A DISABLED
+    // field is the one thing every manager skips (the same fact #reset-sent-to leans on by being
+    // readonly and not disabled), so exactly one panel's fields are ever offerable.
+    //
+    // Reading .value off a disabled input still works, so resetRecoveryState() and every handler
+    // below are unaffected; focus() does not, which is why this runs BEFORE the focus() calls in
+    // showForgotPassword() and showSignUp() rather than after them.
+    const fields = el.querySelectorAll ? el.querySelectorAll('input') : [];
+    for (const f of fields) f.disabled = !shown;
   }
 }
 
@@ -1693,12 +1707,10 @@ async function confirmSignUp() {
   }
 }
 
-document.getElementById('login-password').addEventListener('keydown', e => {
-  if (e.key === 'Enter') handleLogin();
-});
-
-// No keydown handlers for the two reset panels: each is a real <form> with a submit button, so Enter
-// already submits it. Binding one on top of that would run the handler twice on a single Enter.
+// No keydown handler anywhere on this screen. Every panel including sign-in is now a real <form>
+// with a submit button, so Enter already submits it — see C8. #login-password used to carry one,
+// and leaving it there once the sign-in panel became a form would run handleLogin() twice on a
+// single Enter.
 
 window.addEventListener('load', async () => {
   renderLoginDiag();
