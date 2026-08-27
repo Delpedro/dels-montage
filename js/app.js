@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1651';
+const APP_BUILD = '2026-08-27-1714';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -7599,7 +7599,10 @@ function macroDelta(actual, target) {
 function macroCell(label, actual, target, underIsMiss = false) {
   const a = numOrNull(actual), t = numOrNull(target);
   const state = (a === null || t === null) ? null : goalState(a, t, underIsMiss);
-  const val = a === null ? '--' : `${Math.round(a)}g`;
+  // ⚠️ The unit is its OWN span, in DM Sans. Bebas Neue has no lowercase glyphs, so a "g" set in the
+  // figure's own face comes out "G" — the same trap that made the onboarding box print cHARLIE as
+  // CHARLIE on 27 Aug. kcal and kg have always been split out for exactly this reason.
+  const val = a === null ? '--' : `${Math.round(a)}<span class="cell-unit">g</span>`;
   const note = (a === null || t === null) ? '' : `of ${Math.round(t)}g`;
   return `<div class="weekavg-cell">
       <div class="weekavg-cell-val${state === 'bad' ? ' gv-bad' : ''}">${val}</div>

@@ -902,6 +902,11 @@ mark.hl.on { background: var(--accent); color: #fff; }
 .stats-food-card .stats-hero-val { font-size: 56px; }
 .stats-food-card .stats-hero-unit { font-size: 15px; }
 .stats-food-card .stats-hero-sub { font-size: 12.5px; margin-top: 5px; min-height: 18px; }
+/* The grams, in DM Sans beside the figure rather than inside it — Bebas Neue has no lowercase, so a
+   "g" set in the figure's own face renders as "G". Same split kcal and kg already use. */
+.stats-food-card .cell-unit { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 400; color: var(--muted); letter-spacing: 0; margin-left: 1px; }
+/* And the target under it is not shouted, so its own g stays a g. */
+.stats-food-card .weekavg-cell-note { text-transform: none; font-size: 10px; letter-spacing: 0.2px; }
 
 /* ─── HISTORY: PROGRESS FEED CARDS (redesign 10 Aug 2026) ─── */
 /* Left rail colour keys the entry type: amber = workout, blue = daily check-in. */
