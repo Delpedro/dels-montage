@@ -33,6 +33,14 @@
 
 import webpush from 'npm:web-push@3.6.7';
 
+// CORS. The gateway stamps its OWN replies (a 401 for a bad JWT comes back with an
+// Access-Control-Allow-Origin) but it does not stamp the function's, and OPTIONS is forwarded here
+// rather than answered for us — so before 27 Aug 2026 the preflight got the 405 below and every
+// reply came back unreadable to the browser. The client dutifully logged `dispatch-failed: Load
+// failed` on ALL 31 dispatches of Del's 26 Aug session while all 31 were in fact invoked, which
+// wedged the one signal that would have shown a dispatch genuinely failing. delete-account had this
+// right from day one; this is that block, copied.
+
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const VAPID_PUBLIC = Deno.env.get('VAPID_PUBLIC_KEY')!;
@@ -49,6 +57,20 @@ const CHAIN_AFTER = 120;
 // early is invisible; the 4–6s late one is what he came out of the gym complaining about.
 const SEND_LEAD_MS = 1200;
 
+// ── THE PREP WINDOW (27 Aug 2026, C11) ───────────────────────────────────────────────────────────
+// The lead above was being spent before the push ever left. The sleep ran to the send instant and
+// only THEN did this function read rest_alerts, read push_subscriptions, sign a VAPID JWT and open
+// a TLS connection to Apple — three round trips stacked on top of the deadline instead of before
+// it. The 26 Aug readout measured the result: on all 19 sends the push left between 0.5s and 2.3s
+// AFTER the target, worst on the longest rests, and that is Del's "3-4sec delay on rest message"
+// with Apple's own transit added on the end.
+//
+// So wake this much earlier than the send instant and do the slow work inside the window. The long
+// sleep now ends in the window rather than on the target, so its drift is absorbed here instead of
+// landing on the cue. stillPending() deliberately stays on the FAR side of the nap: it is the
+// cancellation check, it is one cheap round trip, and it must be read as late as it possibly can be.
+const PREP_BUDGET_MS = 2000;
+
 // How far the client's stamped deadline may differ from the duration it sent alongside it before the
 // deadline is treated as coming off a wrong clock. Ten seconds is far wider than any round trip and
 // far narrower than a clock actually being wrong.
@@ -57,8 +79,14 @@ const SKEW_TOLERANCE_MS = 10_000;
 // Seconds from now until the alert should go out.
 const secondsUntil = (dueAt: number) => (dueAt - SEND_LEAD_MS - Date.now()) / 1000;
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 const sleep = (s: number) => new Promise((r) => setTimeout(r, s * 1000));
 
@@ -84,8 +112,14 @@ async function admin(path: string, init: RequestInit = {}) {
 // must not be able to cost the push it is watching.
 //
 // TEMPORARY. This and the table both go once the miss is explained.
+// Returns the write so a branch that is about to RETURN can await it. It has to: waitUntil resolves
+// the moment work() returns and the runtime is then free to tear the isolate down, taking any
+// in-flight fetch with it. That is why 6 of the 12 early-stopped rests on 26 Aug logged no 'skipped'
+// row at all while all 19 sends logged — the send path happens to await a DELETE afterwards, which
+// held the isolate open long enough for its log write to land, and the skip path returned straight
+// away and lost the race. Six rests that were correctly silent looked exactly like six misses.
 function logPhase(userId: string, phase: string, token: string, exercise: string, detail?: string) {
-  admin('rest_alert_log', {
+  return admin('rest_alert_log', {
     method: 'POST',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({
@@ -95,7 +129,7 @@ function logPhase(userId: string, phase: string, token: string, exercise: string
       exercise: exercise ? exercise.slice(0, 80) : null,
       detail: detail ? detail.slice(0, 300) : null,
     }),
-  }).catch(() => {});
+  }).then(() => {}, () => {});
 }
 
 // Who is calling. The user's own access token is exchanged for their id through GoTrue rather than
@@ -118,10 +152,18 @@ async function stillPending(userId: string, token: string): Promise<boolean> {
   return Array.isArray(rows) && rows.length > 0 && rows[0].token === token;
 }
 
-async function sendToUser(userId: string, title: string, body: string, dueAt: number) {
+// Read in the prep window, before the deadline rather than after it. null means the read failed, and
+// the send retries it itself rather than give up on a cue Del is standing in a gym waiting for.
+async function loadSubscriptions(userId: string): Promise<any[] | null> {
   const res = await admin(`push_subscriptions?user_id=eq.${userId}&select=endpoint,p256dh,auth`);
-  if (!res.ok) return { sent: 0, gone: 0, error: `subscription read failed ${res.status}` };
-  const subs = await res.json();
+  if (!res.ok) return null;
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function sendToUser(userId: string, title: string, body: string, dueAt: number, preloaded: any[] | null) {
+  const subs = preloaded ?? await loadSubscriptions(userId);
+  if (subs === null) return { sent: 0, gone: 0, error: 'subscription read failed' };
   let sent = 0;
   let gone = 0;
   let pushError = '';
@@ -153,6 +195,7 @@ async function sendToUser(userId: string, title: string, body: string, dueAt: nu
 }
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
 
   let payload: any;
@@ -217,12 +260,14 @@ Deno.serve(async (req) => {
   const work = (async () => {
     logPhase(userId, payload.chain === true ? 'chain-leg' : 'invoked', token, exercise,
       `due in ${Math.round(secondsUntil(dueAt))}s`);
-    const leg = Math.min(secondsUntil(dueAt), CHAIN_AFTER);
+    // Sleep to the START of the prep window, not to the send instant — see PREP_BUDGET_MS.
+    const untilPrep = () => secondsUntil(dueAt) - PREP_BUDGET_MS / 1000;
+    const leg = Math.min(untilPrep(), CHAIN_AFTER);
     if (leg > 0) await sleep(leg);
 
     // Re-measured against the deadline rather than subtracted from a running total, so a slow leg or
     // a slow hop is corrected by the next one instead of compounding.
-    if (secondsUntil(dueAt) > 1) {
+    if (untilPrep() > 1) {
       // Hand the rest of the wait to a fresh function so neither leg goes near the 150s wall.
       await fetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
         method: 'POST',
@@ -230,19 +275,26 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ chain: true, userId, dueAt, token, exercise }),
       }).catch((e) => {
         console.error('chain hop failed', e?.message);
-        logPhase(userId, 'chain-failed', token, exercise, String(e?.message ?? e).slice(0, 300));
+        return logPhase(userId, 'chain-failed', token, exercise, String(e?.message ?? e).slice(0, 300));
       });
       return;
     }
 
+    // ── INSIDE THE PREP WINDOW ───────────────────────────────────────────────────────────────────
+    // The slow round trip first, then the short nap onto the send instant, then the cancellation
+    // check, then the push. Nothing sits between the nap and the send but one cheap read.
+    const subs = await loadSubscriptions(userId);
+    const nap = secondsUntil(dueAt);
+    if (nap > 0) await sleep(nap);
+
     if (!(await stillPending(userId, token))) {
       console.log('skipped — rest already over');
-      logPhase(userId, 'skipped', token, exercise, 'row gone or token rotated — rest ended early');
+      await logPhase(userId, 'skipped', token, exercise, 'row gone or token rotated — rest ended early');
       return;
     }
 
     const body = exercise ? `${exercise} — next set` : 'Next set';
-    const result = await sendToUser(userId, 'Rest over', body, dueAt);
+    const result = await sendToUser(userId, 'Rest over', body, dueAt, subs);
     console.log('sent', JSON.stringify(result));
     logPhase(userId, result.sent ? 'sent' : 'push-error', token, exercise,
       `sent ${result.sent} · dropped ${result.gone}${result.error ? ' · ' + result.error : ''}`);

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1021';
+const APP_BUILD = '2026-08-27-1113';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -8824,7 +8824,9 @@ async function scheduleRestAlert(exName, seconds) {
       method: 'POST',
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ seconds, dueAt, token, exercise: exName || '' }),
-    }).catch(e => logRestPhase('dispatch-failed', token, exName, String(e && e.message || e)));
+    })
+      .then(r => { if (!r.ok) logRestPhase('dispatch-failed', token, exName, 'status ' + r.status); })
+      .catch(e => logRestPhase('dispatch-failed', token, exName, String(e && e.message || e)));
   } catch (e) {
     // No signal — the beep and the wake lock still stand.
     logRestPhase('book-threw', token, exName, String(e && e.message || e));
