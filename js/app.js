@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1714';
+const APP_BUILD = '2026-08-27-1736';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3029,8 +3029,6 @@ async function saveGoals() {
 
 // ─── INIT ─────────────────────────────────────────────────
 async function initApp(page = 'home') {
-  const now = new Date();
-  document.getElementById('topbar-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   document.getElementById('log-date').max = todayStr();
   await autoCloseStaleWorkouts();  // Clean up orphans from >24hrs ago before rendering the session grid
   await loadSessionTemplates();  // Fixed-session templates now live in Supabase, not a hardcoded array — must resolve before anything reads SESSIONS
