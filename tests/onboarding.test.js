@@ -362,6 +362,20 @@ console.log('Onboarding — the form that fills the profile in');
   ok(/closeOnboarding\(\);/.test(src.slice(src.indexOf('function showLoginScreen'),
                                            src.indexOf('function showLoginScreen') + 700)),
     'logging out tears the form down rather than leaving it for the next person');
+
+  // The name box is the only free-text answer in the form, and for five days it was drawn in Bebas
+  // Neue like the rest of the screen. Bebas Neue has no lowercase glyphs, so a caps-lock slip was
+  // invisible while typing and surfaced on the home screen instead — "Good morning, cHARLIE" (Del,
+  // 27 Aug 2026). Asserted against the stylesheet, because a later tidy that makes this screen
+  // "consistent" again would put the bug straight back with nothing failing.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'style.css'), 'utf8');
+  const obBig = css.slice(css.indexOf('.ob-big {'), css.indexOf('.ob-unit'));
+  ok(!/Bebas/.test(obBig),
+    'the name box is not drawn in a caps-only face — what you type into it is what you see');
+  ok(obBig.includes("font-family: 'DM Sans'"),
+    'it wears DM Sans, the same face as the greeting that prints the answer back');
+  ok((src.match(/ob-big/g) || []).length === 1,
+    'and one field in the whole app wears that class, so restyling it cannot reach anything else');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

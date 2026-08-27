@@ -1093,8 +1093,17 @@ html.ob-active #app { display: none; }
 .ob-conv { font-family: 'DM Mono', monospace; font-size: 11.5px; letter-spacing: 0.04em; color: var(--muted2); min-height: 1.2em; margin-bottom: 0.4rem; font-variant-numeric: tabular-nums; }
 
 .ob-row { display: flex; align-items: baseline; }
-.ob-big { width: 100%; background: none; border: none; border-bottom: 2px solid var(--accent); border-radius: 0; padding: 6px 2px; font-family: 'Bebas Neue', sans-serif; font-size: 34px; line-height: 1.15; letter-spacing: 1px; color: var(--text); outline: none; }
-.ob-big::placeholder { color: var(--border2); letter-spacing: 1px; }
+/* DM Sans, not the Bebas Neue the rest of this screen wears, and it is the one deliberate
+   inconsistency on it. Bebas Neue has NO lowercase glyphs — it draws every letter as a capital —
+   so this box rendered "Charlie", "charlie" and "cHARLIE" identically and a caps-lock slip was
+   invisible while typing. The first anyone saw of it was the home screen: "Good morning, cHARLIE"
+   (Del, 27 Aug 2026). This is the only free-text answer in the form, so it is the only one where
+   the exact characters matter and the only one that cannot wear a caps-only face — everything else
+   is picked rather than typed (chips, a date picker, wheels), which is also why nothing else uses
+   this class. 26px, not 34: DM Sans sets far wider than a condensed caps face and a long name ran
+   off the row. */
+.ob-big { width: 100%; background: none; border: none; border-bottom: 2px solid var(--accent); border-radius: 0; padding: 6px 2px; font-family: 'DM Sans', sans-serif; font-size: 26px; font-weight: 600; line-height: 1.15; letter-spacing: 0; color: var(--text); outline: none; }
+.ob-big::placeholder { color: var(--border2); font-weight: 400; letter-spacing: 0; }
 .ob-unit { font-size: 15px; color: var(--muted); margin-left: 8px; flex: 0 0 auto; }
 
 /* The wheels. Every number and the date are picked, not typed — see OB_WHEEL in app.js.
