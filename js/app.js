@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1113';
+const APP_BUILD = '2026-08-27-1445';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3475,14 +3475,15 @@ async function renderNextUp() {
   card.className = 'next-up ' + sessionColourClass(session);
   card.style.display = 'block';
   const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-  set('next-up-label', liveSession ? 'In progress' : 'Next up');
   set('next-up-name', session.name);
-  set('next-up-focus', session.focus || '');
   set('next-up-go', liveSession ? 'Resume \u2192' : 'Start \u2192');
-  set('next-up-step', liveSession ? '' : next.position + ' of ' + next.total);
-  set('next-up-after', liveSession
-    ? 'started today, not saved yet'
-    : 'after ' + next.after.name + ' \u00b7 ' + lastTrainedLabel(next.afterDate));
+  // One sub-line carries what the label, the step counter, the focus and the after-line used to say
+  // across four rows (27 Aug 2026, cut 11). A live session says so here, since the "In progress"
+  // label it used to have has no row of its own any more. `4 / 4`, not `4 of 4` \u2014 Del's note.
+  set('next-up-sub', liveSession
+    ? 'In progress \u00b7 started today, not saved yet'
+    : next.position + ' / ' + next.total + ' \u00b7 after ' + next.after.name
+      + ' \u00b7 ' + lastTrainedLabel(next.afterDate));
 }
 
 // Straight into the session the card is offering. Deliberately routed through the real tile's own
@@ -4809,18 +4810,38 @@ function renderSetRow(ex, i, prevSet, sessionId, defaultVar) {
     // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
 }
 
-// The sets pill IS the add/remove control (24 Aug 2026, Del's gym note #1, mockup D of seven).
-// It keeps the `pill pill-sets` clothes it has always worn — same blue tint, same 20px radius — so
-// the header still reads as three pills; the two arrows are carved out of its ends. The count keeps
-// id `sets-pill-<name>`, which is what addOpenSetRow/removeOpenSetRow retitle.
+// The sets control IS the count (24 Aug 2026, Del's gym note #1, mockup D of seven). Restyled
+// 27 Aug 2026 off round four of the proof sheet, cut 23 — it wore a blue pill for three days and
+// blue already carries superset, programme and logging, so it stated nothing by being blue.
+// It is now a segmented control: a sunken track with the count on a raised thumb, the shape iOS
+// uses and the same one the Stats flip switch already wears.
+//
+// ⚠️ THE COLOUR RULE THIS ROW IS BUILT ON, and it is the whole reason there are only two:
+//   --accent  the CONTROL. Terracotta already means "you can tap this", so the tinted track and
+//             the count on it are the only accent in the block, and the accent thing is the only
+//             pressable thing.
+//   --sc      the SESSION. The rep target and the rest time take the colour of the session you are
+//             in (amber upper / violet lower / teal full body), inherited from the sessionColourClass
+//             on .exercise-block. They state, they never invite a tap.
+// Green stays out — it means DONE in D-LOG and a rep range is not a completed thing.
+//
+// The count keeps id `sets-pill-<name>`, which is what addOpenSetRow/removeOpenSetRow retitle.
 // `at-min` dims the − at one set, where removeOpenSetRow is a no-op (removing the whole exercise is
 // the ✕ in the name row, not this).
 function setsStepperHtml(ex) {
-  return `<span class="pill pill-sets sets-stepper${ex.sets <= 1 ? ' at-min' : ''}" id="sets-step-${esc(ex.name)}">
+  return `<span class="sets-seg${ex.sets <= 1 ? ' at-min' : ''}" id="sets-step-${esc(ex.name)}">
       <button type="button" class="sets-step" onclick="removeOpenSetRow('${jsAttr(ex.name)}')" aria-label="Remove last set of ${esc(ex.name)}">−</button>
       <span class="sets-step-count" id="sets-pill-${esc(ex.name)}">${ex.sets} sets</span>
       <button type="button" class="sets-step" onclick="addOpenSetRow('${jsAttr(ex.name)}')" aria-label="Add a set to ${esc(ex.name)}">+</button>
     </span>`;
+}
+
+// What the target tag says. A timed hold's target is already a duration ("40s", "30–45s") and is
+// printed as written; everything else is a rep range and now carries its unit, because "8-12" alone
+// was a number with nothing to say what it counted.
+function repTargetLabel(ex) {
+  if (isTimed(ex)) return looksLikeSeconds(ex.reps) ? ex.reps : timedTarget(ex);
+  return `${ex.reps} reps`;
 }
 
 // Both handlers change the same two things about the stepper, so they say it once here.
@@ -4841,7 +4862,11 @@ function renderExerciseBlock(ex, session) {
     filteredPrev = prevSetsForVariation(prev, defaultVar);
   }
 
-  let html = `<div class="exercise-block" id="block-${esc(ex.name)}" data-rest-target="${swParseRest(ex.rest)}">
+  // The session's colour rides on the block (27 Aug 2026, proof sheet cut 23) so the target and rest
+  // tags inside it can read `var(--sc)`. It is identity, exactly as it is on the tiles and the Next
+  // up card — amber upper, violet lower, teal full body — and it is the only thing in the logger
+  // that changes colour between sessions.
+  let html = `<div class="exercise-block ${sessionColourClass(session)}" id="block-${esc(ex.name)}" data-rest-target="${swParseRest(ex.rest)}">
       <div class="ex-top">
         <div class="ex-name-row">
           <div class="ex-name-display">${esc(ex.name)}</div>
@@ -4862,8 +4887,8 @@ function renderExerciseBlock(ex, session) {
         </div>
         <div class="ex-pills">
           ${setsStepperHtml(ex)}
-          <span class="pill pill-reps">${esc(isTimed(ex) && !looksLikeSeconds(ex.reps) ? timedTarget(ex) : ex.reps)}</span>
-          <span class="pill pill-rest">${esc(ex.rest)}</span>
+          <span class="ex-tag">${esc(repTargetLabel(ex))}</span>
+          <span class="ex-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${esc(ex.rest)}</span>
         </div>
         ${ex.note ? `<div class="ex-note-text">${esc(ex.note)}</div>` : ''}
       </div>`;

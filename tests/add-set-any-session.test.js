@@ -68,6 +68,7 @@ function harness({ sessionId, exercise = 'Lateral Raise', sets = 4 }) {
     timedTarget: () => '',
     swParseRest: () => 90,
     renderSupersetControl: () => '',
+    sessionColourClass: () => 'sc-upper',
     setValueLabel: () => '',
     isOptionalWeight: () => false,
     bwCellHtml: () => '',
@@ -75,7 +76,8 @@ function harness({ sessionId, exercise = 'Lateral Raise', sets = 4 }) {
 
   const api = load({
     functions: ['esc', 'jsAttr', 'prevSetsForVariation', 'renderSetRow', 'setsStepperHtml',
-                'syncSetsStepper', 'renderExerciseBlock', 'addOpenSetRow', 'removeOpenSetRow'],
+                'repTargetLabel', 'syncSetsStepper', 'renderExerciseBlock', 'addOpenSetRow',
+                'removeOpenSetRow'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets'],
     deps,
     accessors: {
@@ -147,21 +149,31 @@ console.log('+ Add Set / − Remove Set on any session');
   eq(h.atMin(), true, 'at one set the − is flagged at-min, so a dead tap looks dead');
 }
 
-// 6. The control IS the sets pill now (24 Aug 2026, mockup D). Del's gym note was "adjust size of
+// 6. The control IS the count (24 Aug 2026, mockup D). Del's gym note was "adjust size of
 // add/remove sets" — two full-width outline buttons at Mark Done's weight, so the block tail was
-// four stacked bars. Both handlers still hang off the header pill; nothing renders below the rows.
+// four stacked bars. Both handlers still hang off the header control; nothing renders below the rows.
+//
+// Restyled 27 Aug 2026 (proof sheet cut 23): a blue pill became a segmented control. The colour is
+// asserted here as well as the shape, because the point of the change was WHICH colours are on this
+// row — accent on the control, the session's own colour on the two tags — and a later "tidy-up"
+// that puts --blue or --green back would otherwise pass silently. See setsStepperHtml() in app.js.
 {
   const h = harness({ sessionId: 'upper1', sets: 3 });
   const html = h.renderExerciseBlock(h.session.exercises[0], h.session);
 
-  ok(html.includes('class="pill pill-sets sets-stepper"'), 'the stepper keeps the sets pill clothes');
-  ok(html.includes('>3 sets<'), 'the pill still states the count it edits');
+  ok(html.includes('class="sets-seg"'), 'the stepper is the segmented control');
+  ok(!/pill-sets|pill-reps/.test(html), 'and neither it nor the rep target wears a pill any more');
+  ok(html.includes('>3 sets<'), 'the count it edits is still stated on it');
+  ok(html.includes('class="exercise-block sc-upper"'),
+     'the block carries the session colour the tags read --sc from');
+  ok(html.includes('>10–15 reps<'), 'the rep target is on screen, with its unit on it');
+  ok(html.includes('>60s<'), 'and so is the rest time');
   ok(!html.includes('set-row-controls'), 'the two full-width buttons are gone from the block tail');
   ok(html.indexOf('addOpenSetRow(') < html.indexOf('class="set-row"'),
      'the control sits in the header, above the first set row');
 
   const one = harness({ sessionId: 'upper1', sets: 1 });
-  ok(one.renderExerciseBlock(one.session.exercises[0], one.session).includes('sets-stepper at-min'),
+  ok(one.renderExerciseBlock(one.session.exercises[0], one.session).includes('sets-seg at-min'),
      'a one-set exercise renders with the − already dimmed');
 }
 

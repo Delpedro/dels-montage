@@ -203,7 +203,7 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .exercise-block { background: var(--bg3); border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem; }
 .ex-top { margin-bottom: 8px; }
 .ex-name-display { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.3; margin-bottom: 4px; }
-.ex-pills { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 4px; }
+.ex-pills { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
 .ex-note-text { font-size: 11px; color: var(--muted); }
 
 .set-row { display: grid; grid-template-columns: 18px 1fr 1fr 72px; gap: 6px; margin-bottom: 6px; align-items: center; }
@@ -239,28 +239,56 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 .var-btn.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-weight: 600; }
 
 .pill { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
-.pill-sets { background: color-mix(in srgb, var(--blue) 15%, transparent); color: var(--blue); }
-/* The sets pill doing a second job as the add/remove-set control (24 Aug 2026). Del's note was
-   "adjust size of add/remove sets" — the old pair were two full-width buttons at Mark Done's weight,
-   so the block tail was four stacked bars. The arrows are carved out of the pill that already states
-   the count, which is the control he picked off the mockup sheet. `padding: 0` overrides .pill's own
-   3px/8px: the padding lives on the arrows now, so the whole end of the pill is the tap target
-   (32×30, thumb-sized) rather than a glyph floating inside one. */
-.sets-stepper { display: inline-flex; align-items: stretch; padding: 0; overflow: hidden; }
-.sets-stepper .sets-step-count { align-self: center; padding: 3px 2px; font-weight: 600; white-space: nowrap; }
-.sets-stepper .sets-step {
-  width: 32px; min-height: 30px; padding: 0;
-  border: none; background: none; color: inherit;
-  font-family: 'DM Sans', sans-serif; font-size: 15px; line-height: 1; cursor: pointer;
+.pill-rest { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted2); }
+
+/* ─── THE EXERCISE META ROW (E2, rebuilt 27 Aug 2026, proof sheet cut 23) ──────
+   Three tinted pills in three colours became a segmented control and two tags in TWO colours, and
+   which two is the whole point — see the comment on setsStepperHtml() in app.js:
+     --accent  the control, and nothing else in the block. The tinted thing is the pressable thing.
+     --sc      the session (amber/violet/teal), inherited from the sessionColourClass on
+               .exercise-block. It states; it never invites a tap.
+   The old row used --blue for the count and --green for the rep range. Blue already carried
+   superset, programme and logging; green means DONE, and a rep range is not a completed thing.
+   Before adding a colour user here, check what that token already means:
+     grep -c -- "var(--X)" css/style.css                                                          */
+.ex-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: color-mix(in srgb, var(--sc, var(--muted2)) 15%, transparent);
+  color: var(--sc, var(--muted2));
+  border-radius: 999px; padding: 6px 11px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.ex-tag svg { width: 11px; height: 11px; flex: none; }
+
+/* The count IS the add/remove-set control (24 Aug 2026), now as a segmented control: a sunken track
+   with the count on a raised thumb. Same shape as the Stats flip switch, so the app has one idea of
+   what "pick a value" looks like. The 30px ends are the tap targets — a whole end each, not a glyph
+   floating inside one — and the thumb's min-width stops the track resizing as 3 sets becomes 4. */
+.sets-seg {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 10px; padding: 3px;
+}
+.sets-seg .sets-step {
+  width: 30px; height: 30px; padding: 0;
+  border: none; background: none; color: var(--accent);
+  border-radius: 8px;
+  font-family: 'DM Sans', sans-serif; font-size: 17px; line-height: 1; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.sets-stepper .sets-step:first-child { border-right: 1px solid color-mix(in srgb, var(--blue) 22%, transparent); }
-.sets-stepper .sets-step:last-child { border-left: 1px solid color-mix(in srgb, var(--blue) 22%, transparent); }
-.sets-stepper .sets-step:active { background: color-mix(in srgb, var(--blue) 18%, transparent); }
+.sets-seg .sets-step:active { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.sets-seg .sets-step-count {
+  min-width: 56px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg2); border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(35, 31, 26, 0.18);
+  color: var(--accent);
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  white-space: nowrap;
+}
 /* One set left: removeOpenSetRow is a no-op, so the − says so rather than failing silently. */
-.sets-stepper.at-min .sets-step:first-child { opacity: 0.3; }
-.pill-reps { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
-.pill-rest { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted2); }
+.sets-seg.at-min .sets-step:first-child { opacity: 0.3; }
 .pill-accent { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-weight: 600; }
 
 /* One-line macro entry on the check-in (18 Aug 2026). Set apart from the ordinary fields with a
@@ -338,17 +366,19 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    (see CODEBASE.md "Session and programme tile colour"), so Upper B is the same amber here as it
    is on the picker. The sc-* classes only declare custom properties, which is what makes them
    reusable outside .session-btn. Colour stays identity: nothing here paints state. */
-.next-up { display: none; position: relative; overflow: hidden; background: var(--sc-bg); border: 1px solid var(--sc-bd); border-radius: 12px; padding: 0.75rem 1rem 0.75rem 1.125rem; margin-bottom: 1.25rem; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* Two rows, not four (27 Aug 2026, proof sheet cut 11) — Del asked for it shorter and this is the
+   same four facts folded into a name, one sub-line and a button-looking span. The name is 26px
+   rather than 34: at 34 it was the largest thing on Home, which is a lot of shout for a card whose
+   job is "tap here". `.next-up-go` only LOOKS like a button — the card owns the click. */
+.next-up { display: none; position: relative; overflow: hidden; background: var(--sc-bg); border: 1px solid var(--sc-bd); border-radius: 12px; padding: 0.625rem 0.75rem 0.625rem 1.125rem; margin-bottom: 1.25rem; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .next-up::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--sc); }
 .next-up:active { filter: brightness(1.35); }
-.next-up-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.next-up-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted2); }
-.next-up-step { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); white-space: nowrap; }
-.next-up-name { font-family: 'Bebas Neue', sans-serif; font-size: 34px; line-height: 1.05; letter-spacing: 0.5px; color: var(--sc); }
-.next-up-focus { font-size: 12px; color: var(--muted2); margin-top: 2px; }
-.next-up-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; }
-.next-up-after { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.next-up-go { font-size: 12px; font-weight: 600; color: var(--sc); white-space: nowrap; }
+.next-up-main { display: flex; align-items: center; gap: 12px; }
+.next-up-text { flex: 1; min-width: 0; }
+.next-up-name { font-family: 'Bebas Neue', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.5px; color: var(--sc); }
+/* Ellipsis rather than wrap: a second line here would put the height straight back. */
+.next-up-sub { font-size: 11px; color: var(--muted2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.next-up-go { flex: none; border: 1px solid var(--sc); background: color-mix(in srgb, var(--sc) 12%, transparent); border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--sc); white-space: nowrap; }
 /* One line under the greeting, not a card (19 Aug 2026). As a bordered tile with an accent rail it
    read as something to act on and sat directly above Next up, which is the only thing on Home that
    actually wants tapping. Empty until the quote loads, so a failed fetch leaves nothing rather than

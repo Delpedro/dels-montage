@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-27-1113">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-27-1445">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -180,15 +180,17 @@
       <span class="quote-author" id="quote-author"></span>
     </div>
     <!-- Where you are in the rolling cycle. Hidden until there is history to work it out from. -->
+    <!-- Two rows, not four (27 Aug 2026, proof sheet cut 11). Del: "i want the next up to be a
+         little smaller in the height" — this is the same four facts folded into a name, one sub-line
+         and a button, and it comes out at roughly half what the stacked version measured.
+         next-up-go is a SPAN, deliberately: the whole card is the click target, and a real <button>
+         inside it would bubble its own click into startNextSession() as well. -->
     <div class="next-up" id="next-up" onclick="startNextSession()">
-      <div class="next-up-top">
-        <span class="next-up-label" id="next-up-label">Next up</span>
-        <span class="next-up-step" id="next-up-step"></span>
-      </div>
-      <div class="next-up-name" id="next-up-name"></div>
-      <div class="next-up-focus" id="next-up-focus"></div>
-      <div class="next-up-foot">
-        <span class="next-up-after" id="next-up-after"></span>
+      <div class="next-up-main">
+        <div class="next-up-text">
+          <div class="next-up-name" id="next-up-name"></div>
+          <div class="next-up-sub" id="next-up-sub"></div>
+        </div>
         <span class="next-up-go" id="next-up-go">Start &rarr;</span>
       </div>
     </div>
@@ -846,6 +848,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-27-1113"></script>
+<script src="js/app.js?v=2026-08-27-1445"></script>
 </body>
 </html>
