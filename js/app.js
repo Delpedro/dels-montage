@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1545';
+const APP_BUILD = '2026-08-27-1621';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6741,6 +6741,19 @@ async function loadStats() {
 // why it steps in sevens rather than reusing the weekly card's week numbers.
 let statsFoodBack = 0;
 let statsFoodLogs = [];
+
+// ⛔ TEMPORARY, 27 Aug 2026 — the right-arrow hunt, second attempt. The first instrument toasted
+// from inside the two step functions, which only reports if the click reaches them; "its not
+// working" may well mean it never does. This one listens on the DOCUMENT in the CAPTURE phase, so
+// it reports whatever the tap actually lands on — a disabled button, some invisible thing sitting
+// over it, or nothing at all — and it cannot come back empty. It carries the build number so one
+// toast also answers "is the new version even on the phone". Out with the other two.
+document.addEventListener('pointerdown', e => {
+  const stats = document.getElementById('page-stats');
+  if (!stats || !stats.classList.contains('active')) return;
+  const t = e.target;
+  showToast(`${APP_BUILD.slice(-4)} hit ${t.tagName}${t.id ? '#' + t.id : ''}${t.disabled ? ' OFF' : ''}`);
+}, true);
 
 function stepFoodWindow(dir) {
   const next = statsFoodBack + (dir < 0 ? 1 : -1);   // ‹ goes back in time, so it counts UP
