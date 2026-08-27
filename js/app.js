@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1517';
+const APP_BUILD = '2026-08-27-1544';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6744,6 +6744,8 @@ let statsFoodLogs = [];
 
 function stepFoodWindow(dir) {
   const next = statsFoodBack + (dir < 0 ? 1 : -1);   // ‹ goes back in time, so it counts UP
+  // ⛔ TEMPORARY — see the note on stepWeeklyAverage(). Out as soon as the readout lands.
+  showToast(`food ${dir > 0 ? '›' : '‹'} back=${statsFoodBack}→${next} room=${foodWindowHasRoom(next)}`);
   if (next < 0 || !foodWindowHasRoom(next)) return;
   statsFoodBack = next;
   renderFoodFace();
@@ -7359,6 +7361,11 @@ function renderWeeklyAverage(allWeights, allWaists = [], allLogs = [], allWorkou
 // wrapping — running off either end is a disabled arrow, not a jump from this week to April.
 function stepWeeklyAverage(delta) {
   const i = _weekAvgs.findIndex(w => w.key === _weekAvgKey);
+  // ⛔ TEMPORARY, 27 Aug 2026. Del: "on weekly and food, the right arrow is not working", and
+  // "it goes left, but i cant go back right". Three readings of the code said both steppers were
+  // correct, which is the point at which guessing stops and the code says what it is doing. This
+  // toast comes straight back out once the readout names the fault.
+  showToast(`wk ${delta > 0 ? '›' : '‹'} i=${i}/${_weekAvgs.length - 1} → ${_weekAvgs[i + delta] ? _weekAvgs[i + delta].key : 'NONE'}`);
   if (i === -1) return;
   const next = _weekAvgs[i + delta];
   if (!next) return;
