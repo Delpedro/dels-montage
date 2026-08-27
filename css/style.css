@@ -265,25 +265,31 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    with the count on a raised thumb. Same shape as the Stats flip switch, so the app has one idea of
    what "pick a value" looks like. The 30px ends are the tap targets — a whole end each, not a glyph
    floating inside one — and the thumb's min-width stops the track resizing as 3 sets becomes 4. */
+/* ⚠️ THE TRACK IS NEUTRAL AND MUST STAY NEUTRAL (27 Aug 2026). It shipped tinted in --accent for
+   one build, on the reasoning that terracotta means "you can tap this" — and on the logger that put
+   THREE accent boxes on one screen, the session pill, the reorder bar and this, of which only this
+   one is about the exercise you are looking at. Del: "blend it into the background color".
+   What says it is a control now is the shape, not a colour: a sunken track with the count on a
+   raised thumb. The only colour left on this row is the session's, on the two tags. */
 .sets-seg {
   display: inline-flex; align-items: center; gap: 2px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
   border-radius: 10px; padding: 3px;
 }
 .sets-seg .sets-step {
   width: 30px; height: 30px; padding: 0;
-  border: none; background: none; color: var(--accent);
+  border: none; background: none; color: var(--muted2);
   border-radius: 8px;
   font-family: 'DM Sans', sans-serif; font-size: 17px; line-height: 1; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.sets-seg .sets-step:active { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.sets-seg .sets-step:active { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .sets-seg .sets-step-count {
   min-width: 56px; height: 30px;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg2); border-radius: 8px;
   box-shadow: 0 1px 3px rgba(35, 31, 26, 0.18);
-  color: var(--accent);
+  color: var(--text);
   font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   white-space: nowrap;
 }
@@ -774,7 +780,12 @@ mark.hl.on { background: var(--accent); color: #fff; }
    angle it needs depends on where the tile has spun to, not on which face it is.
    Height is still set in px by sizeStatsFlip(); see the note in index.html for why. */
 .flip-tile { perspective: 1400px; }
-.flip-inner { position: relative; width: 100%; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.25, 1); }
+/* Height is animated alongside the turn (27 Aug 2026). The tile used to stand at the height of its
+   TALLEST face, which was fine while both faces were charts and dreadful the moment a shorter one
+   joined them: the food card ended up a small card marooned in a tile sized for the daily chart,
+   with a hand's width of nothing between it and the switch. It takes the height of the face that is
+   actually showing now, and eases into it on the same curve as the spin. */
+.flip-inner { position: relative; width: 100%; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.25, 1), height 0.6s cubic-bezier(0.2, 0.7, 0.25, 1); }
 /* top/left/width rather than inset:0 — a face stretched to all four edges takes its height FROM the
    wrapper, and the wrapper takes its height from the faces, so sizeStatsFlip() would be measuring
    its own output and the tile could never shrink again. Auto height keeps the measurement honest. */
@@ -881,7 +892,13 @@ mark.hl.on { background: var(--accent); color: #fff; }
 /* The same arrows as the other two faces (27 Aug 2026 — Del: "it needs arrows to cycle through on
    that page"). It is `.stats-range-nav`'s own control, re-parked at the top of the card where the
    weekly face keeps its week arrows, so all three faces are steered from the same place. */
-.food-nav { margin: 0 auto 0.5rem; }
+.food-nav { margin: 0 auto; }
+/* The figure carries the same weight as the weekly face's — same size, same unit, same comparison
+   line under it. Three faces of one tile, so the headline number sits at one size on all three. */
+.stats-food-card .stats-hero { padding: 0; margin-top: 1rem; }
+.stats-food-card .stats-hero-val { font-size: 56px; }
+.stats-food-card .stats-hero-unit { font-size: 15px; }
+.stats-food-card .stats-hero-sub { font-size: 12.5px; margin-top: 5px; min-height: 18px; }
 
 /* ─── HISTORY: PROGRESS FEED CARDS (redesign 10 Aug 2026) ─── */
 /* Left rail colour keys the entry type: amber = workout, blue = daily check-in. */

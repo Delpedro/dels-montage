@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1512';
+const APP_BUILD = '2026-08-27-1517';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6893,6 +6893,10 @@ function flipStats(face) {
   }
   statsFlipFace = face;
   inner.style.transform = `rotateY(${statsSpin}deg)`;
+  // Only the showing face gives the tile its height. offsetHeight is unaffected by the rotation, so
+  // a face can be measured while it is facing away.
+  const shown = document.getElementById(STATS_FACES[face].id);
+  if (shown) inner.style.height = `${shown.offsetHeight}px`;
   STATS_FACES.forEach((f, i) => {
     const el = document.getElementById(f.id);
     if (!el) return;
@@ -6967,11 +6971,11 @@ function sizeStatsFlip() {
   // Clear before measuring: a face carrying last render's height would measure that back out, and
   // the tile could then only ever grow.
   els.forEach(el => { el.style.height = ''; });
-  const vis = renderStatsFlipSwitch();
-  inner.style.height = `${Math.max(0, ...vis.map(i => els[i].offsetHeight))}px`;
-  // Re-applied every time, not only when it changes: the switch was just rebuilt, so the active
-  // option and the thumb's position have to be put back on it. flipStats() also lands you on the
-  // first face that exists rather than stranding you on one that doesn't.
+  renderStatsFlipSwitch();
+  // The tile's height comes from flipStats(), because it is the height of the face that is SHOWING
+  // — not the tallest of them. Re-applied every time, not only when the face changes: the switch
+  // was just rebuilt, so the active option and the thumb's position have to be put back on it, and
+  // a re-render can have changed the height of the face you are already on.
   flipStats(statsFlipFace);
 }
 
