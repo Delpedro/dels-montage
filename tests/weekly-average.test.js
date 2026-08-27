@@ -59,10 +59,7 @@ function harness(today) {
     // sizeStatsFlip is the two-faced tile re-measuring itself after the arrows move the week —
     // stubbed here because this file tests the numbers on the card, not the card's height.
     deps: { document: dom.document, esc: s => String(s), jsAttr: s => String(s), todayStr: () => today,
-            sizeStatsFlip: () => {},
-            // ⛔ TEMPORARY, 27 Aug 2026 — the arrows are instrumented while the right-arrow fault is
-            // being found. Out with the toast itself.
-            showToast: () => {} }
+            sizeStatsFlip: () => {} }
   });
   return { app, els: dom.els, get: dom.get };
 }

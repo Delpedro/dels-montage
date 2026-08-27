@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1621';
+const APP_BUILD = '2026-08-27-1651';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6742,23 +6742,8 @@ async function loadStats() {
 let statsFoodBack = 0;
 let statsFoodLogs = [];
 
-// ⛔ TEMPORARY, 27 Aug 2026 — the right-arrow hunt, second attempt. The first instrument toasted
-// from inside the two step functions, which only reports if the click reaches them; "its not
-// working" may well mean it never does. This one listens on the DOCUMENT in the CAPTURE phase, so
-// it reports whatever the tap actually lands on — a disabled button, some invisible thing sitting
-// over it, or nothing at all — and it cannot come back empty. It carries the build number so one
-// toast also answers "is the new version even on the phone". Out with the other two.
-document.addEventListener('pointerdown', e => {
-  const stats = document.getElementById('page-stats');
-  if (!stats || !stats.classList.contains('active')) return;
-  const t = e.target;
-  showToast(`${APP_BUILD.slice(-4)} hit ${t.tagName}${t.id ? '#' + t.id : ''}${t.disabled ? ' OFF' : ''}`);
-}, true);
-
 function stepFoodWindow(dir) {
   const next = statsFoodBack + (dir < 0 ? 1 : -1);   // ‹ goes back in time, so it counts UP
-  // ⛔ TEMPORARY — see the note on stepWeeklyAverage(). Out as soon as the readout lands.
-  showToast(`food ${dir > 0 ? '›' : '‹'} back=${statsFoodBack}→${next} room=${foodWindowHasRoom(next)}`);
   if (next < 0 || !foodWindowHasRoom(next)) return;
   statsFoodBack = next;
   renderFoodFace();
@@ -6894,31 +6879,72 @@ function renderStatsFlipSwitch() {
 // How far the tile has turned, in degrees, always a multiple of 180. It only ever grows or shrinks
 // by one half-turn, and it never wraps: 540 and 180 look identical but 540 is where the tile
 // actually is, and re-parking the faces against the wrong one turns a spin into a jump.
-let statsSpin = 0;
+let _statsSnap = null;
 
+// Back to flat: the coin at zero, the showing face with its inline transform REMOVED rather than
+// set to 0deg, and every other face on the back. Removing it matters — an element with any
+// transform is still a 3D-ish thing to hit-test through, and the point of this is that the visible
+// card is an ordinary box again. The transition is killed for the frame it takes, then restored,
+// so the snap itself is invisible.
+function snapStatsFlat(face, els) {
+  const inner = document.getElementById('stats-flip-inner');
+  if (!inner) return;
+  _statsSnap = null;
+  els = els || STATS_FACES.map(f => document.getElementById(f.id));
+  inner.style.transition = 'none';
+  inner.style.transform = '';
+  els.forEach((el, i) => { if (el) el.style.transform = i === face ? '' : 'rotateY(180deg)'; });
+  void inner.offsetWidth;          // flush, or restoring the transition animates the snap
+  inner.style.transition = '';
+}
+
+// 🔴 THE RULE THIS TILE IS BUILT ON, AND IT COST A WHOLE EVENING TO LEARN:
+// AT REST, THE SHOWING FACE CARRIES NO TRANSFORM OF ITS OWN. NOT A COMPENSATING ONE. NONE.
+//
+// The turn used to leave the face it landed on wearing `rotateY(-180deg)` with the inner wearing
+// `rotateY(180deg)` — net zero, and it LOOKED perfect. But the face is a flattening boundary, so
+// the browser judges `backface-visibility` against the face's OWN −180°, decides it is facing away,
+// and stops hit-testing it. Everything inside it goes dead while staying perfectly readable.
+// Del: "the right arrow is not working". A capture-phase readout on the document said
+// `hit DIV#stats-flip-inner` — the tap was falling straight through the card to the tile behind it.
+// Three readings of the two steppers found nothing, because there was nothing there to find.
+//
+// So the spin is a MOVE, not a state. It runs, and when it lands everything snaps back to zero with
+// the transition off: inner at none, the showing face at none, the rest at 180°. Same picture, no
+// 3D left on the thing you have to be able to press.
 function flipStats(face) {
+  const tile = document.getElementById('stats-flip');
   const inner = document.getElementById('stats-flip-inner');
   const vis = statsVisibleFaces();
-  if (!inner || !vis.length) return;
+  if (!tile || !inner || !vis.length) return;
   if (!vis.includes(face)) face = vis[0];
-  // Which way round it turns: forward through the switch turns one way, back the other, so the
-  // motion says which direction you moved rather than always spinning the same way.
-  if (face !== statsFlipFace) {
-    statsSpin += vis.indexOf(face) >= vis.indexOf(statsFlipFace) ? 180 : -180;
-  }
+  const els = STATS_FACES.map(f => document.getElementById(f.id));
+
+  // A turn still in flight is landed first, so a new one always starts from a known flat state.
+  if (_statsSnap) { clearTimeout(_statsSnap); snapStatsFlat(statsFlipFace, els); }
+
+  // Which way round it turns: forward through the switch one way, back the other, so the motion
+  // says which direction you moved rather than always spinning the same way.
+  const dir = face === statsFlipFace ? 0
+            : (vis.indexOf(face) >= vis.indexOf(statsFlipFace) ? 1 : -1);
   statsFlipFace = face;
-  inner.style.transform = `rotateY(${statsSpin}deg)`;
-  // Only the showing face gives the tile its height. offsetHeight is unaffected by the rotation, so
-  // a face can be measured while it is facing away.
-  const shown = document.getElementById(STATS_FACES[face].id);
-  if (shown) inner.style.height = `${shown.offsetHeight}px`;
-  STATS_FACES.forEach((f, i) => {
-    const el = document.getElementById(f.id);
+
+  // Only the showing face gives the tile its height, and it is measured off the face rather than
+  // the tile — offsetHeight is unaffected by the rotation, so it reads true mid-turn.
+  if (els[face]) tile.style.height = `${els[face].offsetHeight}px`;
+
+  if (dir) {
+    // Park the face you're going to on the back of the coin, everything else on the front, then
+    // turn the coin. Landing puts the new face at net 0 and every other one at net ±180.
+    els.forEach((el, i) => { if (el) el.style.transform = i === face ? 'rotateY(180deg)' : 'rotateY(0deg)'; });
+    inner.style.transform = `rotateY(${dir * 180}deg)`;
+    _statsSnap = setTimeout(() => snapStatsFlat(face, els), 620);   // the 0.6s turn, plus a frame
+  } else {
+    snapStatsFlat(face, els);
+  }
+
+  els.forEach((el, i) => {
     if (!el) return;
-    // Two faces on a coin: the one you're going to is parked on the front, every other one on the
-    // back where backface-visibility hides it. The face turning AWAY works out to the angle it is
-    // already at, so it never jumps mid-turn — see the CSS block for the arithmetic.
-    el.style.transform = `rotateY(${i === face ? -statsSpin : -statsSpin + 180}deg)`;
     el.classList.toggle('active', i === face);
     // Hidden from the screen reader as well as from the pointer: a card read out three times is
     // worse than a card that cannot be tapped.
@@ -7374,11 +7400,6 @@ function renderWeeklyAverage(allWeights, allWaists = [], allLogs = [], allWorkou
 // wrapping — running off either end is a disabled arrow, not a jump from this week to April.
 function stepWeeklyAverage(delta) {
   const i = _weekAvgs.findIndex(w => w.key === _weekAvgKey);
-  // ⛔ TEMPORARY, 27 Aug 2026. Del: "on weekly and food, the right arrow is not working", and
-  // "it goes left, but i cant go back right". Three readings of the code said both steppers were
-  // correct, which is the point at which guessing stops and the code says what it is doing. This
-  // toast comes straight back out once the readout names the fault.
-  showToast(`wk ${delta > 0 ? '›' : '‹'} i=${i}/${_weekAvgs.length - 1} → ${_weekAvgs[i + delta] ? _weekAvgs[i + delta].key : 'NONE'}`);
   if (i === -1) return;
   const next = _weekAvgs[i + delta];
   if (!next) return;

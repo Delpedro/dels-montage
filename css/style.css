@@ -779,13 +779,16 @@ mark.hl.on { background: var(--accent); color: #fff; }
    backface-visibility hides them. That is why a face's transform is set in JS and not here — the
    angle it needs depends on where the tile has spun to, not on which face it is.
    Height is still set in px by sizeStatsFlip(); see the note in index.html for why. */
-.flip-tile { perspective: 1400px; }
+/* ⚠️ THE HEIGHT LIVES ON THE TILE, THE ROTATION ON THE INNER, AND THEY MUST STAY APART. The snap
+   at the end of a turn kills the inner's transition for one frame; with the height on the inner
+   too, that would snap the height as well and the tile would jump. */
+.flip-tile { perspective: 1400px; transition: height 0.6s cubic-bezier(0.2, 0.7, 0.25, 1); }
 /* Height is animated alongside the turn (27 Aug 2026). The tile used to stand at the height of its
    TALLEST face, which was fine while both faces were charts and dreadful the moment a shorter one
    joined them: the food card ended up a small card marooned in a tile sized for the daily chart,
    with a hand's width of nothing between it and the switch. It takes the height of the face that is
    actually showing now, and eases into it on the same curve as the spin. */
-.flip-inner { position: relative; width: 100%; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.25, 1), height 0.6s cubic-bezier(0.2, 0.7, 0.25, 1); }
+.flip-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.25, 1); }
 /* top/left/width rather than inset:0 — a face stretched to all four edges takes its height FROM the
    wrapper, and the wrapper takes its height from the faces, so sizeStatsFlip() would be measuring
    its own output and the tile could never shrink again. Auto height keeps the measurement honest. */
