@@ -241,6 +241,74 @@ console.log('the ghost row that started this');
   }));
 }
 
+// ── 9. E5 — the 24h sweep must not ENTRENCH the ghosts it finds ──────────────
+//
+// autoCloseStaleWorkouts() used to PATCH completed_at onto every stale in-progress row without
+// looking inside it. On a real interrupted session that is right. On a ghost it is how the row
+// becomes permanent: every filter in the app is keyed on content rather than completed_at (which is
+// what keeps them hidden), but the row itself never leaves, and 8 of Del's 40 rows on 27 Aug were
+// exactly that — 7 of them already stamped closed, spanning 11 to 26 Aug.
+//
+// Deleting the empty ones is what stops the class growing, and it is why a NEW read path no longer
+// has to remember the ghost rule: after 24 hours there is nothing left to remember about.
+{
+  const requests = [];
+  const stale = [
+    { id: 'ghost-a', notes: '',           workout_sets: [],             cardio_logs: [] },
+    { id: 'real-a',  notes: '',           workout_sets: [{ id: 's1' }], cardio_logs: [] },
+    { id: 'ghost-b', notes: '   ',        workout_sets: [],             cardio_logs: [] },
+    { id: 'cv-a',    notes: 'CV + Pump',  workout_sets: [],             cardio_logs: [] },
+    { id: 'cardio-a',notes: '',           workout_sets: [],             cardio_logs: [{ id: 'c1' }] },
+  ];
+  const app = load({
+    functions: ['autoCloseStaleWorkouts', 'workoutRowHasContent'],
+    deps: {
+      sb: async (pathStr, method = 'GET', body = null) => {
+        requests.push({ method, path: pathStr, body });
+        return method === 'GET' ? stale : { ok: true, status: 204 };
+      },
+    },
+  });
+
+  checks.push(app.autoCloseStaleWorkouts().then(() => {
+    const get = requests.find(r => r.method === 'GET');
+    ok(get.path.includes('workout_sets(id)') && get.path.includes('cardio_logs(id)'),
+      'the sweep asks for the counts — without them every row reads as empty and the real ones get deleted');
+    ok(get.path.includes('completed_at=is.null'), 'and it still only looks at unfinished rows');
+
+    const del = requests.find(r => r.method === 'DELETE');
+    const patch = requests.find(r => r.method === 'PATCH');
+
+    ok(del.path.includes('ghost-a') && del.path.includes('ghost-b'),
+      'both empty rows are deleted — whitespace-only notes are still empty');
+    ok(!del.path.includes('real-a') && !del.path.includes('cv-a') && !del.path.includes('cardio-a'),
+      'and nothing with sets, notes or cardio is deleted');
+
+    ok(patch.path.includes('real-a') && patch.path.includes('cv-a') && patch.path.includes('cardio-a'),
+      'the genuinely interrupted sessions are still closed, exactly as before');
+    ok(!patch.path.includes('ghost-a') && !patch.path.includes('ghost-b'),
+      'a ghost is never stamped closed — that is what made it permanent');
+    ok(patch.body && patch.body.completed_at, 'and closing still means stamping completed_at');
+  }));
+}
+
+// ── 10. Nothing stale means no writes at all ────────────────────────────────
+{
+  const requests = [];
+  const app = load({
+    functions: ['autoCloseStaleWorkouts', 'workoutRowHasContent'],
+    deps: {
+      sb: async (pathStr, method = 'GET') => {
+        requests.push(method);
+        return method === 'GET' ? [] : { ok: true };
+      },
+    },
+  });
+  checks.push(app.autoCloseStaleWorkouts().then(() => {
+    eq(requests.length, 1, 'one GET and nothing else — this runs on every app start');
+  }));
+}
+
 Promise.all(checks).then(() => {
   console.log('  ' + pass + ' passed, ' + fail + ' failed');
   if (fail) process.exit(1);

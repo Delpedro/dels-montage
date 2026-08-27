@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1753';
+const APP_BUILD = '2026-08-27-1759';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -2218,18 +2218,45 @@ document.addEventListener('input', (e) => {
   if (!isNaN(setNum)) lastTypedSet = { exName, setNum };
 });
 
-// Auto-close any in-progress workouts older than 24 hours.
-// These are orphans — user started a session then something interrupted them
-// (phone died, app crashed, life got in the way) and they never hit Save Workout.
-// Matches the 24hr draft expiry rule so the UX stays consistent across the app.
-// Note: completed_at gets stamped with "now" for simplicity — accurate timestamps
-// would require fetching each row first. Not worth the extra DB calls for an edge case.
+// Tidy up any in-progress workouts older than 24 hours. Two different things get found here and
+// they must not be treated the same (E5, 27 August 2026):
+//
+//   · A session that was genuinely interrupted — sets logged, phone died, never hit Save Workout.
+//     Real. It gets completed_at stamped, exactly as it always did, and stays in the history.
+//   · A GHOST — a row with no sets, no cardio and no notes. A workouts row is created the instant a
+//     session tile is tapped, and only the ← control deletes it on the way out; leave by the bottom
+//     nav and the empty row survives. **Stamping completed_at on one of those makes it permanent**,
+//     which is how 8 of Del's 40 rows came to be junk spanning 11–26 Aug, 7 of them already stamped.
+//     They get deleted instead.
+//
+// This is what stops the ghost class growing. Every read path already filters them out
+// (realWorkoutsBetween, loadHistory, liveWorkoutRow) — the point here is that a NEW read must no
+// longer remember to, because after 24 hours there is nothing left to remember about.
+//
+// The 24h cutoff matches the draft expiry, so a row this deletes can no longer have a draft that
+// would restore into it.
 async function autoCloseStaleWorkouts() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // The embedded arrays are what workoutRowHasContent() reads — a row selected without them looks
+  // content-free, which here would mean deleting a real session. Same shape realWorkoutsBetween uses.
+  const stale = await sb(`workouts?completed_at=is.null&created_at=lt.${cutoff}`
+    + `&select=id,notes,workout_sets(id),cardio_logs(id)`) || [];
+  if (!stale.length) return;
+
+  const ghosts = stale.filter(w => !workoutRowHasContent(w)).map(w => w.id);
+  const real = stale.filter(workoutRowHasContent).map(w => w.id);
+
   // quiet: background housekeeping that runs on every app start — a toast here would be noise, and
   // there's nothing the user could do about it anyway. It's logged to the console either way.
-  await sb(`workouts?completed_at=is.null&created_at=lt.${cutoff}`, 'PATCH',
-    { completed_at: new Date().toISOString() }, { quiet: true });
+  if (ghosts.length) {
+    await sb(`workouts?id=in.(${ghosts.join(',')})`, 'DELETE', null, { quiet: true });
+  }
+  // completed_at gets stamped with "now" for simplicity — accurate timestamps would require
+  // knowing when the last set landed, and this is an edge case by definition.
+  if (real.length) {
+    await sb(`workouts?id=in.(${real.join(',')})`, 'PATCH',
+      { completed_at: new Date().toISOString() }, { quiet: true });
+  }
 }
 
 // ─── THE PERSON USING THE APP ─────────────────────────────
@@ -8567,6 +8594,38 @@ function removeEditCardioEntry(id) {
   if (block) block.remove();
 }
 
+// THE exercise list for a History edit — the form's, and the save loop's. One function, because
+// they must agree box for box: the save walks exercise names and set numbers looking for the inputs
+// the form rendered, so a disagreement is not a visual glitch, it is typed data going in the bin.
+//
+// It comes from what was ACTUALLY logged that day (`workout_sets`), never from the live `SESSIONS`
+// template — a fixed session's template can be reordered, added to and resized after the fact in the
+// Session Template Editor, and building an old workout's form from the current template made it
+// appear (and, on save, actually become) whatever the template looks like *now* instead of what was
+// really done. Template/EXERCISE_LIBRARY are a metadata lookup by name — variations, bodyweight,
+// band, aliases — never membership, order or set count.
+//
+// ⚠️ THE ONE EXCEPTION, AND IT IS NOT A RELAXATION (C4, 27 August 2026). A workout with ZERO sets
+// showed an empty modal. It is a real row — it survived the ghost filter, so it has cardio or a
+// note — and Del's own Week 1 is four of them, sessions backfilled retrospectively on 13 Jul with no
+// set data at all. The modal that exists to backfill them gave him nothing to backfill into. A
+// workout with no sets has nothing that CAN be rewritten, so there the template is the only honest
+// guess at what the session was. Keyed on `sets.length === 0` and nothing else — NOT on the
+// reconstruction coming back short, which would let a partially-logged session be rewritten by a
+// template edited since, i.e. the original bug.
+function editFormSession(sets, sessionType) {
+  const template = SESSIONS.find(t => t.id === sessionType);
+  if ((sets || []).length === 0) {
+    return { exercises: (template?.exercises || []).slice() };
+  }
+  const metaByName = {};
+  (template?.exercises || []).forEach(ex => {
+    metaByName[ex.name] = ex;
+    (ex.aliases || []).forEach(a => { metaByName[a] = ex; });
+  });
+  return reconstructSessionFromSets(sets, metaByName);
+}
+
 async function openEditWorkout(workoutId, sessionType, notes) {
   editingWorkoutId = workoutId;
   editingSessionType = sessionType;
@@ -8609,18 +8668,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
     setsByExercise[set.exercise].push(set);
   });
 
-  // Exercise list for History edits must come from what was ACTUALLY logged that day (`workout_sets`),
-  // never from the live `SESSIONS` template — a fixed session's template can be reordered/added-to/
-  // resized after the fact (Session Template Editor), and building this form from the current template
-  // was making old workouts appear (and, on save, actually become) whatever the template looks like
-  // *now* instead of what was really done. Template/EXERCISE_LIBRARY are only used below as a metadata
-  // lookup (variations, bodyweight, band, aliases) by name — never for membership, order, or set count.
-  const metaByName = {};
-  (SESSIONS.find(s => s.id === sessionType)?.exercises || []).forEach(ex => {
-    metaByName[ex.name] = ex;
-    (ex.aliases || []).forEach(a => { metaByName[a] = ex; });
-  });
-  const s = reconstructSessionFromSets(sets, metaByName);
+  const s = editFormSession(sets, sessionType);
 
   let html = '';
   if (s) {
@@ -8669,7 +8717,10 @@ async function openEditWorkout(workoutId, sessionType, notes) {
       html += `</div>`;
     });
   }
-  document.getElementById('edit-workout-sets').innerHTML = html;
+  // Open Workout has no template, so a zero-set Open Workout genuinely has nothing to draw. Say so
+  // rather than showing an empty panel that reads as a loading failure.
+  document.getElementById('edit-workout-sets').innerHTML = html
+    || '<div class="empty">No sets were logged, and this session has no template to build a form from — the notes and cardio above are still editable.</div>';
   document.getElementById('edit-workout-modal').style.display = 'block';
 }
 
@@ -8694,15 +8745,11 @@ async function saveEditWorkout() {
 
   const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=exercise.asc,set_number.asc`);
 
-  // Must mirror openEditWorkout()'s reconstruction exactly, or this loop targets exercises/set-counts
-  // the form was never actually rendered with. See the comment there for why this can't come from the
-  // live SESSIONS template.
-  const metaByName = {};
-  (SESSIONS.find(s => s.id === editingSessionType)?.exercises || []).forEach(ex => {
-    metaByName[ex.name] = ex;
-    (ex.aliases || []).forEach(a => { metaByName[a] = ex; });
-  });
-  const s = reconstructSessionFromSets(existingSets, metaByName);
+  // The SAME reconstruction the form was drawn from — not a copy of it. This loop walks exercises
+  // and set numbers looking for the boxes openEditWorkout() rendered, so anything it reconstructs
+  // differently is a box whose contents get silently dropped. It was a mirrored copy until 27 Aug,
+  // and the zero-set case (C4) is exactly where the two copies disagreed.
+  const s = editFormSession(existingSets, editingSessionType);
 
   for (const ex of s.exercises) {
     for (let i = 1; i <= ex.sets; i++) {
