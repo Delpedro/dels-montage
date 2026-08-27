@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-27-1503">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-27-1512">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -480,9 +480,16 @@
              as one card rather than three cards taking turns. -->
         <div class="flip-face flip-c" id="stats-face-c" aria-hidden="true">
           <div class="card stats-food-card">
-            <div class="food-head">
-              <span class="stats-range-name">Food</span>
-              <span class="stats-range-span" id="stats-avg-window">Last 7 days</span>
+            <!-- The same stepper the daily face uses, in the slot the weekly face keeps its week
+                 arrows in, so every face on this tile is steered by the same control. ‹ walks back
+                 a seven-day window at a time; › stops at the one ending today. -->
+            <div class="stats-range-nav food-nav">
+              <button type="button" class="nav-arrow" id="food-prev" onclick="stepFoodWindow(-1)" aria-label="Earlier week">&lsaquo;</button>
+              <div class="stats-range-mid">
+                <div class="stats-range-name" id="food-win-name">Food</div>
+                <div class="stats-range-span" id="stats-avg-window">Last 7 days</div>
+              </div>
+              <button type="button" class="nav-arrow" id="food-next" onclick="stepFoodWindow(1)" aria-label="Later week">&rsaquo;</button>
             </div>
             <!-- Calories lead and the macros explain them: the total is what moves weight on a cut. -->
             <div class="stats-hero">
@@ -856,6 +863,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-27-1503"></script>
+<script src="js/app.js?v=2026-08-27-1512"></script>
 </body>
 </html>

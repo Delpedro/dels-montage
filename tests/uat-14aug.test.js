@@ -276,8 +276,15 @@ console.log('Home and Stats average over the same window');
   // separately for the second window is the exact shape of the bug this whole block exists to stop.
   eq(stats.split('daily_logs?date=gte.').length - 1, 0,
     'NO ranged daily_logs read on Stats — one unfiltered read, every window sliced off it locally');
-  ok(stats.includes("filter(l => l.date >= weekAgoStr)"),
-    'and the macro card still gets exactly the seven days it always did')
+  // 27 Aug 2026: the macro card became the tile's FOOD face and its seven days grew a pair of
+  // arrows, so the slicing moved out of loadStats() and into renderFoodFace() — where it is now a
+  // window closed at BOTH ends, because a window the arrows have walked back no longer runs up to
+  // today. The rule this block exists for is unchanged and is what is asserted: every window on
+  // this screen is cut locally out of the one unfiltered read, never fetched as a second one.
+  ok(stats.includes('statsFoodLogs = allLogs'),
+    'Stats hands the food face the rows it already has rather than fetching a second window')
+  ok(/renderFoodFace[\s\S]*statsFoodLogs\.filter\(l => l\.date >= win\.from && l\.date <= win\.to\)/.test(SRC),
+    'and the food face slices its seven days off them locally, closed at both ends')
 }
 
 process.on('exit', () => {

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1503';
+const APP_BUILD = '2026-08-27-1512';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3080,13 +3080,20 @@ function dateStr(d = new Date()) {
 // subtracting 7 produced an EIGHT-day window wearing a "7 days" label: on 19 Aug that read 13,611
 // avg steps where the true seven-day figure was 13,848. It returns the label as well, so the
 // heading can name the actual dates instead of leaving the reader to work out which seven are meant.
-function sevenDayWindow() {
-  const from = new Date(); from.setDate(from.getDate() - 6);
-  const to = new Date();
+//
+// `weeksBack` walks the same seven days backwards a week at a time, for the Food face's arrows
+// (27 Aug 2026). It defaults to 0, so Home and the rest of Stats are asking exactly what they always
+// asked. `to` is returned as well now: a window that no longer ends today has to be closed at both
+// ends, where the current one only ever needed `date >= from`.
+function sevenDayWindow(weeksBack = 0) {
+  const shift = 7 * (weeksBack || 0);
+  const from = new Date(); from.setDate(from.getDate() - 6 - shift);
+  const to = new Date(); to.setDate(to.getDate() - shift);
   const day = d => String(d.getDate());
   const mth = d => d.toLocaleDateString('en-GB', { month: 'short' });
   return {
     from: dateStr(from),
+    to: dateStr(to),
     label: from.getMonth() === to.getMonth()
       ? `${day(from)}–${day(to)} ${mth(to)}`
       : `${day(from)} ${mth(from)} – ${day(to)} ${mth(to)}`
@@ -6684,9 +6691,6 @@ function applyMacroLine() {
 // Redesigned 10 Aug 2026: hero weight + hand-rolled SVG trend chart + macro averages.
 // The old Chart.js tile-switcher was removed — see CODEBASE.md for what went and why.
 async function loadStats() {
-  const statsWin = sevenDayWindow();
-  const weekAgoStr = statsWin.from;
-
   const [allWeights, allWaists, allLogs, allWorkouts] = await Promise.all([
     // Every weigh-in, not the last 21 days — the weekly card below needs the whole run. The chart
     // is filtered back down to its 21-day window client-side, so it renders exactly what it always
@@ -6725,9 +6729,46 @@ async function loadStats() {
   // known until the week card has decided whether it exists.
   sizeStatsFlip();
 
-  const macroWinLabel = document.getElementById('stats-avg-window');
-  if (macroWinLabel) macroWinLabel.textContent = `Last 7 days · ${statsWin.label}`;
-  renderMacroAverages((allLogs || []).filter(l => l.date >= weekAgoStr));
+  // Kept whole so the Food face's arrows can re-slice it without going back to the network — the
+  // same rows the weekly card navigates, windowed a different way.
+  statsFoodLogs = allLogs || [];
+  renderFoodFace();
+}
+
+// ─── The FOOD face ────────────────────────────────────────────────────────
+// A rolling seven days, and since 27 Aug the arrows walk it backwards a week at a time. It is the
+// one group on the tile that is not week-shaped — the window ends today, not on a Sunday — which is
+// why it steps in sevens rather than reusing the weekly card's week numbers.
+let statsFoodBack = 0;
+let statsFoodLogs = [];
+
+function stepFoodWindow(dir) {
+  const next = statsFoodBack + (dir < 0 ? 1 : -1);   // ‹ goes back in time, so it counts UP
+  if (next < 0 || !foodWindowHasRoom(next)) return;
+  statsFoodBack = next;
+  renderFoodFace();
+}
+
+// There is room to step back while the window still reaches the first day anything was logged.
+// Without this the arrows walk off the end of the data into window after window of "--".
+function foodWindowHasRoom(back) {
+  if (!statsFoodLogs.length) return back === 0;
+  return sevenDayWindow(back).to >= statsFoodLogs[0].date;
+}
+
+function renderFoodFace() {
+  const win = sevenDayWindow(statsFoodBack);
+  const name = document.getElementById('food-win-name');
+  const span = document.getElementById('stats-avg-window');
+  if (name) name.textContent = statsFoodBack === 0 ? 'Last 7 days'
+    : statsFoodBack === 1 ? 'Week before' : `${statsFoodBack} weeks back`;
+  if (span) span.textContent = win.label;
+  const prev = document.getElementById('food-prev');
+  const next = document.getElementById('food-next');
+  if (prev) prev.disabled = !foodWindowHasRoom(statsFoodBack + 1);
+  if (next) next.disabled = statsFoodBack === 0;
+  // Closed at both ends: a window that no longer runs up to today needs its far edge as well.
+  renderMacroAverages(statsFoodLogs.filter(l => l.date >= win.from && l.date <= win.to));
 }
 
 function renderWeightHero(points, emptyNote) {
@@ -6835,17 +6876,30 @@ function renderStatsFlipSwitch() {
   return vis;
 }
 
+// How far the tile has turned, in degrees, always a multiple of 180. It only ever grows or shrinks
+// by one half-turn, and it never wraps: 540 and 180 look identical but 540 is where the tile
+// actually is, and re-parking the faces against the wrong one turns a spin into a jump.
+let statsSpin = 0;
+
 function flipStats(face) {
   const inner = document.getElementById('stats-flip-inner');
   const vis = statsVisibleFaces();
   if (!inner || !vis.length) return;
   if (!vis.includes(face)) face = vis[0];
+  // Which way round it turns: forward through the switch turns one way, back the other, so the
+  // motion says which direction you moved rather than always spinning the same way.
+  if (face !== statsFlipFace) {
+    statsSpin += vis.indexOf(face) >= vis.indexOf(statsFlipFace) ? 180 : -180;
+  }
   statsFlipFace = face;
-  // The track slides by whole tile widths; each face is parked one width further along.
-  inner.style.transform = `translateX(-${face * 100}%)`;
+  inner.style.transform = `rotateY(${statsSpin}deg)`;
   STATS_FACES.forEach((f, i) => {
     const el = document.getElementById(f.id);
     if (!el) return;
+    // Two faces on a coin: the one you're going to is parked on the front, every other one on the
+    // back where backface-visibility hides it. The face turning AWAY works out to the angle it is
+    // already at, so it never jumps mid-turn — see the CSS block for the arithmetic.
+    el.style.transform = `rotateY(${i === face ? -statsSpin : -statsSpin + 180}deg)`;
     el.classList.toggle('active', i === face);
     // Hidden from the screen reader as well as from the pointer: a card read out three times is
     // worse than a card that cannot be tapped.
@@ -7531,9 +7585,13 @@ function renderMacroAverages(logs) {
   if (calVal) {
     calVal.innerHTML = ca === null ? '--' : `${Math.round(ca).toLocaleString()}<span class="stats-hero-unit">kcal</span>`;
   }
+  // ⚠️ THIS LINE TAKES NO VERDICT COLOUR (27 Aug 2026). It was red on a miss, which put --red
+  // immediately under the --accent figure — two warm reds four pixels apart, and Del's word for it
+  // was "clashing". The verdict did not disappear, it moved: the three cells below carry it, one
+  // colour on the one macro that is actually off, which is the .pf-d.off rule this card already
+  // follows. A grade under the headline as well was the same thing said twice in two colours.
   if (calTarget) {
-    const state = (ca === null || ct === null) ? null : goalState(ca, ct);
-    calTarget.className = `stats-hero-sub gv-${state || 'empty'}`;
+    calTarget.className = 'stats-hero-sub gv-soft';
     calTarget.textContent = (ca === null || ct === null) ? ''
       : `Target ${Math.round(ct).toLocaleString()} · ${macroDelta(ca, ct)}`;
   }

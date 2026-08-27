@@ -761,26 +761,31 @@ mark.hl.on { background: var(--accent); color: #fff; }
    Narrower than the week card's 260px body: it sits over a full-width chart. */
 /* The weight tile (23 Aug 2026), which carries three faces since 27 Aug: daily, weekly, food.
 
-   ⚠️ IT SLIDES, IT NO LONGER SPINS (27 Aug 2026). The spin was a rotateY on two faces with
-   backface-visibility hiding the back one, and that mechanism holds exactly two sides — there is no
-   third position on a coin. E6 put FOOD on this tile as a third face, so the transform became a
-   translateX along a track. The switch under it was always a thumb sliding left to right, so the
-   tile and its control now make the same movement, which is what that control was drawn for.
+   The perspective lives on the outer box and the rotation on the inner one, which is the only
+   arrangement where the faces share a vanishing point — put the perspective on the rotating element
+   itself and the back face swings through a different arc from the front one, which reads as two
+   cards rather than two sides of one.
+
+   ⚠️ IT SPINS, AND IT SPINS WITH THREE FACES (27 Aug 2026 — Del: "i want the spin back"). A coin
+   has two sides, so the trick is that only ever TWO faces are mounted: the inner keeps turning
+   180° per step and accumulating (0 → 180 → 360 → …), and flipStats() re-parks every face's own
+   rotateY on each step so that the incoming one is the front and the rest are on the back, where
+   backface-visibility hides them. That is why a face's transform is set in JS and not here — the
+   angle it needs depends on where the tile has spun to, not on which face it is.
    Height is still set in px by sizeStatsFlip(); see the note in index.html for why. */
-.flip-tile { overflow: hidden; }
-.flip-inner { position: relative; width: 100%; transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.25, 1); }
+.flip-tile { perspective: 1400px; }
+.flip-inner { position: relative; width: 100%; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.25, 1); }
 /* top/left/width rather than inset:0 — a face stretched to all four edges takes its height FROM the
    wrapper, and the wrapper takes its height from the faces, so sizeStatsFlip() would be measuring
-   its own output and the tile could never shrink again. Auto height keeps the measurement honest.
-   Each face is parked one tile-width further along and the track slides by whole widths. */
-.flip-face { position: absolute; top: 0; left: 0; width: 100%; }
-/* Pointer events follow the visible face, not the z-order. Without this an off-screen face's arrows
+   its own output and the tile could never shrink again. Auto height keeps the measurement honest. */
+.flip-face { position: absolute; top: 0; left: 0; width: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+/* Pointer events follow the visible face, not the z-order. Without this a hidden face's arrows
    still take taps through the front one — invisible buttons that work are worse than visible ones
-   that don't. Hidden faces are also taken out of the screen reader by aria-hidden in flipStats(). */
-.flip-face { pointer-events: none; visibility: hidden; }
-.flip-face.active { pointer-events: auto; visibility: visible; }
-.flip-b { transform: translateX(100%); }
-.flip-c { transform: translateX(200%); }
+   that don't. ⚠️ Never add `visibility: hidden` here: the outgoing face has to stay paintable for
+   the length of the turn or it vanishes instead of rotating away. backface-visibility is what hides
+   it, and only once it is actually facing away. */
+.flip-face { pointer-events: none; }
+.flip-face.active { pointer-events: auto; }
 /* The tile's own card, so side A reads as the same object as the week card on side B rather than as
    the page background with a chart drawn on it. */
 .stats-weight-card { padding: 0.875rem; }
@@ -873,8 +878,10 @@ mark.hl.on { background: var(--accent); color: #fff; }
    with the card — three tracks that were nearly always full said less than three numbers do, and
    the cells line up with the weekly face behind them. Tabular so the figures sit on a common grid. */
 .stats-food-card { padding: 0.875rem; font-variant-numeric: tabular-nums; }
-.food-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 0.875rem; }
-.food-head .stats-range-span { margin-top: 0; }
+/* The same arrows as the other two faces (27 Aug 2026 — Del: "it needs arrows to cycle through on
+   that page"). It is `.stats-range-nav`'s own control, re-parked at the top of the card where the
+   weekly face keeps its week arrows, so all three faces are steered from the same place. */
+.food-nav { margin: 0 auto 0.5rem; }
 
 /* ─── HISTORY: PROGRESS FEED CARDS (redesign 10 Aug 2026) ─── */
 /* Left rail colour keys the entry type: amber = workout, blue = daily check-in. */
