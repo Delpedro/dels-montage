@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1736';
+const APP_BUILD = '2026-08-27-1753';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -486,12 +486,36 @@ function exerciseIdFields(name) {
   return id ? { exercise_id: id } : {};
 }
 
+// "Pull-Ups", "pull-ups" and "Pull Ups " are ONE lift, and until 27 Aug 2026 the database happily
+// gave each of them its own row and its own half of the history: exercises_user_name_key is UNIQUE
+// (user_id, name) EXACTLY. Migration 20260827180000 closed that — exercise_id_for() now resolves
+// case- and whitespace-insensitively and exercises_user_name_lower_key refuses the second spelling —
+// so a split is no longer POSSIBLE. This pair is the client half, and its job is different: to stop
+// the app cheerfully offering to make one, and to answer in the spelling that already exists.
+function sameExerciseName(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
+// The spelling already on file for this name, or null if it is genuinely new. EXERCISE_LIBRARY is
+// the picker, EXERCISE_IDS is everything the database knows — a name can be in the second without
+// the second having been folded into the first yet, so both are searched.
+function canonicalExerciseName(name) {
+  if (!String(name || '').trim()) return null;
+  return Object.keys(EXERCISE_LIBRARY).find(n => sameExerciseName(n, name))
+      || Object.keys(EXERCISE_IDS).find(n => sameExerciseName(n, name))
+      || null;
+}
+
 // A name typed into Open Workout or the template editor is new to this app session but not
 // necessarily new to the database, so this is find-or-create. The `exercises` row itself is made
 // by the custom_exercises link trigger; reading its id straight back afterwards is what lets the
 // very first set logged under the new name carry the id, instead of it appearing only after the
 // next app start. Both entry points share this — they had drifted into two identical copies.
 async function registerNewExercise(name) {
+  // Adopt the spelling on file rather than adding a second label for the same lift. Returns the
+  // name the caller should actually use, which is why both callers now take it back.
+  const canon = canonicalExerciseName(name);
+  if (canon) return canon;
   const existing = await sb(`custom_exercises?name=eq.${encodeURIComponent(name)}&select=id`);
   if (!existing || existing.length === 0) {
     await sb('custom_exercises', 'POST', { name });
@@ -499,6 +523,7 @@ async function registerNewExercise(name) {
   const row = await sb(`exercises?name=eq.${encodeURIComponent(name)}&select=id`);
   if (row && row[0]) EXERCISE_IDS[name] = row[0].id;
   EXERCISE_LIBRARY[name] = { name, sets: 3, reps: '8–12', rest: '90s' };
+  return name;
 }
 
 // Merges in custom_exercises rows (typed on the fly in Open Workout) — called once at app init.
@@ -1440,9 +1465,10 @@ function revokeOtherSessions(token) {
 //
 // TWO DASHBOARD SETTINGS THIS SCREEN CANNOT DO FOR ITSELF, and it says so on screen when they bite:
 //
-//   1. Authentication → Sign In / Providers → "Allow new users to sign up" must be ON. It was OFF
-//      as of 25 Aug (/auth/v1/settings answered disable_signup: true), and while it is off every
-//      POST below comes back 422 signup_disabled and this screen says new accounts are closed.
+//   1. Authentication → Sign In / Providers → "Allow new users to sign up" must be ON. Del turned
+//      it on on 27 Aug (/auth/v1/settings now answers disable_signup: false) and a second account
+//      signed up through this screen the same morning. If it is ever switched back off, every POST
+//      below comes back 422 signup_disabled and this screen says new accounts are closed.
 //   2. Authentication → Emails → "Confirm signup" must contain {{ .Token }} rather than the stock
 //      {{ .ConfirmationURL }}. The template to paste is in the repo at
 //      supabase/templates/confirmation.html. Same reason as recovery.html: a code can be typed into
@@ -3947,13 +3973,17 @@ async function promptTemplateCustomExercise() {
     showToast(`Avoid quotes/apostrophes in exercise names — try again without them`, 'error');
     return;
   }
-  if (EXERCISE_LIBRARY[name] || editingTemplateExercises.some(e => e.name === name)) {
-    showToast(`${name} already exists — pick it from the dropdown`, 'error');
+  // Case-insensitively: typing "pull-ups" under an existing "Pull-Ups" used to sail past this and
+  // fork the lift. The toast answers in the spelling on file so it is findable in the dropdown.
+  const known = canonicalExerciseName(name)
+    || (editingTemplateExercises.find(e => sameExerciseName(e.name, name)) || {}).name;
+  if (known) {
+    showToast(`${known} already exists — pick it from the dropdown`, 'error');
     return;
   }
-  await registerNewExercise(name);
-  addTemplateExercise(name);
-  return name;   // so the superset picker can pair with what was just typed in
+  const added = await registerNewExercise(name);
+  addTemplateExercise(added);
+  return added;   // so the superset picker can pair with what was just typed in
 }
 
 // Delete-all-then-reinsert for this session's exercises — same idiom completeExercise() already
@@ -5531,13 +5561,16 @@ async function promptCustomExercise() {
     showToast(`Avoid quotes/apostrophes in exercise names — try again without them`, 'error');
     return;
   }
-  if (EXERCISE_LIBRARY[name] || (selectedSession?.exercises || []).some(e => e.name === name)) {
-    showToast(`${name} already exists — pick it from the dropdown`, 'error');
+  // Case-insensitively — see the template editor's twin. One lift, one spelling.
+  const known = canonicalExerciseName(name)
+    || ((selectedSession?.exercises || []).find(e => sameExerciseName(e.name, name)) || {}).name;
+  if (known) {
+    showToast(`${known} already exists — pick it from the dropdown`, 'error');
     return;
   }
-  await registerNewExercise(name);
-  await addOpenExercise(name);
-  return name;   // so the superset picker can pair with what was just typed in
+  const added = await registerNewExercise(name);
+  await addOpenExercise(added);
+  return added;   // so the superset picker can pair with what was just typed in
 }
 
 async function addOpenExercise(name) {

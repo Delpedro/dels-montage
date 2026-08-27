@@ -99,7 +99,9 @@ async function main() {
   {
     const calls = [];
     const app = load({
-      functions: ['registerNewExercise', 'exerciseIdFields'],
+      // canonicalExerciseName/sameExerciseName came with E4 (27 Aug): registerNewExercise now asks
+      // whether the name is a re-casing of one already on file before it creates anything.
+      functions: ['registerNewExercise', 'exerciseIdFields', 'canonicalExerciseName', 'sameExerciseName'],
       decls: ['EXERCISE_IDS', 'EXERCISE_LIBRARY'],
       deps: {
         sb: async (url, method) => {
