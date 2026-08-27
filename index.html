@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-27-1445">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-27-1503">
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -471,30 +471,38 @@
       </div>
     </div>
         </div>
+        <!-- FACE C — food (E6, 27 Aug 2026, proof sheet cut I on cut J). This was a separate
+             `.macro-card` sitting under the tile, and it was the only box on the page that was not
+             the tile — Del: "stands out like a fucking ugly toe". It is a third face of the tile
+             now, so Stats is one object and a switch and nothing else.
+             It wears the weekly face's own furniture on purpose: the same Bebas figure, the same
+             three cells, the same title row. Sharing the clothes is what makes the three faces read
+             as one card rather than three cards taking turns. -->
+        <div class="flip-face flip-c" id="stats-face-c" aria-hidden="true">
+          <div class="card stats-food-card">
+            <div class="food-head">
+              <span class="stats-range-name">Food</span>
+              <span class="stats-range-span" id="stats-avg-window">Last 7 days</span>
+            </div>
+            <!-- Calories lead and the macros explain them: the total is what moves weight on a cut. -->
+            <div class="stats-hero">
+              <div class="stats-hero-val" id="macro-cal-val">--</div>
+              <div class="stats-hero-sub" id="macro-cal-target"></div>
+            </div>
+            <div class="weekavg-quad-wrap">
+              <div class="weekavg-quad cols3" id="macro-cells"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-    <!-- Swipe the tile on a phone; on a desktop there is nothing to swipe with, so this names both
+    <!-- Swipe the tile on a phone; on a desktop there is nothing to swipe with, so this names the
          sides and slides between them (23 Aug 2026 — Del: "dots are shite on phone too"). Dots said
-         there was a second side without saying what was on it; two words do both jobs at once. -->
+         there was a second side without saying what was on it; the words do both jobs at once.
+         The options are BUILT BY renderStatsFlipSwitch(), not written here: a brand-new account has
+         no full week to show, and the switch must not offer a face that is empty. -->
     <div class="flip-switch" id="stats-flip-switch" style="display:none;">
       <div class="flip-switch-thumb" id="stats-flip-thumb" aria-hidden="true"></div>
-      <button type="button" class="flip-switch-opt active" onclick="flipStats(0)" aria-pressed="true">Daily</button>
-      <button type="button" class="flip-switch-opt" onclick="flipStats(1)" aria-pressed="false">Weekly</button>
-    </div>
-
-    <div class="stats-section" id="stats-avg-window">Last 7 days</div>
-    <div class="card macro-card">
-      <!-- Calories lead, macros explain them: the total is what moves weight on a cut. This is the
-           only box on the page that is not the weigh-in card, and it holds the one group of
-           numbers that is not week-shaped — a rolling 7-day average, which is why it sits outside
-           a card driven by week arrows. The meters under the rule are its breakdown. -->
-      <div class="macro-cal">
-        <div class="stat-label">Calories</div>
-        <div class="macro-cal-val" id="macro-cal-val">--</div>
-        <div class="macro-cal-target" id="macro-cal-target"></div>
-      </div>
-      <div class="macro-rule"></div>
-      <div class="macro-meters" id="macro-meters"></div>
     </div>
   </div>
 
@@ -848,6 +856,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-27-1445"></script>
+<script src="js/app.js?v=2026-08-27-1503"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1445';
+const APP_BUILD = '2026-08-27-1503';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6779,28 +6779,88 @@ try {
   if (STATS_RANGES.some(r => r.id === savedStatsRange)) statsRange = savedStatsRange;
 } catch (e) { /* private mode — the range just stops being remembered */ }
 
-// ─── The two-faced weight tile ────────────────────────────────────────────
-// Side A is the daily line, side B the week it sits in. One tile, spun by the dots underneath.
-let statsFlipFace = 0;
+// ─── The three-faced weight tile ──────────────────────────────────────────
+// Face 0 is the daily line, face 1 the week it sits in, face 2 the food that produced both.
+// One tile, slid by the switch underneath. It used to spin, and could not once there were three of
+// them — a rotateY with backface-visibility holds exactly two sides. See the CSS block.
+//
+// ⚠️ A FACE IS INDEXED BY ITS POSITION ON THE TRACK, NEVER BY ITS POSITION ON THE SWITCH. The
+// weekly card hides itself until there is a full week to average, so an account can be offered two
+// options whose track positions are 0 and 2. statsVisibleFaces() is the only bridge between the
+// two, and every place that steps between faces goes through it.
+const STATS_FACES = [
+  { id: 'stats-face-a', label: 'Daily' },
+  { id: 'stats-face-b', label: 'Weekly' },
+  { id: 'stats-face-c', label: 'Food' },
+];
+
+// 27 Aug 2026 — the tile LANDS ON WEEKLY (Del's answer, option K). Weight bounces day to day and
+// the weekly average is the number that actually moves, so the daily line is the thing you turn to
+// rather than the thing you open on. Nothing was deleted to do it; this is the whole change.
+let statsFlipFace = 1;
+
+// A face counts as there when its card is really on screen. The week card carries display:none
+// until renderWeeklyAverage() finds a week, and a switch that offers a blank face is worse than a
+// switch with one fewer option on it.
+function statsVisibleFaces() {
+  return STATS_FACES
+    .map((_f, i) => i)
+    .filter(i => {
+      const el = document.getElementById(STATS_FACES[i].id);
+      return !!(el && el.firstElementChild && el.firstElementChild.offsetParent !== null);
+    });
+}
+
+// The switch is BUILT, not written into index.html, because how many options it has depends on how
+// many faces have anything on them. The thumb is sized here for the same reason: at two options it
+// is half the track, at three a third, and a hard-coded width would be wrong on one of them.
+function renderStatsFlipSwitch() {
+  const sw = document.getElementById('stats-flip-switch');
+  if (!sw) return [];
+  const vis = statsVisibleFaces();
+  if (vis.length < 2) { sw.style.display = 'none'; return vis; }
+  sw.style.display = 'flex';
+  sw.querySelectorAll('.flip-switch-opt').forEach(o => o.remove());
+  vis.forEach(i => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'flip-switch-opt';
+    b.textContent = STATS_FACES[i].label;
+    b.onclick = () => flipStats(i);
+    sw.appendChild(b);
+  });
+  const thumb = document.getElementById('stats-flip-thumb');
+  // The track's 3px padding either side is the 6px being shared out — see the CSS.
+  if (thumb) thumb.style.width = `calc(${100 / vis.length}% - ${6 / vis.length}px)`;
+  return vis;
+}
 
 function flipStats(face) {
-  const tile = document.getElementById('stats-flip');
-  const faces = [document.getElementById('stats-face-a'), document.getElementById('stats-face-b')];
-  if (!tile || !faces[0] || !faces[1]) return;
-  statsFlipFace = face ? 1 : 0;
-  tile.classList.toggle('flipped', statsFlipFace === 1);
-  faces.forEach((el, i) => {
-    el.classList.toggle('active', i === statsFlipFace);
-    // Hidden from the screen reader as well as from the pointer: backface-visibility only takes it
-    // off the screen, and a card read out twice is worse than a card that cannot be tapped.
-    el.setAttribute('aria-hidden', i === statsFlipFace ? 'false' : 'true');
+  const inner = document.getElementById('stats-flip-inner');
+  const vis = statsVisibleFaces();
+  if (!inner || !vis.length) return;
+  if (!vis.includes(face)) face = vis[0];
+  statsFlipFace = face;
+  // The track slides by whole tile widths; each face is parked one width further along.
+  inner.style.transform = `translateX(-${face * 100}%)`;
+  STATS_FACES.forEach((f, i) => {
+    const el = document.getElementById(f.id);
+    if (!el) return;
+    el.classList.toggle('active', i === face);
+    // Hidden from the screen reader as well as from the pointer: a card read out three times is
+    // worse than a card that cannot be tapped.
+    el.setAttribute('aria-hidden', i === face ? 'false' : 'true');
   });
+  const at = vis.indexOf(face);
+  const thumb = document.getElementById('stats-flip-thumb');
+  // translateX in % is of the thumb's OWN width, which is one option wide — so this steps exactly
+  // one option whether the switch is showing two or three.
+  if (thumb) thumb.style.transform = `translateX(${at * 100}%)`;
   const sw = document.getElementById('stats-flip-switch');
   if (sw) {
-    sw.classList.toggle('at-b', statsFlipFace === 1);
-    sw.querySelectorAll('.flip-switch-opt').forEach((o, i) => {
-      o.classList.toggle('active', i === statsFlipFace);
-      o.setAttribute('aria-pressed', i === statsFlipFace ? 'true' : 'false');
+    sw.querySelectorAll('.flip-switch-opt').forEach((o, k) => {
+      o.classList.toggle('active', k === at);
+      o.setAttribute('aria-pressed', k === at ? 'true' : 'false');
     });
   }
 }
@@ -6828,37 +6888,37 @@ function bindStatsFlipSwipe() {
     x0 = null;
     // 45px and mostly sideways: below that it is a tap, and a diagonal belongs to the page scroll.
     if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    const to = dx < 0 ? 1 : 0;          // drag left to bring the next side in, as a carousel does
-    // The switch being hidden is how "there is no second side yet" is stored — a swipe must not be
-    // able to reach a side the control says isn't there.
-    const sw = document.getElementById('stats-flip-switch');
-    if (to !== statsFlipFace && sw && sw.style.display !== 'none') flipStats(to);
+    // Drag left to bring the next face in, as a carousel does. Stepping through the VISIBLE faces
+    // rather than through 0..2 is what stops a swipe landing on the empty week card — the same
+    // rule the switch is built from, and the reason it is one list and not two.
+    const vis = statsVisibleFaces();
+    const to = vis[vis.indexOf(statsFlipFace) + (dx < 0 ? 1 : -1)];
+    if (to !== undefined) flipStats(to);
   });
   tile.addEventListener('pointercancel', () => { x0 = null; });
 }
 
-// Both faces are absolute, so nothing in the flow gives the tile a height — this does, at the taller
-// of the two. Called after every render that can change either face's height (the chart's range, the
-// week the arrows land on) and on resize, because the chart is fluid and the labels wrap.
+// Every face is absolute, so nothing in the flow gives the tile a height — this does, at the tallest
+// of the faces that are actually there. Called after every render that can change a face's height
+// (the chart's range, the week the arrows land on, the food averages) and on resize, because the
+// chart is fluid and the labels wrap.
 //
-// A hidden week card measures 0: on an account with no full week yet there is nothing to spin to, so
-// the dots go away rather than offering a blank second side.
+// A hidden week card measures 0: on an account with no full week yet there is nothing to slide to,
+// so the switch offers one option fewer rather than a blank face.
 function sizeStatsFlip() {
   const inner = document.getElementById('stats-flip-inner');
-  const a = document.getElementById('stats-face-a');
-  const b = document.getElementById('stats-face-b');
-  const control = document.getElementById('stats-flip-switch');
-  if (!inner || !a || !b) return;
+  const els = STATS_FACES.map(f => document.getElementById(f.id));
+  if (!inner || els.some(el => !el)) return;
   bindStatsFlipSwipe();
   // Clear before measuring: a face carrying last render's height would measure that back out, and
   // the tile could then only ever grow.
-  a.style.height = '';
-  b.style.height = '';
-  const hb = b.firstElementChild && b.firstElementChild.offsetParent !== null ? b.offsetHeight : 0;
-  const h = Math.max(a.offsetHeight, hb);
-  inner.style.height = `${h}px`;
-  if (control) control.style.display = hb ? 'flex' : 'none';
-  if (!hb && statsFlipFace === 1) flipStats(0);   // never strand anyone on a side that isn't there
+  els.forEach(el => { el.style.height = ''; });
+  const vis = renderStatsFlipSwitch();
+  inner.style.height = `${Math.max(0, ...vis.map(i => els[i].offsetHeight))}px`;
+  // Re-applied every time, not only when it changes: the switch was just rebuilt, so the active
+  // option and the thumb's position have to be put back on it. flipStats() also lands you on the
+  // first face that exists rather than stranding you on one that doesn't.
+  flipStats(statsFlipFace);
 }
 
 window.addEventListener('resize', () => {
@@ -7426,26 +7486,27 @@ function macroDelta(actual, target) {
   return d === 0 ? 'on' : `${d > 0 ? '+' : '−'}${Math.abs(d)}`;
 }
 
-// One macro row: name · actual/target · meter · verdict. Four grid cells, no wrapper element —
-// they're cells of the single #macro-meters grid, which is what keeps the four columns aligned
-// across all three rows (see the CSS note: one grid, not one grid per row).
+// One macro, as a cell of the food face's three (E6, 27 Aug 2026). This was a meter row — name,
+// actual/target, a track and a delta — and three tracks that are nearly always close to full said
+// less than three plain numbers do. The cell is deliberately the WEEKLY face's cell, so the two
+// faces' figures land on the same baselines behind one another.
 //
-// A macro with no target still gets a row — it prints its average and a flat empty meter rather
-// than vanishing, so "no fibre target set" never looks like "no fibre logged".
-function macroMeterRow(label, actual, target, underIsMiss = false) {
+// ⚠️ ONE COLOUR, AND ONLY WHEN IT IS EARNED. The value goes red for goalState 'bad' and takes no
+// colour otherwise — a card that grades three rows hands you three colours to decode, and the good
+// ones say "carry on", which is what a plain number says for free. Same rule as .pf-d.off.
+//
+// A macro with no target still gets a cell — it prints its average with no target line rather than
+// vanishing, so "no fat target set" never looks like "no fat logged".
+function macroCell(label, actual, target, underIsMiss = false) {
   const a = numOrNull(actual), t = numOrNull(target);
-  const state = (a === null || t === null) ? 'empty' : (goalState(a, t, underIsMiss) || 'empty');
-  const val = a === null ? '--'
-            : t === null ? `<b>${Math.round(a)}</b>g`
-            : `<b>${Math.round(a)}</b> / ${Math.round(t)}g`;
-  // Capped at 100%: a bar can't overflow its own track, so an over-target macro shows full and the
-  // delta beside it carries the overshoot. Same rule as the Check-in meters.
-  const pct = (a === null || t === null || t === 0) ? 0 : Math.min(100, Math.round((a / t) * 100));
-  const delta = (a === null || t === null) ? '—' : macroDelta(a, t);
-  return `<span class="macro-m-name">${esc(label)}</span>
-    <span class="macro-m-val">${val}</span>
-    <span class="goal-track"><i class="goal-fill ${state}" style="width:${pct}%"></i></span>
-    <span class="macro-m-delta gv-${state}">${delta}</span>`;
+  const state = (a === null || t === null) ? null : goalState(a, t, underIsMiss);
+  const val = a === null ? '--' : `${Math.round(a)}g`;
+  const note = (a === null || t === null) ? '' : `of ${Math.round(t)}g`;
+  return `<div class="weekavg-cell">
+      <div class="weekavg-cell-val${state === 'bad' ? ' gv-bad' : ''}">${val}</div>
+      <div class="weekavg-cell-name">${esc(label)}</div>
+      <div class="weekavg-cell-note">${note}</div>
+    </div>`;
 }
 
 // Redesigned 11 Aug 2026. Was three tiles + a calorie-split bar + a 10px grey calorie line at the
@@ -7463,24 +7524,29 @@ function renderMacroAverages(logs) {
   };
   const ca = avg('calories'), ct = goalCalories();
 
+  // The same hero the weight faces use, so the three faces put their headline figure in the same
+  // place. `stats-hero-unit`, not `stat-unit`: this is that hero's own unit class now.
   const calVal = document.getElementById('macro-cal-val');
   const calTarget = document.getElementById('macro-cal-target');
   if (calVal) {
-    calVal.innerHTML = ca === null ? '--' : `${Math.round(ca).toLocaleString()}<span class="stat-unit">kcal</span>`;
+    calVal.innerHTML = ca === null ? '--' : `${Math.round(ca).toLocaleString()}<span class="stats-hero-unit">kcal</span>`;
   }
   if (calTarget) {
     const state = (ca === null || ct === null) ? null : goalState(ca, ct);
-    calTarget.innerHTML = (ca === null || ct === null) ? ''
-      : `Target ${Math.round(ct)}<b class="gv-${state || 'empty'}">${macroDelta(ca, ct)}</b>`;
+    calTarget.className = `stats-hero-sub gv-${state || 'empty'}`;
+    calTarget.textContent = (ca === null || ct === null) ? ''
+      : `Target ${Math.round(ct).toLocaleString()} · ${macroDelta(ca, ct)}`;
   }
 
-  const meters = document.getElementById('macro-meters');
-  if (meters) {
-    meters.innerHTML =
-      macroMeterRow('Protein', avg('protein_g'), MACRO_GOALS.protein_g, true) +
-      macroMeterRow('Carbs',   avg('carbs_g'),   MACRO_GOALS.carbs_g) +
-      macroMeterRow('Fat',     avg('fat_g'),     MACRO_GOALS.fat_g);
+  const cells = document.getElementById('macro-cells');
+  if (cells) {
+    cells.innerHTML =
+      macroCell('Protein', avg('protein_g'), MACRO_GOALS.protein_g, true) +
+      macroCell('Carbs',   avg('carbs_g'),   MACRO_GOALS.carbs_g) +
+      macroCell('Fat',     avg('fat_g'),     MACRO_GOALS.fat_g);
   }
+  // The food face changes height when a cell's target line appears or goes — re-measure the tile.
+  sizeStatsFlip();
 }
 
 
