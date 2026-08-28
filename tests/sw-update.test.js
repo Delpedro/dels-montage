@@ -34,6 +34,7 @@ const root = path.join(__dirname, '..');
 const swSrc = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
 const appSrc = fs.readFileSync(path.join(root, 'js', 'app.js'), 'utf8');
 const htmlSrc = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const cssSrc = fs.readFileSync(path.join(root, 'css', 'style.css'), 'utf8');
 
 // ── 1. applyUpdate() must not delete the caches ────────────────────────────
 const applyBody = appSrc.slice(appSrc.indexOf('async function applyUpdate()'));
@@ -124,6 +125,50 @@ ok(/await self\.skipWaiting\(\)/.test(install), 'skipWaiting is awaited inside t
 ok(/new Request\(u, \{ cache: 'reload' \}\)/.test(install),
   'the shell is precached past the HTTP cache, so the fallback is never older than the build');
 
+// ── 7. THE APP MUST NOT RENDER UNSTYLED, AND MUST NOT RELOAD INTO A HALF-PUBLISHED TREE ────
+//
+// 28 Aug 2026, 15:29: Del opened D-LOG a minute after a push and got a page of raw serif text —
+// the fourth time in ten days. Everything asserted above was already true and none of it helped,
+// because the stylesheet was not there to be cached or fallen back to: GitHub Pages swaps a tree
+// a piece at a time, index.html arrived, css/style.css?v=<new> did not.
+//
+// Two new guards, at the two ends of the problem. The shell checks the OUTCOME (did the stylesheet
+// apply?) rather than any of the causes, and the update refuses to reload into a build whose files
+// are not being served yet.
+ok(/--dlog-css:\s*1/.test(cssSrc), 'style.css defines the sentinel the shell reads back');
+eq((cssSrc.match(/--dlog-css:/g) || []).length, 1, 'and defines it exactly once, in :root');
+ok(/--dlog-css/.test(htmlSrc), 'index.html reads the sentinel back');
+ok(/css\/style\.css\?repair=/.test(htmlSrc), 'and re-requests the stylesheet on a fresh URL when it is missing');
+ok(htmlSrc.indexOf('--dlog-css') > htmlSrc.indexOf('href="css/style.css?v='),
+  'the check runs after the link it is checking');
+ok(/attempt > 2/.test(htmlSrc), 'the repair is bounded — it must never loop on a site that is genuinely down');
+
+// The repair has to be inline in the shell. A load where app.js is the missing file is exactly the
+// load that cannot rely on app.js to fix itself.
+const repairInHtml = htmlSrc.slice(htmlSrc.indexOf('<script>'), htmlSrc.indexOf('</script>'));
+ok(/getComputedStyle/.test(repairInHtml), 'the repair is inline in index.html, not in app.js');
+
+ok(/async function newBuildIsServable/.test(appSrc), 'the update preflights the build it is about to load');
+const preflight = appSrc.slice(appSrc.indexOf('async function newBuildIsServable'));
+ok(/css\/style\.css/.test(preflight.slice(0, 900)) && /js\/app\.js/.test(preflight.slice(0, 900)),
+  'it asks for the two files the reload exists to load');
+ok(/if \(!res\) return true/.test(preflight.slice(0, 900)),
+  'offline is not half-published — a check it cannot run never blocks an update');
+const applyGuard = appSrc.slice(appSrc.indexOf('async function applyUpdate()'));
+ok(applyGuard.indexOf('newBuildIsServable') < applyGuard.indexOf('location.reload()'),
+  'the preflight runs BEFORE the reload, which is the only place it is any use');
+
+// ── And the shell must not ship a STATE it has not checked ─────────────────────────────────
+// index.html shipped the literal words "Rest alerts: off" on the button, so every load of every
+// account showed OFF until the app repainted it — which happened after an awaited network fetch.
+// Del reported that flash three times before it was read as markup rather than as a bug in the
+// flag it was drawn from.
+ok(/id="rest-alerts-btn"[^>]*>Rest alerts</.test(htmlSrc),
+  'the rest-alerts button ships no state in its markup — only the app knows the answer');
+const homeFn = appSrc.slice(appSrc.indexOf('async function loadHomePage()'));
+ok(homeFn.indexOf('paintRestAlertsButton()') < homeFn.indexOf('await '),
+  'and Home paints it above every await in the function, so no network can delay the label');
+
 // ── The build stamps must agree, or the update prompt fires forever ────────
 const swBuild = (swSrc.match(/CACHE_NAME = 'dlog-([\d-]+)'/) || [])[1];
 const appBuild = (appSrc.match(/APP_BUILD = '([\d-]+)'/) || [])[1];
@@ -171,7 +216,6 @@ eq(loginInputBusy(fakeDoc(true, 'a@b.com', ''))(), true, 'an email half-typed bl
 eq(loginInputBusy(fakeDoc(true, '', 'hunter2'))(), true, 'a password half-typed blocks the auto-reload');
 
 // The banner is the only way out of a stale build on the login screen — it has to be in front of it.
-const cssSrc = fs.readFileSync(path.join(root, 'css', 'style.css'), 'utf8');
 const bannerZ = Number((cssSrc.match(/\.update-banner \{[^}]*z-index: (\d+)/) || [])[1]);
 const loginZ = Number((cssSrc.match(/#login-screen \{[^}]*z-index: (\d+)/) || [])[1]);
 ok(bannerZ > loginZ, `the update banner (${bannerZ}) sits above the login screen (${loginZ})`);

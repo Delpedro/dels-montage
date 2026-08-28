@@ -7,7 +7,40 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-28-1527">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-28-1538">
+
+  <!-- ── D-LOG MUST NEVER RENDER UNSTYLED (28 Aug 2026) ────────────────────────────────────────
+       Del opened the app one minute after a push on 28 Aug and got a page of raw serif text. The
+       service worker already refuses to cache a bad response and never answers a CSS request with
+       HTML — but none of that helps when the stylesheet simply is not there yet, which is what a
+       GitHub Pages tree swap looks like from the outside for a few seconds.
+
+       So the shell checks the outcome instead of the cause: --dlog-css is defined in style.css and
+       nowhere else, so an empty value means the file did not apply, whatever the reason. It then
+       asks for it again on a fresh URL, up to three times. Inline and dependency-free on purpose —
+       it has to work on a load where app.js is the file that went missing. -->
+  <script>
+    (function () {
+      function styled() {
+        try {
+          return getComputedStyle(document.documentElement).getPropertyValue('--dlog-css').trim() === '1';
+        } catch (e) { return true; }   /* cannot tell — never repair on a guess */
+      }
+      function repair(attempt) {
+        if (styled() || attempt > 2) return;
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        /* A new query each time: a fresh cache key, so neither the HTTP cache nor a service worker
+           entry can hand back the same miss. The SW still falls back to the cached shell copy if
+           the network is the thing that is down. */
+        link.href = 'css/style.css?repair=' + Date.now();
+        link.onload = function () { setTimeout(function () { repair(attempt + 1); }, 60); };
+        link.onerror = function () { setTimeout(function () { repair(attempt + 1); }, 800); };
+        document.head.appendChild(link);
+      }
+      window.addEventListener('load', function () { repair(0); });
+    })();
+  </script>
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f4efe6">
@@ -247,7 +280,7 @@
         <button type="button" class="account-link" onclick="openOnboarding(true)">Your details</button>
         <!-- The only rest cue that survives a locked screen. Off until tapped, because iOS shows the
              permission prompt once ever and a refusal can only be undone in Settings. -->
-        <button type="button" class="account-link" id="rest-alerts-btn" onclick="toggleRestAlerts()">Rest alerts: off</button>
+        <button type="button" class="account-link" id="rest-alerts-btn" onclick="toggleRestAlerts()">Rest alerts</button>
         <button type="button" class="account-link" id="rest-alerts-test" onclick="testRestAlert()">Test alert</button>
         <!-- Ships with the signup screen, not after it: an app that lets you make an account has to
              let you delete it from inside the app or Apple rejects it. Deliberately last on the row
@@ -862,6 +895,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-28-1527"></script>
+<script src="js/app.js?v=2026-08-28-1538"></script>
 </body>
 </html>

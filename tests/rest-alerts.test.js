@@ -287,14 +287,22 @@ const app = load({
   // 403 coming back with it.
   {
     const requests = [];
+    // The real paintRestAlertsButton runs against this, rather than a counter stub: what the label
+    // SAYS is the thing Del reads off the screen, and a stub that counts calls proves nothing
+    // about it.
+    const button = { textContent: '', disabled: false };
     let permission6 = 'granted';
     let postStatus = 200;
     const toasts = [];
-    let painted6 = 0;
 
-    const mountEnable = (userAgent, platform, touch) => load({
+    // `standalone` is the whole platform signal now. It was a user-agent sniff for an hour on
+    // 28 Aug, and Del runs the PC copy inside DevTools device emulation — which spoofs the UA to
+    // an iPhone, so the same browser gave two different answers depending on whether the toolbar
+    // was open. navigator.standalone is Safari-only, true only in an installed iOS PWA, and
+    // DevTools does not fake it.
+    const mountEnable = (standalone) => load({
       functions: ['enableRestAlerts', 'pushSupported', 'urlB64ToUint8Array', 'b64FromBuffer',
-                  'restAlertsDeviceAccount'],
+                  'restAlertsDeviceAccount', 'paintRestAlertsButton', 'restAlertsOn'],
       decls: ['VAPID_PUBLIC_KEY', 'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'LAST_ACCOUNT_STORE'],
       deps: {
         atob: (b64) => Buffer.from(b64, 'base64').toString('binary'),
@@ -308,8 +316,11 @@ const app = load({
           setItem: (k, v) => { store[k] = String(v); },
           removeItem: (k) => { delete store[k]; },
         },
+        document: { getElementById: () => button },
         navigator: {
-          userAgent, platform, maxTouchPoints: touch,
+          standalone,
+          // The row carries a user agent; the app never reads it back for a decision.
+          userAgent: 'test-agent',
           serviceWorker: {
             ready: Promise.resolve({
               pushManager: {
@@ -326,11 +337,11 @@ const app = load({
           return { ok: method === 'POST' ? postStatus === 200 : true, status: method === 'POST' ? postStatus : 204 };
         },
         showToast: (msg, type) => toasts.push({ msg, type }),
-        paintRestAlertsButton: () => { painted6++; },
       },
     });
 
-    const iphone = mountEnable('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', 'iPhone', 5);
+    const iphone = mountEnable(true);    // D-LOG installed to the Home Screen, which is the only
+                                         // shape of iOS that can reach any of this
 
     for (const k of Object.keys(store)) delete store[k];
     store['dlog_last_account'] = 'ctrlaltdelboy25@gmail.com';   // Charlie, on Del's phone
@@ -349,7 +360,7 @@ const app = load({
       'and no merge-duplicates header, for the same reason');
     eq(store['dlog_rest_alerts'], '1', 'the flag goes on');
     eq(store['dlog_rest_alerts_owner'], 'ctrlaltdelboy25@gmail.com', 'stamped to the account that asked for it');
-    ok(painted6 > 0, 'and the button repaints');
+    eq(button.textContent, 'Rest alerts: on', 'and the button says so without waiting for a reload');
 
     // A failed insert must not leave the app claiming alerts are on — that is the July cardio bug,
     // where a write 400'd and the toast said success.
@@ -370,12 +381,24 @@ const app = load({
     await iphone.enableRestAlerts();
     ok(/iPhone Settings/.test(toasts[0].msg), 'on an iPhone it names iPhone Settings — iOS asks once, ever');
 
-    const desktop = mountEnable('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128', 'Win32', 0);
+    const desktop = mountEnable(undefined);   // any browser that is not an installed iOS PWA
     toasts.length = 0;
     await desktop.enableRestAlerts();
     ok(!/iPhone/.test(toasts[0].msg), 'on a PC it does not send him to iPhone Settings');
     ok(/browser/.test(toasts[0].msg), 'it says the browser is blocking it, which is what actually happened');
+
+    // ── And the button must not call a blocked permission "off". ──
+    // "Rest alerts: off" reads as a switch that is down. Del tapped it on a PC where Chrome had
+    // notifications blocked for the site, got sent to iPhone Settings, and concluded the app was
+    // broken. Nothing the app does can turn that on, so the label has to say so.
+    button.textContent = '';
+    desktop.paintRestAlertsButton();
+    eq(button.textContent, 'Rest alerts: blocked', 'a blocked permission says blocked, not off');
+
     permission6 = 'granted';
+    for (const k of Object.keys(store)) delete store[k];
+    desktop.paintRestAlertsButton();
+    eq(button.textContent, 'Rest alerts: off', 'and a switch that really is down still says off');
   }
 
   console.log(`  ${pass} passed, ${fail} failed`);

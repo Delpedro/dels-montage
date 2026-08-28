@@ -4,6 +4,12 @@
      colours are the same four ideas as before, darkened enough to letter with on paper.
      --muted is still the dimmer of the two greys, which on a light ground means the
      LIGHTER one — don't "fix" that back. */
+  /* ── THE PROOF THIS FILE ARRIVED (28 Aug 2026) ─────────────────────────────────────────
+     index.html reads this one property back on load. If it is empty the stylesheet did not
+     apply — a 404 during a GitHub Pages tree swap, most likely — and the shell re-requests
+     the file rather than leaving Del looking at a column of unstyled text. Do not remove it,
+     and do not move it out of :root. */
+  --dlog-css: 1;
   --bg: #f4efe6; --bg2: #fdfaf4; --bg3: #fdfaf4;
   --border: #e2d9c9; --border2: #d2c6b1;
   --text: #231f1a; --muted: #8d8272; --muted2: #6a6053;

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1527';
+const APP_BUILD = '2026-08-28-1538';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -129,7 +129,44 @@ async function checkForUpdate(force = false) {
 // JS: white, unstyled text. It was also redundant. The service worker's own 'activate' already
 // deletes every cache whose name isn't the current build's, so the cleanup happens anyway — just in
 // the right order, after a working replacement exists rather than before.
+// True when the files a reload is about to ask for are actually being served. A 404, or an HTML
+// error page where CSS was asked for, both answer false.
+//
+// Deliberately NOT false on a network failure: offline and half-published are different problems,
+// and a reload with no network is harmless because the service worker has the shell cached. This
+// only ever blocks the case it is for.
+async function newBuildIsServable(build) {
+  const wanted = [['css/style.css', 'css'], ['js/app.js', 'javascript']];
+  try {
+    const results = await Promise.all(wanted.map(([file]) =>
+      netFetch(`${file}?v=${encodeURIComponent(build)}`, { cache: 'reload' }).catch(() => null)));
+    return results.every((res, i) => {
+      if (!res) return true;                        // could not ask — that is offline, not half-published
+      if (!res.ok) return false;                    // the file is not up yet
+      const type = (res.headers.get('content-type') || '').toLowerCase();
+      return !type || type.includes(wanted[i][1]);  // HTML where CSS was asked for is the error page
+    });
+  } catch (e) {
+    return true;                                    // this check must never be what stops an update
+  }
+}
+
 async function applyUpdate() {
+  // ── DO NOT RELOAD INTO A HALF-PUBLISHED TREE (28 Aug 2026) ───────────────────────────────────
+  // version.json is one file in a tree that GitHub Pages swaps a piece at a time, and the reload
+  // below is the likeliest moment in the app's life to land in the seconds while the rest of it is
+  // still going up. That is how Del got a page of unstyled serif text at 15:29 on 28 Aug, a minute
+  // after a push: index.html arrived, `css/style.css?v=<new>` did not, and the app rendered bare.
+  // Three pushes inside half an hour is three chances at that window.
+  //
+  // So ask for the two files this reload exists to load, at the exact URLs the new index.html will
+  // request. Anything short of both being served and the reload does not happen: the app stays on
+  // the build it is running, which works, and the next poll tries again a minute later.
+  if (serverBuild && !(await newBuildIsServable(serverBuild))) {
+    showUpdateBanner();
+    showToast('The new version is still publishing — try again in a minute');
+    return;
+  }
   // Wait for any token refresh to land before tearing the page down. Supabase rotates the refresh
   // token on every use: the server marks the old one spent and hands back a new one, and only
   // storeSession() writing that response to localStorage makes the new one ours. Reload in the
@@ -3233,6 +3270,18 @@ function getGreeting() {
 // ─── LANDING PAGE ─────────────────────────────────────────
 async function loadHomePage() {
   document.getElementById('landing-greeting').textContent = getGreeting();
+
+  // ── THE REST-ALERTS LABEL IS PAINTED HERE, ABOVE EVERY AWAIT IN THIS FUNCTION ────────────────
+  // It used to sit below the quote fetch, so the button kept the markup's own text until a network
+  // round trip came back — and the markup shipped the words "Rest alerts: off". Every load of every
+  // account therefore showed OFF first and corrected itself a moment later, which is the flash Del
+  // saw on every re-login and reported three times. The markup carries no state now, and this reads
+  // localStorage and Notification.permission only, so there is nothing to wait for.
+  //
+  // The claim runs first because it is local and synchronous: an unstamped flag has to become this
+  // account's before the label is drawn from it, or the same flash comes back for one launch.
+  claimRestAlertsFlag(restAlertsDeviceAccount());
+  paintRestAlertsButton();
   document.getElementById('landing-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   try {
@@ -3251,18 +3300,6 @@ async function loadHomePage() {
 
   const buildTag = document.getElementById('build-tag');
   if (buildTag) buildTag.textContent = `build ${APP_BUILD}`;
-
-  // ── CLAIM BEFORE THE FIRST PAINT, NOT A FRAME AFTER IT (28 Aug 2026) ─────────────────────────
-  // reconcileRestAlerts() below makes this same claim, but it is async and lands AFTER the button
-  // has already been painted from the unclaimed flag: the label rendered "Rest alerts: off" and
-  // flipped to "on" a beat later, on every launch until the stamp was written. Del watched it do
-  // exactly that. The claim is local and synchronous, so it belongs above the paint, not below it.
-  claimRestAlertsFlag(restAlertsDeviceAccount());
-
-  // Reads localStorage and Notification.permission only — no network, so the label is honest even
-  // on gym Wi-Fi that can't reach Supabase, and it corrects itself if permission was revoked in
-  // iPhone Settings since the last visit.
-  paintRestAlertsButton();
 
   // Then ask the server whether the label it just painted is out of date — un-awaited, and the only
   // thing that gets an already-wiped phone alerting again. See reconcileRestAlerts().
@@ -9104,10 +9141,18 @@ async function enableRestAlerts() {
     // on a laptop, and it reads as the app being broken rather than as the browser having said no.
     // iOS is the only platform with the one-prompt-ever rule, so it is the only one that earns the
     // specific instruction; everywhere else the block is per-site and lives in the browser.
-    const onIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    showToast(onIOS ? 'Notifications are off — turn them on in iPhone Settings › D-LOG'
-                    : 'Notifications are blocked for this site — allow them in your browser', 'error');
+    // ── navigator.standalone, NOT the user agent (28 Aug 2026) ───────────────────────────────────
+    // This was a UA sniff for about an hour, and Del runs D-LOG on the PC inside DevTools device
+    // emulation — which spoofs the user agent to an iPhone. So the same browser sent him to iPhone
+    // Settings on one account and to his browser settings on the other, purely by whether the
+    // toolbar happened to be open, and it looked like the app behaving differently per account.
+    // navigator.standalone is Safari-only, true only in an installed iOS PWA, and DevTools does not
+    // fake it — which is exactly the case that needs the iOS wording, since iOS is the only platform
+    // that asks once ever and hides the way back in system Settings. An iPhone that is NOT installed
+    // never reaches this line: pushSupported() is false without PushManager.
+    const iosPWA = navigator.standalone === true;
+    showToast(iosPWA ? 'Notifications are off — turn them on in iPhone Settings › D-LOG'
+                     : 'Notifications are blocked for D-LOG — allow them in your browser settings', 'error');
     return false;
   }
 
@@ -9191,11 +9236,11 @@ async function reconcileRestAlerts() {
     // account is the one signed in now belongs to that account. Nothing else can have written it,
     // because a switch stamps the outgoing account on the way past.
     //
-    // Home now claims BEFORE its first paint, so on that path this call is already a no-op and the
-    // repaint below never fires — which is the point: no visible off-to-on flip. It stays here for
-    // every other entry point into this function, and because the claim has to happen whether or not
-    // the rescue underneath can run. That matters — the desktop browser has no push_subscriptions
-    // row at all, so the rescue returns at `if (!sub)` and would leave the flag orphaned.
+    // Home claims above its own first paint, so on that path this is already a no-op and the repaint
+    // below never fires — which is the point: nothing visible ever flips. It stays here because the
+    // claim has to happen whether or not the rescue underneath can run. That matters — the desktop
+    // browser has no push_subscriptions row at all, so the rescue returns at `if (!sub)` and would
+    // leave the flag orphaned.
     claimRestAlertsFlag(device);
     if (restAlertsOn()) { paintRestAlertsButton(); return; }
     const reg = await navigator.serviceWorker.getRegistration();
@@ -9246,6 +9291,12 @@ function paintRestAlertsButton() {
     btn.disabled = true;
     return;
   }
+  // ── BLOCKED IS NOT "OFF" (28 Aug 2026) ───────────────────────────────────────────────────────
+  // "Rest alerts: off" reads as a switch that is down, so Del tapped it on the PC, was told to go to
+  // iPhone Settings, and reasonably concluded the app was broken. Chrome had notifications blocked
+  // for the site: nothing the app can do turns them on, and the button has to say that rather than
+  // offering a switch it cannot throw. Still tappable — the tap is what explains where to go.
+  if (Notification.permission === 'denied') { btn.textContent = 'Rest alerts: blocked'; return; }
   btn.textContent = restAlertsOn() ? 'Rest alerts: on' : 'Rest alerts: off';
 }
 
