@@ -203,8 +203,11 @@ console.log('Last Time card carries rest');
   // Rewritten 15 Aug 2026 for PostgREST embedding — the column list moved from a standalone
   // `workout_sets?select=…` into `workout_sets(…)` nested in the workouts query. The claim is
   // unchanged and still the one worth pinning: the snapshot has to ask for rest_seconds.
-  ok(SRC.includes('workout_sets(exercise,set_number,weight,reps,variation,rest_seconds)'),
-    'fetchLastSessionSnapshot actually asks the database for rest_seconds — the card cannot show what it never fetched');
+  // superset_group joined it on 28 Aug (C3) for the same reason: the card cannot mark a pair it
+  // never fetched. Both columns are named here on purpose — a tidy-up of this select that drops
+  // either one empties a line of the card in silence.
+  ok(SRC.includes('workout_sets(exercise,set_number,weight,reps,variation,rest_seconds,superset_group)'),
+    'fetchLastSessionSnapshot actually asks the database for rest_seconds and superset_group — the card cannot show what it never fetched');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

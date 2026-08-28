@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1648';
+const APP_BUILD = '2026-08-28-1657';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5530,7 +5530,7 @@ async function fetchLastSessionSnapshot(session) {
   // with its own test file (ghost-workout-row.test.js); this function's job is only to answer "what
   // did I actually do last time", and a row with no sets and no cardio is not an answer to that.
   const last = await sb(`workouts?session_type=eq.${session.id}&completed_at=not.is.null&order=date.desc&limit=8`
-    + `&select=id,date,workout_sets(exercise,set_number,weight,reps,variation,rest_seconds),cardio_logs(activity,duration_mins,distance,floors,incline,speed_kmh)`
+    + `&select=id,date,workout_sets(exercise,set_number,weight,reps,variation,rest_seconds,superset_group),cardio_logs(activity,duration_mins,distance,floors,incline,speed_kmh)`
     + `&workout_sets.order=set_number.asc`);
   const candidates = (last || []).filter(w =>
     w.id !== currentWorkoutId && ((w.workout_sets || []).length || (w.cardio_logs || []).length));
@@ -5571,12 +5571,26 @@ function renderLastTimeCard(snapshot, session, opts = {}) {
     const txt = lastTimeRestLabel(sets);
     return txt ? `<div class="last-time-rest">${esc(txt)}</div>` : '';
   };
+  // C3, 28 Aug 2026. This card is a full snapshot of the session and it was the one place a superset
+  // disappeared: two lifts you ran as a pair printed as two unrelated rows, so "how did Lower B go
+  // last time" answered without the half of it that decides how the morning actually felt.
+  //
+  // `.pf-ss` is NOT a new control — the History card and the Session Template Editor both already
+  // print the pairing as `s/s <tag>` in that exact class, and blue already means superset app-wide.
+  // A third spelling of the same idea would be the thing to avoid here, not the reuse.
+  //
+  // The tag is read off the first set that carries one, not off sets[0]: superset_group is written
+  // per set, and a pairing toggled on mid-exercise leaves set 1 null with the rest tagged.
+  const ssTag = sets => {
+    const g = (sets || []).find(x => x.superset_group)?.superset_group;
+    return g ? ` <span class="pf-ss">s/s ${esc(g)}</span>` : '';
+  };
   let rows = session.exercises.map(ex => {
     const sets = snapshot.exercises[ex.name] || (ex.aliases || []).flatMap(a => snapshot.exercises[a] || []);
     if (!sets.length) return '';
     const variationTag = sets[0].variation ? ` <span class="last-time-var">(${esc(sets[0].variation)})</span>` : '';
     const setsStr = sets.map(s => setValueLabel(ex, s)).join(', ');
-    return `<div class="last-time-row"><span class="last-time-ex">${esc(ex.name)}${variationTag}</span><span class="last-time-sets">${esc(setsStr)}${restSpan(sets)}</span></div>`;
+    return `<div class="last-time-row"><span class="last-time-ex">${esc(ex.name)}${variationTag}${ssTag(sets)}</span><span class="last-time-sets">${esc(setsStr)}${restSpan(sets)}</span></div>`;
   }).join('');
   // Exercises the template no longer contains (a one-off swap last time) would otherwise vanish
   // from the card entirely — list them after the template's own, so nothing logged goes unshown.
@@ -5585,7 +5599,7 @@ function renderLastTimeCard(snapshot, session, opts = {}) {
     const sets = snapshot.exercises[name];
     const variationTag = sets[0].variation ? ` <span class="last-time-var">(${esc(sets[0].variation)})</span>` : '';
     const setsStr = sets.map(s => setValueLabel({ name }, s)).join(', ');
-    rows += `<div class="last-time-row"><span class="last-time-ex">${esc(name)}${variationTag}</span><span class="last-time-sets">${esc(setsStr)}${restSpan(sets)}</span></div>`;
+    rows += `<div class="last-time-row"><span class="last-time-ex">${esc(name)}${variationTag}${ssTag(sets)}</span><span class="last-time-sets">${esc(setsStr)}${restSpan(sets)}</span></div>`;
   });
   (snapshot.cardio || []).forEach(c => {
     const detail = cardioDetailParts(c).join(', ') || '—';
@@ -9116,8 +9130,19 @@ async function openEditWorkout(workoutId, sessionType, notes) {
       const currentVariation = exSets[0]?.variation || (ex.variations ? ex.variations[0] : null);
       if (currentVariation) editSelectedVariations[ex.name] = currentVariation;
 
-      html += `<div class="exercise-block" style="margin-bottom:0.75rem;">
-        <div class="ex-name-display" style="margin-bottom:8px;">${esc(ex.name)}</div>`;
+      // C3, 28 Aug 2026. Same omission as the Last time card: the modal that exists to correct a
+      // session drew every lift as a solo one, so the pairing was invisible on the screen where you
+      // are most likely to be reconstructing what you did from memory.
+      //
+      // Two sources on purpose. A workout WITH sets is described by its own rows and nothing else —
+      // the template may have been re-paired since (see editFormSession's warning above). A workout
+      // with NO sets is already being drawn from the template by design, so its `supersetGroup` is
+      // the only record of the pairing there is, and it is the honest one for that case.
+      const ssGroup = exSets.find(x => x.superset_group)?.superset_group
+        || (exSets.length ? null : ex.supersetGroup) || null;
+
+      html += `<div class="exercise-block${ssGroup ? ' in-superset' : ''}" style="margin-bottom:0.75rem;">
+        <div class="ex-name-display" style="margin-bottom:8px;">${esc(ex.name)}${ssGroup ? ` <span class="pf-ss">s/s ${esc(ssGroup)}</span>` : ''}</div>`;
 
       if (ex.variations) {
         const defaultVar = currentVariation || ex.variations[0];

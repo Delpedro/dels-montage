@@ -97,6 +97,68 @@ async function main() {
     ok(!html.includes('No sets were logged'), 'the empty-state line is not shown when there is a template');
   }
 
+  // ── C3 (28 Aug 2026): the modal shows which lifts were run as a pair ────────────────────────
+  //
+  // Not part of C4, but it is this modal and this function. Two sources, and which one is right
+  // depends on whether there are sets — see the comment on ssGroup in openEditWorkout().
+  {
+    const h = harness({
+      row: {
+        id: 'w5',
+        cardio_logs: [],
+        workout_sets: [
+          { exercise: 'Smith Incline Press', set_number: 1, weight: '60', reps: '10' },
+          { exercise: 'Smith Incline Press', set_number: 2, weight: '60', reps: '9', superset_group: '2' },
+          { exercise: 'Lat Pulldown', set_number: 1, weight: '50', reps: '12', superset_group: '2' },
+        ],
+      },
+    });
+    h.app.setSessions([UPPER_A]);
+
+    await h.app.openEditWorkout('w5', 'upper-a', '');
+    const html = h.form();
+
+    eq((html.match(/class="pf-ss"/g) || []).length, 2, 'both lifts of the pair are marked');
+    ok(html.includes('s/s 2'), 'with the tag the workout actually recorded, not a re-numbered one');
+    eq((html.match(/exercise-block in-superset/g) || []).length, 2,
+      'and each block takes the logger own blue edge, so the pairing reads without being read');
+  }
+
+  // A workout with NO sets is drawn from the template by design, so the template pairing is the
+  // only record of it there is — and the only honest thing to show.
+  {
+    const h = harness({ row: { id: 'w6', cardio_logs: [], workout_sets: [] } });
+    h.app.setSessions([{
+      ...UPPER_A,
+      exercises: [
+        { ...UPPER_A.exercises[0], supersetGroup: '1' },
+        { ...UPPER_A.exercises[1], supersetGroup: '1' },
+      ],
+    }]);
+
+    await h.app.openEditWorkout('w6', 'upper-a', 'backfilled');
+    eq((h.form().match(/class="pf-ss"/g) || []).length, 2,
+      'a backfill form shows the template pairing');
+  }
+
+  // ⚠️ And the direction that must NOT reverse: a workout WITH sets is described by its own rows.
+  // The template can be re-paired after the fact, exactly as it can be reordered and resized.
+  {
+    const h = harness({
+      row: { id: 'w7', cardio_logs: [],
+             workout_sets: [{ exercise: 'Smith Incline Press', set_number: 1, weight: '60', reps: '10' }] },
+    });
+    h.app.setSessions([{
+      ...UPPER_A,
+      exercises: [{ ...UPPER_A.exercises[0], supersetGroup: '9' },
+                  { ...UPPER_A.exercises[1], supersetGroup: '9' }],
+    }]);
+
+    await h.app.openEditWorkout('w7', 'upper-a', '');
+    ok(!h.form().includes('pf-ss'),
+      'a pairing added to the template SINCE cannot appear on a session that was logged solo');
+  }
+
   // ── The rule it must NOT relax: a workout that logged sets ignores the template ──────────────
   {
     const h = harness({

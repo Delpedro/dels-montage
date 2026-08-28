@@ -66,8 +66,21 @@ function eq(actual, expected, label) {
 function sortKeys(o) {
   return Object.fromEntries(Object.keys(o || {}).sort().map(k => [k, o[k]]));
 }
+// C3 (28 Aug 2026) added superset_group to the snapshot's select so the Last time card can mark a
+// pair. The baseline CANNOT be re-captured with it: it is captured from the pre-embedding ref, which
+// never asked for the column, so re-running the capture script reproduces the old shape exactly.
+// The ADDED key is stripped and nothing else is — every other field, and every array order, is still
+// compared exactly, so this stays a test of "same data" rather than becoming a test of "some data".
+// ⚠️ Delete this the day the baseline is re-captured against a ref that has the column.
+const stripAddedKeys = r => ({
+  ...r,
+  exercises: Object.fromEntries(Object.entries(r.exercises || {})
+    .map(([name, sets]) => [name, sets.map(({ superset_group, ...rest }) => rest)])),
+});
 const NORMALISE = {
   loadHistory: r => ({ ...r, setsByWorkout: sortKeys(r.setsByWorkout), cardioByWorkout: sortKeys(r.cardioByWorkout) }),
+  'fetchLastSessionSnapshot: sets only': stripAddedKeys,
+  'fetchLastSessionSnapshot: skips an abandoned session': stripAddedKeys,
 };
 const normalise = (name, r) => (NORMALISE[name] && r ? NORMALISE[name](r) : r);
 

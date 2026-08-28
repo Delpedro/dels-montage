@@ -201,6 +201,32 @@ console.log('Open Workout — last session, and one tap to repeat it');
   ok(logger.includes("if (session.id !== 'open') {"),
     'only the ✎ template link is — an Open Workout has no template to reorder');
 
+  // ── §4 C3: a superset has to survive into the card (28 Aug 2026) ─────────────────────────────
+  //
+  // The card is a full snapshot of the session, and a pair run back-to-back printed as two unrelated
+  // rows. The tag is the History card's own `.pf-ss`, not a new mark — see the comment on ssTag().
+  {
+    const paired = {
+      date: '2026-08-26',
+      exercises: {
+        // set 1 deliberately carries no tag: superset_group is written per set, and a pairing
+        // toggled on after the first set leaves exactly this shape. Reading sets[0] blind loses it.
+        'Bench Press': [{ weight: 60, reps: 8 }, { weight: 60, reps: 8, superset_group: '1' }],
+        'Cable Row':   [{ weight: 45, reps: 10, superset_group: '1' }],
+        'Leg Curl':    [{ weight: 30, reps: 12 }],
+      },
+      cardio: [],
+    };
+    const html = card({}, paired);
+    eq((html.match(/class="pf-ss"/g) || []).length, 2,
+      'both halves of the pair are tagged, and only them — the solo lift is left plain');
+    ok(html.includes('s/s 1'), 'and it reads the way History and the template editor already say it');
+    ok(html.includes('Leg Curl'), 'a lift outside any superset still appears');
+    ok(!/Leg Curl<[^>]*><span class="pf-ss"/.test(html), 'with nothing beside its name');
+    ok(!card({}, SNAPSHOT).includes('pf-ss'),
+      'a session with no supersets in it gains no marks at all');
+  }
+
   console.log(`  ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 })();

@@ -444,6 +444,12 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
   gap: 10px;
   margin-bottom: 4px;
 }
+/* E2 leftover, 28 Aug 2026. Del on the meta row: the ✕ and the timer button "look clipped against
+   the card edge". The block's 0.875rem padding is measured for TEXT, and the same measurement reads
+   tighter around a 34px circle than it does beside a letter — a circle touches its bounding box at
+   one point and the eye reads that point as the edge. The pair gets its own gap on top of the
+   block's, so the controls sit off the edge rather than on it. */
+.ex-name-row { padding-right: 5px; }
 
 .ex-watch {
   position: relative;
@@ -1057,7 +1063,11 @@ mark.hl.on { background: var(--accent); color: #fff; }
 .ss-btn { display: block; width: 100%; margin-top: 6px; padding: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); background: none; border: 1px dashed var(--border2); border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
 .ss-btn.active { color: var(--blue); border-style: solid; border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, transparent); }
 /* Linked blocks share a blue rail, so a superset reads as one unit once they've snapped together */
-.exercise-block.in-superset { border-left: 2px solid var(--blue); }
+/* The blue edge is drawn INSIDE the block's own width, so the 2px has to come off the padding it
+   sits on — without this every child of a paired block walks 2px right and the two round controls
+   at the end of the header lose a seventh of the gap they have, on exactly the blocks that are
+   already carrying an extra mark. Same 28 Aug fix as .ex-name-row above. */
+.exercise-block.in-superset { border-left: 2px solid var(--blue); padding-left: calc(0.875rem - 2px); }
 
 /* Picker — inline under the ⇄ button, one open at a time. Rows are full-width tap targets: this gets
    used mid-set with a phone in one hand, so nothing here is smaller than a thumb. */
