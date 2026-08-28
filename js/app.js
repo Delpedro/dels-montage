@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1325';
+const APP_BUILD = '2026-08-28-1358';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -2182,6 +2182,10 @@ let accountHasWorkouts = null;
 // Reconciles the two stores on app open. Runs after the first paint, so a slow or dead network only
 // ever delays the cross-device half — the localStorage value has already rendered.
 async function syncBackupState() {
+  // Nobody but Del ever sees the nudge, so for every other account these two reads are pure cost on
+  // every app open — on a gym connection, in front of Home. The repaint still runs, so an element
+  // left holding a line from a previous session is cleared rather than left standing. E17.
+  if (!isAdmin()) { renderBackupPrompt(); return; }
   // Together rather than one after the other: both are single-row reads on every app open, sometimes
   // on a gym connection.
   const [rows, anyWorkout] = await Promise.all([
@@ -2214,6 +2218,10 @@ async function syncBackupState() {
 function renderBackupPrompt() {
   const el = document.getElementById('backup-nudge');
   if (!el) return;
+  // Not Del's account: this reminder is about HIS hosting, not their data. See isAdmin() — E17.
+  // First gate, ahead of the workouts one, because it is the one that has to hold for an account
+  // that HAS trained — a year of somebody else's history is exactly when the old code spoke up.
+  if (!isAdmin()) { el.textContent = ''; el.style.display = 'none'; return; }
   // Nothing logged, or not yet known: say nothing. See accountHasWorkouts.
   if (!accountHasWorkouts) { el.textContent = ''; el.style.display = 'none'; return; }
   const text = backupPromptText(lastBackupAt());
@@ -2290,7 +2298,7 @@ async function autoCloseStaleWorkouts() {
 // A MISSING ROW IS NOT AN ERROR. It means an account nobody has onboarded yet, which is exactly
 // what the onboarding form keys off. So everything here has to read as blank rather than broken:
 // no name in the greeting, no toast, no console noise.
-let PROFILE = { display_name: null, onboarded_at: null };
+let PROFILE = { display_name: null, onboarded_at: null, is_admin: false };
 
 async function loadProfile() {
   // No ?user_id=eq.… filter: RLS scopes the table to the caller, and the primary key means there
@@ -2299,6 +2307,34 @@ async function loadProfile() {
   const rows = await sb('profiles?select=*&limit=1');
   if (!rows || !rows[0]) return;   // not onboarded — the greeting drops the name, see getGreeting()
   PROFILE = rows[0];
+}
+
+// ─── WHO IS THE OWNER OF THIS APP (E17, 28 Aug 2026) ──────
+// Del, on a screenshot of the second account's Home: "backups for normal users - NO !!".
+//
+// Exactly one thing reads this today: the backup reminder. That line exists because Del's history
+// lives in a single free-tier database with no automated backups and tools/backup.js only runs
+// while his PC is awake — his hosting decision, about his data. On somebody else's Home the same
+// sentence reads as the app admitting it might lose their training, which is not a thing a paid
+// app says to the person paying for it.
+//
+// THE FLAG IS THE SERVER'S, NOT THIS FILE'S. profiles.is_admin (migration 20260828140000) is
+// pinned by a BEFORE INSERT OR UPDATE trigger, so an account cannot PATCH its own row true. That
+// trigger is the whole feature — without it the column is decoration and this function is a
+// suggestion. A hardcoded `authSession.id === '10575e31…'` here would have been one line, and one
+// devtools edit to defeat.
+//
+// FALSE IS THE SAFE DEFAULT, AND EVERY PATH LANDS ON IT: PROFILE starts false, loadProfile()
+// returns early on a failed read rather than blanking the object (see the 25 Aug note above it),
+// and an account with no profile row never gets past that early return at all. So the failure mode
+// is Del losing his own reminder on a bad connection — recoverable, and the harmless direction.
+// The other one shows a stranger a warning about a database they have never heard of.
+//
+// ⛔ "Export my data" IS NOT GATED AND MUST NOT BE. Getting your own training history out is EU
+// data portability — GDPR Article 20, and Del is in Ireland. The NAG is Del's alone; the export
+// belongs to whoever's data it is.
+function isAdmin() {
+  return PROFILE.is_admin === true;
 }
 
 // ─── ONBOARDING ───────────────────────────────────────────

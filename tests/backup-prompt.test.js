@@ -125,7 +125,7 @@ const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
 
   // Builds a fresh extraction with its own fake storage and a scripted sb(). Returns the calls made
   // so the test can assert on what went over the wire, not just on what ended up in storage.
-  function harness({ stored = null, get = [], writeOk = true }) {
+  function harness({ stored = null, get = [], writeOk = true, admin = true }) {
     const store = new Map();
     if (stored) store.set('dlog_last_backup', stored);
     const calls = [];
@@ -143,11 +143,18 @@ const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
     };
     const api = load({
       functions: ['laterIso', 'readLocalBackup', 'writeLocalBackup', 'lastBackupAt',
-                  'markBackupDone', 'pushBackupTimestamp', 'syncBackupState'],
-      decls: ['BACKUP_STORE', 'remoteLastBackup'],
+                  'markBackupDone', 'pushBackupTimestamp', 'syncBackupState', 'isAdmin'],
+      decls: ['BACKUP_STORE', 'remoteLastBackup', 'PROFILE'],
       deps,
-      accessors: { remote: '() => remoteLastBackup' },
+      accessors: {
+        remote: '() => remoteLastBackup',
+        setAdmin: '(v) => { PROFILE = { ...PROFILE, is_admin: v }; }',
+      },
     });
+    // Every case below is about Del's own device — the account the reminder is FOR. E17 gates the
+    // whole reconcile on that, so without this line the suite would pass by never reaching a single
+    // line of the code it is meant to be testing.
+    api.setAdmin(admin);
     return { ...api, calls, local: () => store.get('dlog_last_backup') ?? null };
   }
 
@@ -206,6 +213,16 @@ const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
     eq(h.lastBackupAt(), null, 'and still reports no backup, which is the truth');
   }
 
+  // E17. Somebody else's account: not only is the nudge not drawn, the two reads that feed it are
+  // never made. That is a round trip each, on every app open, in front of Home — and app_meta is
+  // Del's backup clock, which is nothing to do with them.
+  {
+    const h = harness({ stored: null, get: [{ last_backup_at: PHONE }], admin: false });
+    await h.syncBackupState();
+    eq(h.calls.length, 0, 'a non-admin account makes no backup reads at all on app open');
+    eq(h.lastBackupAt(), null, 'and never learns anything about Del backup date');
+  }
+
   // Offline: the GET returns [] and the POST fails, and the reminder must survive on local alone.
   {
     const h = harness({ stored: PHONE, get: [], writeOk: false });
@@ -233,15 +250,19 @@ const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
 (() => {
   const el = { textContent: 'x', style: { display: 'flex' } };
   const app = load({
-    functions: ['renderBackupPrompt', 'backupPromptText', 'daysSince', 'lastBackupAt', 'readLocalBackup', 'laterIso'],
-    decls: ['BACKUP_STALE_DAYS', 'BACKUP_STORE', 'accountHasWorkouts', 'remoteLastBackup'],
+    functions: ['renderBackupPrompt', 'backupPromptText', 'daysSince', 'lastBackupAt', 'readLocalBackup', 'laterIso', 'isAdmin'],
+    decls: ['BACKUP_STALE_DAYS', 'BACKUP_STORE', 'accountHasWorkouts', 'remoteLastBackup', 'PROFILE'],
     deps: {
       document: { getElementById: () => el },
       localStorage: { getItem: () => null, setItem() {} },
     },
-    accessors: { setHasWorkouts: '(v) => { accountHasWorkouts = v; }' },
+    accessors: {
+      setHasWorkouts: '(v) => { accountHasWorkouts = v; }',
+      setAdmin: '(v) => { PROFILE = { ...PROFILE, is_admin: v }; }',
+    },
   });
 
+  app.setAdmin(true);
   app.setHasWorkouts(null);
   app.renderBackupPrompt();
   eq(el.style.display, 'none', 'before the account has been asked about, the nudge stays hidden');
@@ -255,6 +276,61 @@ const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
   app.renderBackupPrompt();
   eq(el.style.display, 'flex', 'once there is training to lose, the never-backed-up nudge returns');
   ok(/no backup yet/i.test(el.textContent), 'saying so in the words the pure function chose');
+
+  // -- E17, 28 Aug 2026: "backups for normal users - NO !!" --
+  // The gate that matters is this one. An account with a real history is exactly the state the
+  // workouts gate above lets THROUGH, and it is where Del saw the line on the second account.
+  app.setAdmin(false);
+  app.renderBackupPrompt();
+  eq(el.style.display, 'none', 'an account that is not Del is never shown the backup reminder');
+  eq(el.textContent, '', 'and the line is emptied, not left holding the last thing it said');
+
+  // PROFILE's shipped default, untouched. A failed read, an account with no profile row, and a row
+  // written before the migration all arrive here — all three must read as NOT admin.
+  app.setAdmin(undefined);
+  app.renderBackupPrompt();
+  eq(el.style.display, 'none', 'a missing is_admin is not admin: false is where every failure path lands');
+  app.setAdmin('true');
+  app.renderBackupPrompt();
+  eq(el.style.display, 'none', 'and neither is the string "true" — the check is ===, not truthiness');
+
+  app.setAdmin(true);
+  app.renderBackupPrompt();
+  eq(el.style.display, 'flex', 'Del still gets his own reminder, which is the half of this that is not a bug');
+})();
+
+// -- E17: the two things that would quietly undo it ------------------------------------------
+// Both are one deletion away, and neither would fail an assertion anywhere else in the suite.
+(() => {
+  const fs = require('fs');
+  const path = require('path');
+  const root = path.join(__dirname, '..');
+
+  // 1. THE EXPORT IS NOT THE NAG. Getting your own training history out of an app is EU data
+  // portability (GDPR Article 20, and Del is in Ireland). Hiding 'Export my data' along with the
+  // reminder is the one move in this item that would be unlawful rather than merely wrong.
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  ok(/id="export-btn"/.test(html), 'the export button is still on the account screen for everyone');
+  const app = fs.readFileSync(path.join(root, 'js', 'app.js'), 'utf8');
+  const start = app.indexOf('async function exportAllData(');
+  ok(start > 0, 'exportAllData() is still there to check');
+  ok(!/isAdmin()/.test(app.slice(start, start + 4000)),
+    'and it does NOT ask whether you are the admin before handing over your own data');
+
+  // 2. THE FLAG IS ONLY REAL BECAUSE THE DATABASE PINS IT. The profiles policy is owner-only
+  // `for all`, so the owner may write every column of their own row — without this trigger any
+  // account can PATCH itself is_admin: true and the gate above is a suggestion. INSERT matters as
+  // much as UPDATE, because onboarding creates the row with a POST and could carry it in the body.
+  const mig = fs.readFileSync(
+    path.join(root, 'supabase', 'migrations', '20260828140000_profiles_is_admin.sql'), 'utf8');
+  ok(/before insert or update on public.profiles/i.test(mig),
+    'the guard trigger fires on INSERT as well as UPDATE');
+  ok(/new.is_admin := old.is_admin/.test(mig), 'an UPDATE keeps whatever flag the row already had');
+  ok(/new.is_admin := false/.test(mig), 'and an INSERT cannot arrive carrying one');
+  ok(/is_admin boolean not null default false/i.test(mig),
+    'the column defaults to not-admin, so no existing row was silently promoted');
+  ok(/notify pgrst/.test(mig),
+    'and the schema cache is reloaded, or select=* never returns the column at all');
 })();
 
 process.on('exit', () => {
