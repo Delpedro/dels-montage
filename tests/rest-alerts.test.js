@@ -26,7 +26,7 @@ const store = {};
 
 const app = load({
   functions: ['urlB64ToUint8Array', 'restAlertsOn', 'pushSupported'],
-  decls: ['VAPID_PUBLIC_KEY', 'REST_ALERTS_STORE'],
+  decls: ['VAPID_PUBLIC_KEY', 'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'LAST_ACCOUNT_STORE'],
   deps: {
     atob: (b64) => Buffer.from(b64, 'base64').toString('binary'),
     navigator: { serviceWorker: {} },
@@ -44,6 +44,8 @@ const app = load({
   accessors: {
     vapid: '() => VAPID_PUBLIC_KEY',
     storeKey: '() => REST_ALERTS_STORE',
+    ownerKey: '() => REST_ALERTS_OWNER_STORE',
+    accountKey: '() => LAST_ACCOUNT_STORE',
   },
 });
 
@@ -66,6 +68,8 @@ const app = load({
 {
   permission = 'granted';
   store[app.storeKey()] = '1';
+  store[app.accountKey()] = 'del@example.com';
+  store[app.ownerKey()] = 'del@example.com';
   eq(app.restAlertsOn(), true, 'on when permission is granted and the switch is on');
 
   permission = 'denied';
@@ -82,6 +86,39 @@ const app = load({
 
   delete store[app.storeKey()];
   eq(app.restAlertsOn(), false, 'off by default — nothing is booked until it is asked for');
+}
+
+// ── 3. the third half, added 28 Aug 2026: WHOSE switch it is ───────────────────────────
+// The flag used to be wiped whenever the account on the device changed, and that wipe is what cost
+// Del his 28 August session — a test account signed in and out the evening before, and every rest
+// the next morning returned on scheduleRestAlert()'s first line. The flag survives the switch now,
+// so the gate has to carry the isolation the wipe used to: the preference is only on for the
+// account that asked for it.
+{
+  permission = 'granted';
+  store[app.storeKey()] = '1';
+  store[app.ownerKey()] = 'del@example.com';
+
+  store[app.accountKey()] = 'del@example.com';
+  eq(app.restAlertsOn(), true, 'the account that switched alerts on still has them on');
+
+  // The 28 Aug trip, in one line: away to the test account and back again.
+  store[app.accountKey()] = 'tester@example.com';
+  eq(app.restAlertsOn(), false, "a second account on the same phone does NOT inherit the first's alerts");
+
+  store[app.accountKey()] = 'del@example.com';
+  eq(app.restAlertsOn(), true,
+    'and signing back in gets them back — the whole point: no wipe, so nothing to re-enable by hand');
+
+  // An owner stamp with nobody to match it against is not a reason to go silent.
+  delete store[app.ownerKey()];
+  store[app.accountKey()] = 'del@example.com';
+  eq(app.restAlertsOn(), false, 'a flag with no owner is not claimed by the account that happens to be here');
+
+  delete store[app.accountKey()];
+  eq(app.restAlertsOn(), true,
+    'but with no account recorded on the device at all, the flag alone stands — the failure being ' +
+    'fixed here is alerts silently OFF, so the fallback leans that way');
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

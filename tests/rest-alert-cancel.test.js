@@ -31,9 +31,10 @@ console.log('rest alerts — booking, cancelling, and the 24 Aug gym session');
 // `latency` is the point of the stub: both network calls advance a fake clock, because a stub that
 // resolves instantly cannot tell a deadline apart from a duration, and a gym connection is the case
 // the whole change is for.
-function mount(shared, { upsertOk = true } = {}) {
+function mount(shared, { upsertOk = true, push = true } = {}) {
   const closed = [];
   const logged = [];
+  const toasts = [];
   const notifications = [];
   const calls = { sb: [], push: [] };
   let clock = shared.clock;
@@ -46,14 +47,15 @@ function mount(shared, { upsertOk = true } = {}) {
   const mod = load({
     functions: [
       'restAlertsOn', 'pushSupported', 'restAlertToken', 'setRestAlertToken',
-      'clearRestNotifications', 'cancelRestAlert', 'scheduleRestAlert',
+      'clearRestNotifications', 'cancelRestAlert', 'scheduleRestAlert', 'warnRestAlertsOff',
     ],
-    decls: ['REST_ALERTS_STORE', 'REST_TOKEN_STORE'],
+    decls: ['REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'LAST_ACCOUNT_STORE', 'REST_TOKEN_STORE',
+            'restAlertsOffWarned'],
     deps: {
       Date: FakeDate,
       SUPABASE_URL: 'https://x.supabase.co',
       SUPABASE_KEY: 'anon',
-      window: { PushManager: function () {}, Notification: function () {} },
+      window: push ? { PushManager: function () {}, Notification: function () {} } : { Notification: function () {} },
       get Notification() { return { permission: 'granted' }; },
       localStorage: {
         getItem: (k) => (k in shared.store ? shared.store[k] : null),
@@ -75,6 +77,7 @@ function mount(shared, { upsertOk = true } = {}) {
       // The 25 Aug readout. Stubbed rather than extracted: it is temporary instrumentation, and what
       // these tests care about is that the silent paths now say something, not how it is written.
       logRestPhase: (phase, token, exercise, detail) => logged.push({ phase, token, exercise, detail }),
+      showToast: (msg, type) => toasts.push({ msg, type }),
       validAccessToken: async () => { clock += shared.latency; return 'jwt'; },
       netFetch: async (url, opts) => {
         calls.push.push({ url, body: JSON.parse(opts.body) });
@@ -85,12 +88,17 @@ function mount(shared, { upsertOk = true } = {}) {
   });
 
   notifications.push({ tag: 'rest-alert', close() { closed.push(this); } });
-  return { ...mod, calls, closed, logged };
+  return { ...mod, calls, closed, logged, toasts };
 }
 
 function freshShared(latency = 0) {
   const shared = { store: {}, clock: 1756000000000, latency };
   shared.store['dlog_rest_alerts'] = '1';   // REST_ALERTS_STORE — alerts switched on
+  // Whose switch it is. Since 28 Aug 2026 the flag alone is not enough: it survives an account
+  // switch rather than being wiped by one, so restAlertsOn() checks the stamp against the account
+  // this device belongs to. A rest booked in this file is booked by the person who asked for it.
+  shared.store['dlog_rest_alerts_owner'] = 'del@example.com';
+  shared.store['dlog_last_account'] = 'del@example.com';
   return shared;
 }
 
@@ -196,6 +204,54 @@ async function main() {
     await m.scheduleRestAlert('Cable Flys', 90);
     eq(m.calls.push.length, 0, 'alerts off books nothing');
     eq(m.restAlertToken(), null, 'and leaves no token behind');
+    // ── BUT IT HAS TO SAY SO (28 Aug 2026) ───────────────────────────────────────
+    // Booking nothing, quietly, is exactly what happened to Del for 24 sets. Silence here is only
+    // safe for the WATCH; for the person it reads identically to a rest that has not ended yet.
+    eq(m.toasts.length, 1, 'a rest that cannot alert says so');
+    ok(/Settings/.test(m.toasts[0].msg), 'and names where the switch is, not what went wrong');
+  }
+
+  // Once per app run, not once per rest — 24 of these in a session is its own bug.
+  {
+    const shared = freshShared();
+    delete shared.store['dlog_rest_alerts'];
+    const m = mount(shared);
+    await m.scheduleRestAlert('Cable Flys', 90);
+    await m.scheduleRestAlert('Cable Flys', 90);
+    await m.scheduleRestAlert('Lat Pulldown', 120);
+    eq(m.toasts.length, 1, 'three rests with alerts off, one toast');
+  }
+
+  // The switch being OFF is a state to report. A browser that cannot do push at all is not —
+  // there is nothing to turn on, so nagging about it every session would be noise.
+  {
+    const shared = freshShared();
+    delete shared.store['dlog_rest_alerts'];
+    const m = mount(shared, { push: false });
+    await m.scheduleRestAlert('Cable Flys', 90);
+    eq(m.toasts.length, 0, 'a browser with no push support is not nagged about a switch it lacks');
+  }
+
+  // ── THE 28 AUGUST SESSION, END TO END ────────────────────────────────────────
+  // Del signed into the test account at 18:34:16 on the 27th and back into his own 13 seconds later.
+  // Both switches ran claimDeviceForAccount(), which wiped dlog_rest_alerts, and the next morning
+  // every one of 24 rests returned on scheduleRestAlert()'s first line: no booking, no push, and no
+  // row in rest_alert_log either, because the early return is above the first log write. This is
+  // that trip — the flag has to still be there, and still be his, at the end of it.
+  {
+    const shared = freshShared();
+    shared.store['dlog_last_account'] = 'ctrlaltdelboy25@gmail.com';   // the test account signs in
+    shared.store['dlog_rest_alerts_owner'] = 'del@example.com';
+    const away = mount(shared);
+    await away.scheduleRestAlert('Hack Squat', 180);
+    eq(away.calls.push.length, 0, 'the test account books nothing off the preference it did not set');
+
+    shared.store['dlog_last_account'] = 'del@example.com';            // and 13 seconds later, back
+    const home = mount(shared);
+    await home.scheduleRestAlert('Hack Squat', 180);
+    eq(home.calls.push.length, 1,
+      'and the morning after, the first rest of the session books — this is the whole bug');
+    eq(home.toasts.length, 0, 'with nothing to warn him about');
   }
 
   // ── 4. "17+ notifications from my app — ha ha" ──────────────────────────

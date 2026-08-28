@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-27-1759';
+const APP_BUILD = '2026-08-28-1325';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -764,7 +764,9 @@ let refreshInFlight = null;  // dedupes concurrent refreshes — initApp fires m
 //   dlog_history_filters  B's History opens filtered by A's search and reads as "my history is
 //                         gone" — the one failure mode this app has already caused a panic over.
 //   dlog_stats_range      cosmetic, but wrong.
-//   dlog_rest_alerts      B inherits A's alert preference.
+//   dlog_rest_alerts      B inherits A's alert preference. ⚠️ NO LONGER WIPED — 28 Aug 2026. It is
+//                         owner-stamped instead; wiping it is what cost Del a whole session. See
+//                         REST_ALERTS_OWNER_STORE.
 //   dlog_rest_token       a live rest token belonging to someone else's session.
 //   workout_draft         half a logged workout, in the wrong account's hands.
 //   sw_state / del_page   in-flight rest timer and last page, both A's.
@@ -782,9 +784,24 @@ const LAST_ACCOUNT_STORE = 'dlog_last_account';
 // Referenced (not copied) so a key can never drift, and read inside the function rather than at
 // module scope so the consts declared further down this file are all initialised by call time.
 // tests/empty-account.test.js asserts this list still covers every device key in app.js.
+// ── WHY dlog_rest_alerts IS NOT IN THIS LIST (28 Aug 2026) ──────────────────────────────
+// It was, and that is the whole of Del's 28 August session: 2h44m of training and not one rest
+// alert. He signed into the test account at 18:34:16 the evening before and back into his own 13
+// seconds later. Two switches, two wipes, and `dlog_rest_alerts` was gone — so restAlertsOn() was
+// false for every rest the next morning and scheduleRestAlert() returned on its first line. No
+// booking, no push, and NOTHING IN THE READOUT EITHER: rest_alert_log has zero rows for that
+// session, because the early return sits above the first log write. The feature did not fail. It
+// was switched off, by us, silently, and nothing on any screen he looked at said so.
+//
+// Wiping was the wrong instrument for a preference that is meant to come back. Everything else in
+// this list is stale state — a backup date, a filter, half a draft — and the account that owns it
+// is not coming back for it. An alert preference is the opposite: it is durable, it is what the
+// user asked for, and the SAME account returning to the SAME phone has to find it intact. So this
+// key states whose it is instead, and restAlertsOn() checks the owner. B still inherits nothing
+// — the owner will not match them — but A gets theirs back on the way in.
 function perDeviceKeys() {
   return [
-    BACKUP_STORE, HISTORY_FILTER_STORE, STATS_RANGE_STORE, REST_ALERTS_STORE, REST_TOKEN_STORE,
+    BACKUP_STORE, HISTORY_FILTER_STORE, STATS_RANGE_STORE, REST_TOKEN_STORE,
     'workout_draft', 'sw_state', 'del_page',
   ];
 }
@@ -3199,6 +3216,10 @@ async function loadHomePage() {
   // on gym Wi-Fi that can't reach Supabase, and it corrects itself if permission was revoked in
   // iPhone Settings since the last visit.
   paintRestAlertsButton();
+
+  // Then ask the server whether the label it just painted is out of date — un-awaited, and the only
+  // thing that gets an already-wiped phone alerting again. See reconcileRestAlerts().
+  reconcileRestAlerts();
 
   // Before the awaits below — this one needs no network, so it still appears on gym Wi-Fi that
   // can't reach Supabase, which is the trip most likely to be far from the PC that runs the other
@@ -8891,6 +8912,18 @@ function swVibrate(pattern) { if (navigator.vibrate) navigator.vibrate(pattern);
 const VAPID_PUBLIC_KEY = 'BPtOJx_GRiD6-hM_a9HnBFMd7vSinxPv_kzfqyu0MRPBCx0vLZWWs7mmwgVRtnhPY5NDRkKQfN_d9nEuoeJgijU';
 const REST_ALERTS_STORE = 'dlog_rest_alerts';
 
+// ── WHOSE PREFERENCE THE FLAG ABOVE IS (28 Aug 2026) ─────────────────────────────────
+// The flag used to be wiped on an account switch, which is how Del walked into the gym on 28 Aug
+// with alerts silently off. It now survives the switch and names its owner instead — see the note
+// on perDeviceKeys().
+//
+// It holds the email, compared against LAST_ACCOUNT_STORE, which is the account this device belongs
+// to right now. Deliberately NOT authSession.email: this is read on the first paint of Settings,
+// before the session is necessarily loaded, and a read that resolves to '' there would report
+// alerts off to someone who has them on. LAST_ACCOUNT_STORE is written by claimDeviceForAccount()
+// at the account boundary and is on disk before any of this runs.
+const REST_ALERTS_OWNER_STORE = 'dlog_rest_alerts_owner';
+
 // The token for the rest currently being counted. The Edge Function re-reads rest_alerts after
 // sleeping and stays silent unless the token still matches, which is what stops a rest you ended
 // early from buzzing you two minutes later in the middle of the next set.
@@ -8945,8 +8978,22 @@ function pushSupported() {
 function restAlertsOn() {
   if (!pushSupported()) return false;
   try {
-    return Notification.permission === 'granted' && localStorage.getItem(REST_ALERTS_STORE) === '1';
+    if (Notification.permission !== 'granted') return false;
+    if (localStorage.getItem(REST_ALERTS_STORE) !== '1') return false;
+    // The flag is no longer wiped when the account changes, so on its own it would hand the second
+    // account the first one's preference. It has to say whose it is.
+    const device = localStorage.getItem(LAST_ACCOUNT_STORE);
+    // No account recorded on this device at all — a session that predates claimDeviceForAccount(),
+    // or storage that has never seen a login. Fall back to the flag alone: there is nobody to
+    // confuse this with, and the failure being fixed here is alerts silently OFF.
+    if (!device) return true;
+    return localStorage.getItem(REST_ALERTS_OWNER_STORE) === device;
   } catch (e) { return false; }
+}
+
+// The account this device belongs to right now. '' before the first login on a fresh browser.
+function restAlertsDeviceAccount() {
+  try { return localStorage.getItem(LAST_ACCOUNT_STORE) || ''; } catch (e) { return ''; }
 }
 
 // The applicationServerKey has to be raw bytes, and VAPID keys travel as base64url.
@@ -8999,6 +9046,7 @@ async function enableRestAlerts() {
       return false;
     }
     localStorage.setItem(REST_ALERTS_STORE, '1');
+    localStorage.setItem(REST_ALERTS_OWNER_STORE, restAlertsDeviceAccount());
     paintRestAlertsButton();
     return true;
   } catch (e) {
@@ -9008,8 +9056,49 @@ async function enableRestAlerts() {
   }
 }
 
+// ── PUTTING BACK WHAT THE WIPE ALREADY TOOK (28 Aug 2026) ───────────────────────────
+// The owner stamp stops the next wipe. It does nothing for the phone in Del's pocket, whose flag is
+// ALREADY gone — without this, the fix ships and his alerts stay off until he happens to open
+// Settings and notice. He would find out the same way he found out this morning: after the session.
+//
+// So ask the server, which never lost the answer. push_subscriptions is per user AND per device
+// endpoint, RLS-scoped, and disableRestAlerts() deletes the row — so a row for THIS browser's
+// current subscription, readable by THIS account, means precisely: this person turned alerts on,
+// on this phone, and has not turned them off. That is the flag, recovered from the only copy of it
+// that an account switch cannot touch.
+//
+// It cannot turn alerts on for someone who switched them off (their row is deleted, and the '0'
+// below is checked anyway), and it cannot hand them to the wrong account (RLS returns nothing for a
+// row that is not theirs). Un-awaited, quiet, and it never toasts: one dead request in a gym car
+// park must not put an error on Home.
+async function reconcileRestAlerts() {
+  try {
+    if (!pushSupported() || Notification.permission !== 'granted') return;
+    if (restAlertsOn()) return;                       // already on for this account — nothing to do
+    const device = restAlertsDeviceAccount();
+    if (!device) return;                              // nobody to attribute the preference to yet
+    // Switched off ON PURPOSE by whoever is signed in now. Leave it off.
+    if (localStorage.getItem(REST_ALERTS_STORE) === '0' &&
+        localStorage.getItem(REST_ALERTS_OWNER_STORE) === device) return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg || !reg.pushManager) return;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;                                 // no subscription on this device at all
+    const rows = await sb(
+      `push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}&select=endpoint`,
+      'GET', null, { quiet: true });
+    if (!Array.isArray(rows) || !rows.length) return; // someone else's row, or a read that failed
+    localStorage.setItem(REST_ALERTS_STORE, '1');
+    localStorage.setItem(REST_ALERTS_OWNER_STORE, device);
+    paintRestAlertsButton();
+  } catch (e) { /* the button still reads honestly, and Test alert still works */ }
+}
+
 async function disableRestAlerts() {
-  try { localStorage.setItem(REST_ALERTS_STORE, '0'); } catch (e) {}
+  try {
+    localStorage.setItem(REST_ALERTS_STORE, '0');
+    localStorage.removeItem(REST_ALERTS_OWNER_STORE);
+  } catch (e) {}
   paintRestAlertsButton();
   try {
     const reg = await navigator.serviceWorker.ready;
@@ -9068,8 +9157,26 @@ function logRestPhase(phase, token, exercise, detail) {
   } catch (e) {}
 }
 
+// ── A REST THAT CANNOT ALERT HAS TO SAY SO, AT THE FIRST SET (28 Aug 2026) ───────────────
+// The owner stamp and the heal together fix the way alerts got switched off on 28 Aug. Neither of
+// them fixes the part that actually cost Del the session, which is that he could not tell. Alerts
+// off looks exactly like alerts on until a rest ends, and a rest ending in silence looks exactly
+// like a rest that has not ended yet — so the answer arrives two hours later, at home, once.
+// Permission revoked in iPhone Settings gets there by a different road and lands in the same place.
+//
+// One line, on the first rest of the run, naming where the switch is. Once per app run and not once
+// per rest: 24 of these in a session is its own bug, and the first one is the only one he needs.
+let restAlertsOffWarned = false;
+
+function warnRestAlertsOff() {
+  if (restAlertsOffWarned || !pushSupported()) return;   // nothing to turn on — don't nag about it
+  restAlertsOffWarned = true;
+  showToast('Rest alerts are off — Settings › Rest alerts', 'error');
+}
+
 async function scheduleRestAlert(exName, seconds) {
-  if (!restAlertsOn() || !(seconds >= 1)) return;
+  if (!(seconds >= 1)) return;
+  if (!restAlertsOn()) { warnRestAlertsOff(); return; }
   // ── THE DEADLINE IS STAMPED HERE, AT THE TAP (24 Aug 2026) ─────────────────────────────────────
   // The function used to be handed a DURATION and started counting it out when it began running, so
   // the upsert below, the token check, the dispatch, the Deno cold start and — on a 180s rest — a
