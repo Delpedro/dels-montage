@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1639';
+const APP_BUILD = '2026-08-28-1648';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -8125,15 +8125,20 @@ function renderMacroAverages(logs) {
   if (calVal) {
     calVal.innerHTML = ca === null ? '--' : `${Math.round(ca).toLocaleString()}<span class="stats-hero-unit">kcal</span>`;
   }
-  // ⚠️ THIS LINE TAKES NO VERDICT COLOUR (27 Aug 2026). It was red on a miss, which put --red
-  // immediately under the --accent figure — two warm reds four pixels apart, and Del's word for it
-  // was "clashing". The verdict did not disappear, it moved: the three cells below carry it, one
-  // colour on the one macro that is actually off, which is the .pf-d.off rule this card already
-  // follows. A grade under the headline as well was the same thing said twice in two colours.
+  // ⚠️ ONLY THE DELTA TAKES COLOUR (28 Aug 2026). The 27 Aug version painted this whole line red on
+  // a miss, which put --red immediately under the --accent figure — two warm reds four pixels apart,
+  // and Del's word for it was "clashing". Colouring the signed number alone keeps "Target 2,000" in
+  // --muted2 and leaves one small coloured token under the headline: red over, green on or under.
+  // The interpuncts went with it — "Target 2,000 · +92" read as one run of text with a bullet in it,
+  // and the gap now does the separating that the dot was doing badly.
   if (calTarget) {
     calTarget.className = 'stats-hero-sub gv-soft';
-    calTarget.textContent = (ca === null || ct === null) ? ''
-      : `Target ${Math.round(ct).toLocaleString()} · ${macroDelta(ca, ct)}`;
+    if (ca === null || ct === null) {
+      calTarget.textContent = '';
+    } else {
+      const over = Math.round(ca) - Math.round(ct) > 0;
+      calTarget.innerHTML = `Target ${Math.round(ct).toLocaleString()} <span class="macro-cal-delta ${over ? 'gv-bad' : 'gv-good'}">${macroDelta(ca, ct)}</span>`;
+    }
   }
 
   const cells = document.getElementById('macro-cells');
