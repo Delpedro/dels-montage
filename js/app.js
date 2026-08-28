@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1621';
+const APP_BUILD = '2026-08-28-1639';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3221,10 +3221,18 @@ async function initApp(page = 'home') {
   // on any screen depends on its result.
   autoCloseStaleWorkouts();
 
-  // THE GREETING, BEFORE A SINGLE REQUEST. getGreeting() falls back to the name this account last
-  // used on this device, so on every launch after the first it is on screen in the same frame Home
-  // is revealed in. Painted again below once the profile lands, in case the server disagrees.
+  // ── HOME, COMPLETE, BEFORE A SINGLE ANSWER COMES BACK ────────────────────────────────────────
+  // The greeting first — getGreeting() falls back to the name this account last used on this device,
+  // so it is on screen in the same frame Home is revealed in. Painted again below once the profile
+  // lands, in case the server disagrees.
+  //
+  // Then the rest of the screen, from the same launch's worth of memory. Del had the greeting fixed
+  // and still said no: "now the welcome comes in, the bottom half comes in and then the next workout
+  // comes in 2/3 seconds later... it does not look proffessional at all". Three arrivals is the
+  // complaint, not three slow arrivals, so the answer is not to make them quicker — it is for there
+  // to be nothing left to arrive. See paintHomeFromCache().
   paintGreeting();
+  if (page === 'home') paintHomeFromCache();
 
   await templatesReady;
   // Starts the freshness clock, so restoring straight onto the Workout tab (sessionStorage remembers
@@ -3346,6 +3354,115 @@ function paintGreeting() {
   if (greet) greet.textContent = getGreeting();
 }
 
+// ─── HOME PAINTS FROM DISK, THEN RECONCILES ───────────────
+// Del, on the build that made the greeting instant: "now the welcome comes in, the bottom half comes
+// in and then the next workout comes in 2/3 seconds later... it does not look proffessional at all".
+//
+// That is the third report on the same screen, and the first two answers were both the same mistake:
+// making the requests faster. They ARE faster — the boot went from four sequential waves to one and
+// Home's own reads from three to one — and it did not fix what he is describing, because his
+// complaint is not that any single thing is slow. It is that Home ASSEMBLES ITSELF IN FRONT OF HIM.
+// A screen that fills in three stages looks unfinished however quick each stage is, and no amount of
+// further tuning removes a stage.
+//
+// So Home stops waiting for the network to have something to show. Everything on it was true a few
+// hours ago and is almost certainly still true: the rotation moves once a session, the weigh-in once
+// a day, the quote once a date. All of it is written to disk on every render and painted back in the
+// first frame of the next launch, before a single request is sent. The live reads then land on top —
+// normally writing the identical values, so nothing visibly changes at all.
+//
+// WHAT MAKES THIS SAFE:
+//   · The key carries the signed-in email, exactly like onboardedKey(), obDraftKey() and
+//     cachedNameKey(). Another account reads nothing of Del's — see the 25 Aug bug in enterApp()'s
+//     comment, which is what happens when cached UI is not scoped to the person it came from.
+//   · Nothing here is a source of truth. Every value is overwritten by the live render a moment
+//     later, and no write to the database ever reads from it.
+//   · The week-scoped half (sessions this week, the strip) is restored ONLY inside the week it was
+//     written in, because "3 sessions" from last Friday is not a stale number on a Monday, it is a
+//     wrong one. The rotation card and the weigh-in carry no week and are restored whenever.
+//   · The quote is restored only on the date it was for, since it is chosen by date.
+const HOME_CACHE_VERSION = 1;
+
+function homeCacheKey() {
+  return `dlog_home:${authSession?.email || ''}`;
+}
+
+// Null for "nothing usable", including a payload written by an older version of this file — a
+// version bump is how a change to the shape below retires the old one instead of half-reading it.
+function readHomeCache() {
+  try {
+    const raw = localStorage.getItem(homeCacheKey());
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    return cached && cached.v === HOME_CACHE_VERSION ? cached : null;
+  } catch (e) { return null; }
+}
+
+// Merges, so each renderer writes only its own part and none of them has to know about the others.
+function writeHomeCache(patch) {
+  try {
+    localStorage.setItem(homeCacheKey(), JSON.stringify({ ...(readHomeCache() || {}), ...patch, v: HOME_CACHE_VERSION }));
+  } catch (e) {}
+}
+
+// The session the card was offering when the app last closed, so a tap works before the live read
+// has answered. renderNextUp() overwrites nextUpSession the moment it does — see startNextSession(),
+// which prefers the live answer and falls back to this one.
+let cachedNextUpId = null;
+
+// Called from initApp() before anything is fetched. Everything it touches is overwritten within the
+// second by the real thing; its whole job is that the first frame is not empty.
+function paintHomeFromCache() {
+  const cached = readHomeCache();
+  if (!cached) return;   // first launch on this device, or a different account — the CSS reserves the space
+  const set = (id, text) => {
+    if (text == null) return;
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+
+  // `'nextUp' in cached` rather than a truthiness test: null is a real, useful answer here. It means
+  // the card was hidden last time — an account with no history — and restoring THAT stops a reserved
+  // card-sized gap opening and closing on every launch.
+  if ('nextUp' in cached) {
+    const card = document.getElementById('next-up');
+    if (card && !cached.nextUp) {
+      card.classList.remove('is-pending');
+      card.style.display = 'none';
+    } else if (card) {
+      cachedNextUpId = cached.nextUp.id;
+      card.className = 'next-up ' + (cached.nextUp.colour || '');
+      card.style.display = 'block';
+      set('next-up-name', cached.nextUp.name);
+      set('next-up-sub', cached.nextUp.sub);
+      set('next-up-go', cached.nextUp.go);
+    }
+  }
+
+  set('home-weight', cached.weight);
+  set('home-avg-weight', cached.avgWeight);
+  set('home-avg-cals', cached.avgCals);
+  set('home-steps', cached.avgSteps);
+
+  // Not cached, computed: the window is arithmetic on today's date, so a stored copy could only ever
+  // be a chance to print yesterday's dates.
+  const win = sevenDayWindow();
+  set('home-avg-window', `Last 7 days · ${win.label}`);
+
+  // Monday is the boundary everything week-shaped in the app goes through, and it is the boundary
+  // this cache expires on too.
+  if (cached.weekStart === getWeekStart()) {
+    set('home-sessions', cached.sessions);
+    if (Array.isArray(cached.weekRows)) buildWeekStrip('home-week-strip', cached.weekRows);
+  }
+
+  if (cached.quote && cached.quote.date === todayStr()) {
+    set('quote-text', cached.quote.text);
+    set('quote-author', cached.quote.author);
+    document.getElementById('daily-quote')?.classList.remove('is-pending');
+  }
+}
+
 // ─── LANDING PAGE ─────────────────────────────────────────
 async function loadHomePage() {
   document.getElementById('landing-greeting').textContent = getGreeting();
@@ -3428,29 +3545,63 @@ async function loadHomePage() {
     sb(`daily_logs?date=gte.${win.from}&select=steps,weight_kg,calories`)
   ]);
 
-  if (latest && latest[0]?.weight_kg) {
-    document.getElementById('home-weight').textContent = latest[0].weight_kg;
-  }
+  const weight = latest && latest[0]?.weight_kg;
+
+  // ── A DEAD CONNECTION MUST NOT ERASE A GOOD SCREEN ───────────────────────────────────────────
+  // sb() answers a FAILED GET with [] exactly as it answers an empty table, so from here the two are
+  // indistinguishable — and now that Home opens on remembered values, "empty" would paint `--` and a
+  // grey week over numbers that were right. All three reads coming back empty together is not a rest
+  // week: Del weighs in daily, so weekLogs alone would carry rows. It is gym Wi-Fi. An account with
+  // a cache has history, so on that account this means the network, and the cached screen stands.
+  //
+  // An account with NO cache falls through and shows `--` exactly as it always did — which is also
+  // the right answer for the genuinely empty account, since that is what it is looking at.
+  const nothingCameBack = !weight && !weekWorkouts.length && !(weekLogs || []).length;
+  if (nothingCameBack && readHomeCache()) return;
+
+  if (weight) document.getElementById('home-weight').textContent = weight;
   document.getElementById('home-sessions').textContent = weekWorkouts.length;
 
   // `!= null` — a recorded 0 belongs in the average (you walked nothing that day); only a day with
   // no reading at all should be left out of it.
   const stepsArr = (weekLogs || []).filter(l => l.steps != null).map(l => Number(l.steps));
   const avgSteps = stepsArr.length ? Math.round(stepsArr.reduce((a,b)=>a+b,0)/stepsArr.length) : null;
-  document.getElementById('home-steps').textContent = avgSteps != null ? avgSteps.toLocaleString() : '--';
-
   const weightArr = (weekLogs || []).filter(l => l.weight_kg != null).map(l => l.weight_kg);
   const calsArr = (weekLogs || []).filter(l => l.calories != null).map(l => l.calories);
   const avgWeight = weightArr.length ? (weightArr.reduce((a,b)=>a+b,0)/weightArr.length).toFixed(1) : null;
   const avgCals = calsArr.length ? Math.round(calsArr.reduce((a,b)=>a+b,0)/calsArr.length) : null;
-  document.getElementById('home-avg-weight').textContent = avgWeight ?? '--';
-  document.getElementById('home-avg-cals').textContent = avgCals ? avgCals.toLocaleString() : '--';
+
+  // The three averages are formatted once and used twice — on screen, and into the cache. Formatting
+  // them a second time inside the write is how the restored tile and the live tile would come to
+  // disagree by a comma.
+  const stepsText = avgSteps != null ? avgSteps.toLocaleString() : '--';
+  const weightText = avgWeight ?? '--';
+  const calsText = avgCals ? avgCals.toLocaleString() : '--';
+  document.getElementById('home-steps').textContent = stepsText;
+  document.getElementById('home-avg-weight').textContent = weightText;
+  document.getElementById('home-avg-cals').textContent = calsText;
 
   // Always rebuild — buildWeekStrip clears innerHTML first, so no risk of duplicates. It is handed
   // the rows rather than fetching its own: `sessions this week` above and the strip below are the
   // same question about the same week asked twice, and the strip's copy was the LAST request Home
   // made — so the bottom of the page moved once everything above it had already settled.
   buildWeekStrip('home-week-strip', weekWorkouts);
+
+  // Everything above, to disk, so the next launch opens on it instead of on placeholders. The strip
+  // rows carry their display NAME as well as their id: paintHomeFromCache() runs before the session
+  // templates have loaded, and sessionDisplayName() would fall back to un-slugging the id — which
+  // gives the same two letters for "upper-a" but not for "cv-pump" (CP against CVP). Storing the
+  // name it actually rendered with means the restored strip is character-for-character the one that
+  // was on screen. See buildWeekStrip().
+  writeHomeCache({
+    weight: weight || null,
+    sessions: weekWorkouts.length,
+    weekStart: getWeekStart(),
+    weekRows: weekWorkouts.map(w => ({ date: w.date, session_type: w.session_type, name: sessionDisplayName(w.session_type) })),
+    avgWeight: weightText,
+    avgCals: calsText,
+    avgSteps: stepsText
+  });
 }
 
 // The line under the date. Its own function, and un-awaited, since E19 — it used to be the first
@@ -3467,8 +3618,13 @@ async function renderDailyQuote() {
     const quotes = await sb(`quotes?select=quote,author&order=id`);
     if (!quotes || !quotes.length) return;
     const q = quotes[dayIndex(quotes.length)];
-    document.getElementById('quote-text').textContent = `"${q.quote}"`;
-    document.getElementById('quote-author').textContent = q.author ? `— ${q.author}` : '';
+    const text = `"${q.quote}"`;
+    const author = q.author ? `— ${q.author}` : '';
+    document.getElementById('quote-text').textContent = text;
+    document.getElementById('quote-author').textContent = author;
+    // Stamped with the date it was chosen for, since that is what chooses it — a cached quote is
+    // restored on that date and on no other, so the line never contradicts dayIndex().
+    writeHomeCache({ quote: { text, author, date: todayStr() } });
     // The block is in the layout from the first frame (min-height in the CSS); this only makes it
     // visible. `is-pending` is an invisible-but-reserved state, not a hidden one.
     document.getElementById('daily-quote').classList.remove('is-pending');
@@ -3591,7 +3747,10 @@ async function buildWeekStrip(containerId = 'home-week-strip', rows = null) {
   const workouts = rows || await realWorkoutsBetween(weekDates[0], weekDates[6]);
   strip.innerHTML = '';  // Clear AFTER fetch — prevents race between concurrent calls
   const byDate = {};
-  (workouts || []).forEach(w => { (byDate[w.date] ||= []).push(sessionDisplayName(w.session_type)); });
+  // `w.name` is only ever set on rows coming back out of the Home cache, which carry the name they
+  // were rendered with because this can run before the templates have loaded. A real `workouts` row
+  // has no such column, so every other caller takes the lookup exactly as it always did.
+  (workouts || []).forEach(w => { (byDate[w.date] ||= []).push(w.name || sessionDisplayName(w.session_type)); });
 
   weekDates.forEach((date, i) => {
     const div = document.createElement('div');
@@ -3754,7 +3913,16 @@ async function renderNextUp() {
   // own height open so the stats below it don't get shoved down when this lands. Hiding has to drop
   // it as well as setting display:none, or an account with no history keeps a blank card's worth of
   // space for nothing.
-  const hide = () => { nextUpSession = null; card.classList.remove('is-pending'); card.style.display = 'none'; };
+  // Remembered as `null`, which is a real answer and not an absence: it means "this account has no
+  // card", so the next launch hides it in the first frame instead of reserving space and taking it
+  // back. See paintHomeFromCache().
+  const hide = () => {
+    nextUpSession = null;
+    cachedNextUpId = null;
+    card.classList.remove('is-pending');
+    card.style.display = 'none';
+    writeHomeCache({ nextUp: null });
+  };
 
   // Same "real workout" test realWorkoutsBetween() uses, and for the same reason: a workouts row
   // exists from the moment a tile is tapped. On the first Home of the session these rows are already
@@ -3770,22 +3938,41 @@ async function renderNextUp() {
   const live = liveWorkoutRow(rows, todayStr());
   const liveSession = live ? getSessionById(live.session_type) : null;
   const next = liveSession ? null : nextInRotation(recent);
-  if (!liveSession && !next) return hide();
+  if (!liveSession && !next) {
+    // Nothing to offer — but if a card is already on screen from the cache, leave it there. sb()
+    // answers a failed GET with [] exactly as it answers an empty table, and an account whose last
+    // launch HAD a rotation card has history, so no rows here is far more likely to be a gym
+    // connection than a training log that vanished overnight. Blanking a correct card on a bad
+    // signal is the worse of the two mistakes; an account that genuinely has no history has nothing
+    // cached either, so it still gets hidden.
+    if (!cachedNextUpId) hide();
+    return;
+  }
 
   const session = liveSession || next.session;
   nextUpSession = session;
-  card.className = 'next-up ' + sessionColourClass(session);
-  card.style.display = 'block';
-  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-  set('next-up-name', session.name);
-  set('next-up-go', liveSession ? 'Resume \u2192' : 'Start \u2192');
+  cachedNextUpId = session.id;
+  const colour = sessionColourClass(session);
+  const go = liveSession ? 'Resume \u2192' : 'Start \u2192';
   // One sub-line carries what the label, the step counter, the focus and the after-line used to say
   // across four rows (27 Aug 2026, cut 11). A live session says so here, since the "In progress"
   // label it used to have has no row of its own any more. `4 / 4`, not `4 of 4` \u2014 Del's note.
-  set('next-up-sub', liveSession
+  const sub = liveSession
     ? 'In progress \u00b7 started today, not saved yet'
     : next.position + ' / ' + next.total + ' \u00b7 after ' + next.after.name
-      + ' \u00b7 ' + lastTrainedLabel(next.afterDate));
+      + ' \u00b7 ' + lastTrainedLabel(next.afterDate);
+
+  card.className = 'next-up ' + colour;
+  card.style.display = 'block';
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  set('next-up-name', session.name);
+  set('next-up-go', go);
+  set('next-up-sub', sub);
+
+  // Exactly what was just painted, so the next launch can paint it again without asking anyone.
+  // The rotation moves once a session, so this is right far more often than it is stale \u2014 and when
+  // it is stale the live read above corrects it within the second.
+  writeHomeCache({ nextUp: { id: session.id, name: session.name, sub, go, colour } });
 }
 
 // Straight into the session the card is offering. Deliberately routed through the real tile's own
@@ -3805,7 +3992,10 @@ async function renderNextUp() {
 // straight after showPage(), so the browser never paints a frame with the picker in it, and the
 // wait now names the session it is opening instead of offering three others.
 async function startNextSession() {
-  const s = nextUpSession;
+  // The live answer if renderNextUp() has been round, the remembered one if the card on screen was
+  // painted from disk and the read has not landed yet. Without the fallback the restored card is a
+  // button that does nothing for the first second of the launch, which is worse than not drawing it.
+  const s = nextUpSession || (cachedNextUpId ? getSessionById(cachedNextUpId) : null);
   if (!s) return;
   showPage('workout');
   showWorkoutView('opening', s.name);

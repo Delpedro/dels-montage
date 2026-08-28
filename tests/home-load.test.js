@@ -75,6 +75,7 @@ async function main() {
   const req = path => { sent.push(path); return new Promise(r => answered.push(() => r([]))); };
 
   let stripArgs = null;
+  let cached = {};   // what Home writes to disk for the next launch to paint from
   const app = load({
     functions: ['loadHomePage', 'sevenDayWindow', 'dateStr'],
     deps: {
@@ -90,6 +91,11 @@ async function main() {
       claimRestAlertsFlag: () => {}, restAlertsDeviceAccount: () => null, paintRestAlertsButton: () => {},
       reconcileRestAlerts: () => {}, renderBackupPrompt: () => {}, syncBackupState: () => {},
       renderNextUp: () => {}, renderDailyQuote: () => req('quotes?select=quote,author&order=id'),
+      writeHomeCache: patch => { cached = { ...cached, ...patch }; },
+      // No cache in this section, so the empty stubbed answers take the ordinary path rather than
+      // the offline guard. That guard has section 9 to itself.
+      readHomeCache: () => null,
+      sessionDisplayName: t => ({ 'upper-a': 'Upper A' }[t] || t),
     }
   });
 
@@ -134,7 +140,7 @@ async function main() {
     const q = load({
       functions: ['renderDailyQuote'],
       deps: {
-        document: d.document, dayIndex: () => 0,
+        document: d.document, dayIndex: () => 0, todayStr: () => '2026-08-28', writeHomeCache: () => {},
         sb: async () => [{ quote: 'Discipline is doing what needs to be done', author: 'Anon' }]
       }
     });
@@ -153,7 +159,7 @@ async function main() {
     d.get('daily-quote').classList.add('is-pending');
     const q = load({
       functions: ['renderDailyQuote'],
-      deps: { document: d.document, dayIndex: () => 0, sb: async () => [] }
+      deps: { document: d.document, dayIndex: () => 0, todayStr: () => '2026-08-28', writeHomeCache: () => {}, sb: async () => [] }
     });
     await q.renderDailyQuote();
     eq(d.get('quote-text').textContent, '', 'a failed quote fetch paints nothing');
@@ -166,10 +172,10 @@ async function main() {
     d.get('next-up').classList.add('is-pending');
     const n = load({
       functions: ['renderNextUp'],
-      decls: ['nextUpSession'],
+      decls: ['nextUpSession', 'cachedNextUpId'],
       deps: {
         document: d.document, todayStr: () => '2026-08-28',
-        takeBootNextUpRows: () => null, fetchNextUpRows: async () => [],
+        takeBootNextUpRows: () => null, fetchNextUpRows: async () => [], writeHomeCache: () => {},
         workoutRowHasContent: () => false, liveWorkoutRow: () => null,
         getSessionById: () => null, nextInRotation: () => null,
         sessionColourClass: () => 'sc-1', lastTrainedLabel: () => ''
@@ -215,6 +221,7 @@ async function main() {
     const held = [];
     const hold = name => { bootSent.push(name); return new Promise(r => held.push(() => r([]))); };
     const painted = [];   // what the greeting said, each time it was painted
+    let restored = false;
 
     const boot = load({
       functions: ['initApp'],
@@ -232,6 +239,7 @@ async function main() {
         buildExerciseLibrary: () => ({}), loadCustomExercises: () => {},
         buildSessionGrid: () => {}, renderCheckinSummary: () => {},
         showPage: () => {}, needsOnboarding: () => false, openOnboarding: () => {},
+        paintHomeFromCache: () => { restored = true; },
       },
       accessors: { prefetched: '() => bootNextUpRows' }
     });
@@ -252,6 +260,7 @@ async function main() {
     ok(bootSent.includes('housekeeping'), 'stale-workout cleanup still runs');
 
     ok(boot.prefetched() !== null, "and Next up's rows are fetched by the boot, not by the card");
+    ok(restored, 'and the rest of Home is painted from disk in the same breath as the greeting');
 
     held.forEach(r => r());
     await started;
@@ -275,6 +284,7 @@ async function main() {
   {
     const d = fakeDom();
     let prefetches = 0;
+    let restored = false;
     const boot = load({
       functions: ['initApp'],
       decls: ['lastTemplateRefresh', 'EXERCISE_LIBRARY', 'bootNextUpRows'],
@@ -287,10 +297,140 @@ async function main() {
         buildExerciseLibrary: () => ({}), loadCustomExercises: () => {},
         buildSessionGrid: () => {}, renderCheckinSummary: () => {},
         showPage: () => {}, needsOnboarding: () => false, openOnboarding: () => {},
+        paintHomeFromCache: () => { restored = true; },
       }
     });
     await boot.initApp('workout');
     eq(prefetches, 0, 'a boot onto the Workout tab does not prefetch a Next up it will not paint');
+    ok(!restored, 'nor repaints a Home it is not opening on');
+  }
+
+  // ── 8. Home opens on what it last showed ────────────────────────────────────────────────────
+  // Del, with the greeting already fixed: "now the welcome comes in, the bottom half comes in and
+  // then the next workout comes in 2/3 seconds later... it does not look proffessional at all".
+  // Three arrivals is the complaint. So the first frame is the last frame: everything is painted
+  // from disk before a request is sent, and the live reads land on top of identical values.
+  function cacheHarness(email, stored) {
+    const d = fakeDom();
+    // Both blocks ship `is-pending` in index.html — the reserved-but-invisible state. Set here so
+    // "was it made visible" is a real question rather than one the empty fake answers for free.
+    d.get('daily-quote').classList.add('is-pending');
+    d.get('next-up').classList.add('is-pending');
+    d.get('next-up').className = 'next-up is-pending';
+    const store = {};
+    if (stored) store[`dlog_home:${email}`] = JSON.stringify(stored);
+    let stripRows = null;
+    const app = load({
+      functions: ['paintHomeFromCache', 'readHomeCache', 'writeHomeCache', 'homeCacheKey'],
+      decls: ['HOME_CACHE_VERSION', 'cachedNextUpId'],
+      deps: {
+        document: d.document,
+        authSession: { email },
+        localStorage: {
+          getItem: k => (k in store ? store[k] : null),
+          setItem: (k, v) => { store[k] = String(v); },
+          removeItem: k => { delete store[k]; },
+        },
+        todayStr: () => '2026-08-28',
+        getWeekStart: () => '2026-08-24',
+        sevenDayWindow: () => ({ from: '2026-08-22', label: '22–28 Aug' }),
+        buildWeekStrip: (id, rows) => { stripRows = rows; },
+      },
+      accessors: { nextUpId: '() => cachedNextUpId' }
+    });
+    return { app, get: d.get, store, strip: () => stripRows };
+  }
+
+  const FULL = {
+    v: 1,
+    nextUp: { id: 'upper-b', name: 'Upper B', sub: '3 / 4 · after Lower A · yesterday', go: 'Start →', colour: 'sc-upper' },
+    weight: 82.4, sessions: 3, weekStart: '2026-08-24',
+    weekRows: [{ date: '2026-08-26', session_type: 'cv-pump', name: 'CV + Pump' }],
+    avgWeight: '82.1', avgCals: '2,140', avgSteps: '11,204',
+    quote: { text: '"Discipline"', author: '— Anon', date: '2026-08-28' }
+  };
+
+  {
+    const h = cacheHarness('delpeter@gmail.com', FULL);
+    h.app.paintHomeFromCache();
+
+    eq(h.get('next-up-name').textContent, 'Upper B', 'the card is on screen before anything is fetched');
+    eq(h.get('next-up-sub').textContent, '3 / 4 · after Lower A · yesterday', 'with the line it had last time');
+    eq(h.get('next-up').style.display, 'block', 'and visible, not reserved');
+    ok(/sc-upper/.test(h.get('next-up').className), 'in its own session colour');
+    ok(!/is-pending/.test(h.get('next-up').className), 'with the pending state dropped');
+    eq(h.app.nextUpId(), 'upper-b',
+       'and the session is remembered, so tapping Start works before the read lands');
+
+    eq(h.get('home-weight').textContent, 82.4, 'current kg is there');
+    eq(h.get('home-avg-weight').textContent, '82.1', 'and the averages');
+    eq(h.get('home-avg-cals').textContent, '2,140', 'exactly as they were formatted');
+    eq(h.get('home-steps').textContent, '11,204', 'commas and all');
+    eq(h.get('home-sessions').textContent, 3, 'sessions this week is inside its week, so it is restored');
+    ok(h.strip() && h.strip()[0].name === 'CV + Pump',
+       'the strip rebuilds through its own renderer, from rows carrying the name they were drawn with');
+
+    // Arithmetic on today's date, never restored: a stored copy could only be yesterday's dates.
+    eq(h.get('home-avg-window').textContent, 'Last 7 days · 22–28 Aug', 'the window heading is computed, not remembered');
+
+    eq(h.get('quote-text').textContent, '"Discipline"', "and today's quote is already there");
+    ok(!h.get('daily-quote').classList.contains('is-pending'), 'with its block visible');
+  }
+
+  // THE ONE THAT MATTERS. Cached UI not scoped to the person it came from is exactly how a brand-new
+  // account was greeted "Good afternoon, Del" and shown his 80kg on 25 Aug.
+  {
+    const h = cacheHarness('someone@else.com', null);
+    h.store['dlog_home:delpeter@gmail.com'] = JSON.stringify(FULL);
+    h.app.paintHomeFromCache();
+    eq(h.get('next-up-name').textContent, '', "a second account on the phone sees none of Del's Home");
+    eq(h.get('home-weight').textContent, '', 'not his weight either');
+  }
+
+  // A week-old cache. "3 sessions" from last Friday is not a stale number on a Monday, it is a wrong
+  // one, so the week-scoped half expires on the Monday boundary while the rest carries on.
+  {
+    const h = cacheHarness('delpeter@gmail.com', { ...FULL, weekStart: '2026-08-17' });
+    h.app.paintHomeFromCache();
+    eq(h.get('home-sessions').textContent, '', "last week's session count is not restored into this week");
+    eq(h.strip(), null, 'and neither is its week strip');
+    eq(h.get('next-up-name').textContent, 'Upper B', 'the rotation card carries no week, so it still is');
+    eq(h.get('home-weight').textContent, 82.4, 'and so does the weigh-in');
+  }
+
+  // The quote is chosen by date, so a cached one is restored on that date and on no other.
+  {
+    const h = cacheHarness('delpeter@gmail.com', { ...FULL, quote: { ...FULL.quote, date: '2026-08-27' } });
+    h.app.paintHomeFromCache();
+    eq(h.get('quote-text').textContent, '', "yesterday's quote is not painted as today's");
+    ok(h.get('daily-quote').classList.contains('is-pending'), 'the block stays reserved until the real one lands');
+  }
+
+  // `nextUp: null` is a real answer — an account with no history. Restoring it means the reserved
+  // gap does not open and close on every launch.
+  {
+    const h = cacheHarness('delpeter@gmail.com', { ...FULL, nextUp: null });
+    h.app.paintHomeFromCache();
+    eq(h.get('next-up').style.display, 'none', 'a remembered "no card" hides the card outright');
+    ok(!h.get('next-up').classList.contains('is-pending'), 'rather than holding space for one');
+  }
+
+  // A payload from an older version of the file is dropped whole, not half-read.
+  {
+    const h = cacheHarness('delpeter@gmail.com', { ...FULL, v: 0 });
+    h.app.paintHomeFromCache();
+    eq(h.get('next-up-name').textContent, '', 'a stale cache version is ignored');
+  }
+
+  // Each renderer writes only its own part, and none of them clobbers the others.
+  {
+    const h = cacheHarness('delpeter@gmail.com', null);
+    h.app.writeHomeCache({ weight: 80 });
+    h.app.writeHomeCache({ sessions: 2 });
+    const back = h.app.readHomeCache();
+    eq(back.weight, 80, 'the first write survives');
+    eq(back.sessions, 2, 'alongside the second');
+    eq(back.v, 1, 'stamped with the version that wrote it');
   }
 
   // ── 7. The remembered name — instant, and keyed on the account ──────────────────────────────
@@ -328,6 +468,59 @@ async function main() {
     g.rememberDisplayName('');
     g.setProfile({ display_name: null });
     ok(!/,/.test(g.getGreeting()), 'a blanked name clears the cache rather than lingering');
+  }
+
+  // ── 9. A dead connection must not erase a good screen ───────────────────────────────────────
+  // The cost of opening on remembered values: sb() answers a failed GET with [] exactly as it
+  // answers an empty table, so without a guard the gym-Wi-Fi launch paints `--` and a grey week over
+  // numbers that were right. Both halves of Home are checked, because both would do it.
+  {
+    const d = fakeDom();
+    d.get('home-weight').textContent = '82.4';       // as paintHomeFromCache() left it
+    d.get('home-sessions').textContent = '3';
+    let wrote = false;
+    const app = load({
+      functions: ['loadHomePage', 'sevenDayWindow', 'dateStr'],
+      deps: {
+        document: d.document, APP_BUILD: 'test-build',
+        sb: async () => [], realWorkoutsBetween: async () => [],
+        buildWeekStrip: () => { wrote = true; }, getWeekStart: () => '2026-08-24',
+        getGreeting: () => 'Good morning, Del', sessionDisplayName: t => t,
+        claimRestAlertsFlag: () => {}, restAlertsDeviceAccount: () => null, paintRestAlertsButton: () => {},
+        reconcileRestAlerts: () => {}, renderBackupPrompt: () => {}, syncBackupState: () => {},
+        renderNextUp: () => {}, renderDailyQuote: () => {},
+        readHomeCache: () => ({ v: 1, weight: 82.4 }),
+        writeHomeCache: () => { wrote = true; },
+      }
+    });
+    await app.loadHomePage();
+    eq(d.get('home-weight').textContent, '82.4', 'a launch where nothing answers leaves the weight alone');
+    eq(d.get('home-sessions').textContent, '3', 'and the session count');
+    eq(d.get('home-avg-weight').textContent, '', 'nothing is overwritten with a dash');
+    ok(!wrote, 'and an empty screen is never written back over a good cache');
+  }
+
+  // The same rule for the card. An account whose last launch had a rotation card has history, so
+  // "no rows" is a connection, not a training log that vanished overnight.
+  {
+    const d = fakeDom();
+    const n = load({
+      functions: ['renderNextUp'],
+      decls: ['nextUpSession', 'cachedNextUpId'],
+      deps: {
+        document: d.document, todayStr: () => '2026-08-28',
+        takeBootNextUpRows: () => null, fetchNextUpRows: async () => [], writeHomeCache: () => {},
+        workoutRowHasContent: () => false, liveWorkoutRow: () => null,
+        getSessionById: () => null, nextInRotation: () => null,
+        sessionColourClass: () => 'sc-1', lastTrainedLabel: () => ''
+      },
+      accessors: { restore: "(id) => { cachedNextUpId = id; }" }
+    });
+    n.restore('upper-b');                       // as if paintHomeFromCache() had put a card up
+    d.get('next-up').style.display = 'block';
+    await n.renderNextUp();
+    eq(d.get('next-up').style.display, 'block',
+       'a failed read leaves the restored card standing rather than blanking it');
   }
 
   console.log(`  ${pass} passed, ${fail} failed`);
