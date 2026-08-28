@@ -167,9 +167,13 @@ function eq(actual, expected, label) {
 
   const local = {}, session = {};
   const app = load({
-    functions: ['claimDeviceForAccount', 'perDeviceKeys'],
+    // claimRestAlertsFlag() is pulled in because claimDeviceForAccount() calls it — the account
+    // boundary is where an unstamped rest-alert flag gets an owner (C19). Its own behaviour is
+    // asserted in tests/rest-alerts.test.js section 4; here it just has to exist, or every
+    // assertion below passes for the wrong reason on a ReferenceError the try block swallows.
+    functions: ['claimDeviceForAccount', 'perDeviceKeys', 'claimRestAlertsFlag'],
     decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE',
-            'REST_ALERTS_STORE', 'REST_TOKEN_STORE'],
+            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE'],
     deps: { localStorage: store(local), sessionStorage: store(session) },
   });
 
@@ -225,9 +229,10 @@ function eq(actual, expected, label) {
 
   // ── Storage disabled entirely (private mode). The app has to work; it just forgets things. ──
   const blown = load({
-    functions: ['claimDeviceForAccount', 'perDeviceKeys'],
+    // Same extraction as above — claimDeviceForAccount() calls claimRestAlertsFlag().
+    functions: ['claimDeviceForAccount', 'perDeviceKeys', 'claimRestAlertsFlag'],
     decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE',
-            'REST_ALERTS_STORE', 'REST_TOKEN_STORE'],
+            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE'],
     deps: {
       localStorage: { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); }, removeItem() {} },
       sessionStorage: { removeItem() {} },

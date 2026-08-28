@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1358';
+const APP_BUILD = '2026-08-28-1504';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -815,6 +815,10 @@ function claimDeviceForAccount(email) {
     if (previous && previous !== email) {
       perDeviceKeys().forEach(k => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
     }
+    // The stamp on the rest-alert flag is written HERE and nowhere else, because this is the only
+    // point in the app where the outgoing and the incoming account are both known. On a genuine
+    // switch it goes to the account that is LEAVING — see claimRestAlertsFlag(), and C19.
+    claimRestAlertsFlag(previous && previous !== email ? previous : email);
     localStorage.setItem(LAST_ACCOUNT_STORE, email);
   } catch (e) { /* private mode / storage disabled — the app works without any of this */ }
 }
@@ -9019,17 +9023,49 @@ function restAlertsOn() {
     // The flag is no longer wiped when the account changes, so on its own it would hand the second
     // account the first one's preference. It has to say whose it is.
     const device = localStorage.getItem(LAST_ACCOUNT_STORE);
-    // No account recorded on this device at all — a session that predates claimDeviceForAccount(),
-    // or storage that has never seen a login. Fall back to the flag alone: there is nobody to
-    // confuse this with, and the failure being fixed here is alerts silently OFF.
-    if (!device) return true;
-    return localStorage.getItem(REST_ALERTS_OWNER_STORE) === device;
+    // ── THERE IS NO "NOBODY OWNS IT" FALLBACK ANY MORE (C19, 28 Aug 2026) ────────────────────────
+    // This line used to read `if (!device) return true` — an unstamped flag was answered with ON
+    // while no account was recorded on the device to compare it against. That is the flip Del
+    // watched happen: the button said ON, he signed in to check something, and the same flag then
+    // read OFF, because the login supplied the account and the stamp was still missing. One key,
+    // two answers, and the login in between. An unstamped flag is now claimed at the account
+    // boundary instead — claimRestAlertsFlag() — so by the time anything can book a rest, the flag
+    // has an owner and this gate has one answer.
+    // Both sides absent is not a match: an unstamped flag on a device with no account recorded
+    // reads null === null, which is how "nobody owns this" turned back into "on" in testing.
+    const owner = localStorage.getItem(REST_ALERTS_OWNER_STORE);
+    return !!owner && owner === device;
   } catch (e) { return false; }
 }
 
 // The account this device belongs to right now. '' before the first login on a fresh browser.
 function restAlertsDeviceAccount() {
   try { return localStorage.getItem(LAST_ACCOUNT_STORE) || ''; } catch (e) { return ''; }
+}
+
+// ── AN UNSTAMPED FLAG IS THE BUG THE STAMP ITSELF CREATED (C19, 28 Aug 2026) ─────────────────────
+// The owner stamp shipped on the morning of 28 Aug and nothing ever wrote it for the flag that was
+// ALREADY on disk. Every device that had alerts on before that build carried `dlog_rest_alerts=1`
+// with no owner — and an unstamped flag is not this account's. Del saw it the same afternoon:
+// "Rest alerts: on", sign in to check E17, "Rest alerts: off". Logging in is what did it.
+//
+// So the flag is claimed at the account boundary, where the answer is known for certain:
+//   • the same account signing in again, or the first account this device has ever recorded
+//     → theirs, and that is Del's phone and Del's browser both.
+//   • a genuine switch → stamped to the account that is LEAVING. It is their preference and they
+//     are coming back for it; the arriving account must inherit nothing, which is the whole reason
+//     the stamp exists. Leaving it unstamped would have handed it to whoever signed in next.
+//
+// It never overwrites an existing stamp, and it never touches a flag that is off or absent: '0' is
+// a deliberate switch-off and has to stay one. An empty-string stamp counts as unstamped — that is
+// what enableRestAlerts() wrote on a device with no account recorded yet.
+function claimRestAlertsFlag(account) {
+  if (!account) return;
+  try {
+    if (localStorage.getItem(REST_ALERTS_STORE) !== '1') return;
+    if (localStorage.getItem(REST_ALERTS_OWNER_STORE)) return;
+    localStorage.setItem(REST_ALERTS_OWNER_STORE, account);
+  } catch (e) { /* storage disabled — the gate below answers no, and Settings still works */ }
 }
 
 // The applicationServerKey has to be raw bytes, and VAPID keys travel as base64url.
@@ -9116,6 +9152,19 @@ async function reconcileRestAlerts() {
     // Switched off ON PURPOSE by whoever is signed in now. Leave it off.
     if (localStorage.getItem(REST_ALERTS_STORE) === '0' &&
         localStorage.getItem(REST_ALERTS_OWNER_STORE) === device) return;
+    // ── THE LOCAL HALF, AND THE ONLY HALF A BROWSER WITHOUT PUSH EVER GETS (C19, 28 Aug 2026) ────
+    // claimRestAlertsFlag() runs at the account boundary, so it needs a login to fire — and the
+    // device this bug is sitting on may not log in again for weeks; its session just refreshes.
+    // This is the same claim, made at boot instead: an unstamped flag on a device whose recorded
+    // account is the one signed in now belongs to that account. Nothing else can have written it,
+    // because a switch stamps the outgoing account on the way past.
+    //
+    // Synchronous, before the network: paintRestAlertsButton() has already run on Home by the time
+    // this is called, so the repaint below is what turns the label back to "on", with no round trip
+    // and no subscription needed. That matters — the desktop browser has no push_subscriptions row
+    // at all, so the rescue underneath returns at `if (!sub)` and would have left the flag orphaned.
+    claimRestAlertsFlag(device);
+    if (restAlertsOn()) { paintRestAlertsButton(); return; }
     const reg = await navigator.serviceWorker.getRegistration();
     if (!reg || !reg.pushManager) return;
     const sub = await reg.pushManager.getSubscription();
