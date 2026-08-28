@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1519';
+const APP_BUILD = '2026-08-28-1527';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3251,6 +3251,13 @@ async function loadHomePage() {
 
   const buildTag = document.getElementById('build-tag');
   if (buildTag) buildTag.textContent = `build ${APP_BUILD}`;
+
+  // ── CLAIM BEFORE THE FIRST PAINT, NOT A FRAME AFTER IT (28 Aug 2026) ─────────────────────────
+  // reconcileRestAlerts() below makes this same claim, but it is async and lands AFTER the button
+  // has already been painted from the unclaimed flag: the label rendered "Rest alerts: off" and
+  // flipped to "on" a beat later, on every launch until the stamp was written. Del watched it do
+  // exactly that. The claim is local and synchronous, so it belongs above the paint, not below it.
+  claimRestAlertsFlag(restAlertsDeviceAccount());
 
   // Reads localStorage and Notification.permission only — no network, so the label is honest even
   // on gym Wi-Fi that can't reach Supabase, and it corrects itself if permission was revoked in
@@ -9184,10 +9191,11 @@ async function reconcileRestAlerts() {
     // account is the one signed in now belongs to that account. Nothing else can have written it,
     // because a switch stamps the outgoing account on the way past.
     //
-    // Synchronous, before the network: paintRestAlertsButton() has already run on Home by the time
-    // this is called, so the repaint below is what turns the label back to "on", with no round trip
-    // and no subscription needed. That matters — the desktop browser has no push_subscriptions row
-    // at all, so the rescue underneath returns at `if (!sub)` and would have left the flag orphaned.
+    // Home now claims BEFORE its first paint, so on that path this call is already a no-op and the
+    // repaint below never fires — which is the point: no visible off-to-on flip. It stays here for
+    // every other entry point into this function, and because the claim has to happen whether or not
+    // the rescue underneath can run. That matters — the desktop browser has no push_subscriptions
+    // row at all, so the rescue returns at `if (!sub)` and would leave the flag orphaned.
     claimRestAlertsFlag(device);
     if (restAlertsOn()) { paintRestAlertsButton(); return; }
     const reg = await navigator.serviceWorker.getRegistration();
