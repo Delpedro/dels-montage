@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1538';
+const APP_BUILD = '2026-08-28-1612';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3284,50 +3284,51 @@ async function loadHomePage() {
   paintRestAlertsButton();
   document.getElementById('landing-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  try {
-    // One quote a day, not one a page load. A fresh random pick every time Home rendered meant the
-    // line changed on every refresh and every tap back from another tab — motion with no meaning
-    // behind it. `order=id` pins the list order too, so the row PostgREST happens to return first
-    // can't shuffle the choice underneath the date.
-    const quotes = await sb(`quotes?select=quote,author&order=id`);
-    if (quotes && quotes.length > 0) {
-      const q = quotes[dayIndex(quotes.length)];
-      document.getElementById('quote-text').textContent = `"${q.quote}"`;
-      document.getElementById('quote-author').textContent = q.author ? `— ${q.author}` : '';
-      document.getElementById('daily-quote').style.display = '';
-    }
-  } catch(e) {}
-
   const buildTag = document.getElementById('build-tag');
   if (buildTag) buildTag.textContent = `build ${APP_BUILD}`;
 
-  // Then ask the server whether the label it just painted is out of date — un-awaited, and the only
-  // thing that gets an already-wiped phone alerting again. See reconcileRestAlerts().
+  // ── EVERYTHING BETWEEN HERE AND THE await IS FIRE-AND-FORGET (E19, 28 August 2026) ───────────
+  // Del: "the home page opens a little slow now, like a jump on the screen... it just doesnt open
+  // like a real app - its not smooth". One Home open used to cost THREE sequential waves of
+  // requests, and the first of the three was the daily quote: a decorative line of text was awaited
+  // before a single number below it had even been asked for. Nothing on this screen depends on
+  // anything else on this screen, so nothing here waits for anything else — each tile paints when
+  // its own answer lands, into space the CSS has already reserved for it (see .daily-quote's
+  // min-height, .next-up.is-pending, and the week-strip skeleton in index.html).
+  renderDailyQuote();
+
+  // Ask the server whether the label painted above is out of date — the only thing that gets an
+  // already-wiped phone alerting again. See reconcileRestAlerts().
   reconcileRestAlerts();
 
-  // Before the awaits below — this one needs no network, so it still appears on gym Wi-Fi that
-  // can't reach Supabase, which is the trip most likely to be far from the PC that runs the other
-  // half of the backup. syncBackupState() then repaints it once the account-wide value arrives,
-  // deliberately un-awaited so a slow network can't hold up the rest of Home.
+  // renderBackupPrompt() needs no network, so it still appears on gym Wi-Fi that can't reach
+  // Supabase — the trip most likely to be far from the PC that runs the other half of the backup.
+  // syncBackupState() then repaints it once the account-wide value arrives.
   renderBackupPrompt();
   syncBackupState();
-
-  // Un-awaited for the same reason as syncBackupState() above — it is a network read and Home must
-  // not sit blank behind it.
   renderNextUp();
 
-  const [latest, todayLog, weekWorkouts] = await Promise.all([
-    sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),
-    sb(`daily_logs?date=eq.${todayStr()}&select=steps`),
-    // Empty rows have to be filtered out, not just counted — see realWorkoutsBetween()
-    realWorkoutsBetween(getWeekStart())
-  ]);
+  // The window is arithmetic on today's date, not a query, so its heading is printed BEFORE the
+  // wait rather than after it. It used to sit below the fetch it labels, for no reason but the
+  // order it was written in, which made a caption with no network cost arrive on network time.
+  const win = sevenDayWindow();
 
-  if (latest && latest[0]?.weight_kg) {
-    document.getElementById('home-weight').textContent = latest[0].weight_kg;
-  }
-  document.getElementById('home-sessions').textContent = weekWorkouts.length;
+  // Name the dates on screen (19 Aug 2026). Two averages labelled "7 days" that were computed over
+  // different windows is how this drifted apart the first time; a heading that says which seven days
+  // it means costs nothing and makes the next drift visible instead of mysterious.
+  const winLabel = document.getElementById('home-avg-window');
+  if (winLabel) winLabel.textContent = `Last 7 days · ${win.label}`;
 
+  // ── ONE WAVE, NOT THREE (E19) ────────────────────────────────────────────────────────────────
+  // These three reads are independent of one another and always were; the seven-day window and the
+  // week strip simply sat UNDERNEATH the first batch in the source, and `await` turns "written
+  // second" into "sent second". Three round trips deep became one, which on a phone is the whole
+  // difference between a page assembling itself in front of you and a page arriving.
+  //
+  // The `daily_logs?date=eq.today&select=steps` request that used to be the second entry here is
+  // gone: nothing read its result. It had been dead since the 14 Aug rewrite moved AVG STEPS onto
+  // the rolling window below, and it cost a round trip on every Home open in the fortnight since.
+  //
   // ── ONE WINDOW, ONE REQUEST (14 Aug 2026) ────────────────────────────────────────────────────
   // Steps averaged over the rolling last 7 days while weight and calories averaged over Mon–today,
   // so Home and Stats printed different average calories on the same morning and there was no way
@@ -3335,21 +3336,23 @@ async function loadHomePage() {
   // which is what Stats has always used and the more useful of the two anyway: on a Monday, "this
   // week" is one day, and one breakfast is not an average. The two `sessions this week` tiles are
   // untouched — those are genuinely Mon-anchored (getWeekStart) on both screens and always agreed.
-  // Also one request instead of two, which matters on gym Wi-Fi more than it looks.
   //
   // 19 Aug 2026: the window itself moved into sevenDayWindow(), shared with Stats, because it was
   // still an EIGHT-day window wearing a "7 days" label — and AVG STEPS moved down into this block
   // in index.html. It had always been averaged over exactly these seven days, but it sat in the row
   // above with CURRENT KG and SESSIONS THIS WEEK, under no heading, so it read as a weekly figure
   // and looked like it disagreed with the Stats week card. Same number, correct neighbours.
-  const win = sevenDayWindow();
-  const weekLogs = await sb(`daily_logs?date=gte.${win.from}&select=steps,weight_kg,calories`);
+  const [latest, weekWorkouts, weekLogs] = await Promise.all([
+    sb(`daily_logs?order=date.desc&limit=1&select=weight_kg`),
+    // Empty rows have to be filtered out, not just counted — see realWorkoutsBetween()
+    realWorkoutsBetween(getWeekStart()),
+    sb(`daily_logs?date=gte.${win.from}&select=steps,weight_kg,calories`)
+  ]);
 
-  // Name the dates on screen (19 Aug 2026). Two averages labelled "7 days" that were computed over
-  // different windows is how this drifted apart the first time; a heading that says which seven days
-  // it means costs nothing and makes the next drift visible instead of mysterious.
-  const winLabel = document.getElementById('home-avg-window');
-  if (winLabel) winLabel.textContent = `Last 7 days · ${win.label}`;
+  if (latest && latest[0]?.weight_kg) {
+    document.getElementById('home-weight').textContent = latest[0].weight_kg;
+  }
+  document.getElementById('home-sessions').textContent = weekWorkouts.length;
 
   // `!= null` — a recorded 0 belongs in the average (you walked nothing that day); only a day with
   // no reading at all should be left out of it.
@@ -3364,8 +3367,33 @@ async function loadHomePage() {
   document.getElementById('home-avg-weight').textContent = avgWeight ?? '--';
   document.getElementById('home-avg-cals').textContent = avgCals ? avgCals.toLocaleString() : '--';
 
-  // Always rebuild — buildWeekStrip clears innerHTML first, so no risk of duplicates
-  buildWeekStrip('home-week-strip');
+  // Always rebuild — buildWeekStrip clears innerHTML first, so no risk of duplicates. It is handed
+  // the rows rather than fetching its own: `sessions this week` above and the strip below are the
+  // same question about the same week asked twice, and the strip's copy was the LAST request Home
+  // made — so the bottom of the page moved once everything above it had already settled.
+  buildWeekStrip('home-week-strip', weekWorkouts);
+}
+
+// The line under the date. Its own function, and un-awaited, since E19 — it used to be the first
+// `await` in loadHomePage(), which put a decorative quotation on the critical path ahead of every
+// number on the screen. Nothing waits for it now, and it paints into a box that is already the
+// right height, so a slow answer costs nothing and a missing one costs nothing either.
+//
+// One quote a day, not one a page load. A fresh random pick every time Home rendered meant the line
+// changed on every refresh and every tap back from another tab — motion with no meaning behind it.
+// `order=id` pins the list order too, so the row PostgREST happens to return first can't shuffle the
+// choice underneath the date.
+async function renderDailyQuote() {
+  try {
+    const quotes = await sb(`quotes?select=quote,author&order=id`);
+    if (!quotes || !quotes.length) return;
+    const q = quotes[dayIndex(quotes.length)];
+    document.getElementById('quote-text').textContent = `"${q.quote}"`;
+    document.getElementById('quote-author').textContent = q.author ? `— ${q.author}` : '';
+    // The block is in the layout from the first frame (min-height in the CSS); this only makes it
+    // visible. `is-pending` is an invisible-but-reserved state, not a hidden one.
+    document.getElementById('daily-quote').classList.remove('is-pending');
+  } catch(e) {}
 }
 
 // Workouts in a date range that actually record something — the same definition History uses.
@@ -3459,7 +3487,12 @@ function weekIndex(d) {
 }
 
 // ─── WEEK STRIP ───────────────────────────────────────────
-async function buildWeekStrip(containerId = 'home-week-strip') {
+// `rows`, when given, are workouts already fetched for this week by the caller — Home has them in
+// hand from its own `sessions this week` read, and asking the same question twice made the strip the
+// last thing on the page to settle (E19). Passed rows are used exactly as fetched; only a caller
+// with none pays for the request. They must come from realWorkoutsBetween(), i.e. already filtered
+// to sessions with something in them — see workoutRowHasContent().
+async function buildWeekStrip(containerId = 'home-week-strip', rows = null) {
   // Mon–Sun, matching getWeekStart() — the strip used to run Sun–Sat, so it disagreed with
   // every other "this week" in the app about which days counted.
   const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -3476,7 +3509,7 @@ async function buildWeekStrip(containerId = 'home-week-strip') {
   }
 
   // Real sessions only — an abandoned row would otherwise paint a day green with nothing logged on it
-  const workouts = await realWorkoutsBetween(weekDates[0], weekDates[6]);
+  const workouts = rows || await realWorkoutsBetween(weekDates[0], weekDates[6]);
   strip.innerHTML = '';  // Clear AFTER fetch — prevents race between concurrent calls
   const byDate = {};
   (workouts || []).forEach(w => { (byDate[w.date] ||= []).push(sessionDisplayName(w.session_type)); });
@@ -3616,7 +3649,11 @@ let nextUpSession = null;
 async function renderNextUp() {
   const card = document.getElementById('next-up');
   if (!card) return;
-  const hide = () => { nextUpSession = null; card.style.display = 'none'; };
+  // `is-pending` is the reserved-but-invisible state the card starts in (E19) — it holds the card's
+  // own height open so the stats below it don't get shoved down when this lands. Hiding has to drop
+  // it as well as setting display:none, or an account with no history keeps a blank card's worth of
+  // space for nothing.
+  const hide = () => { nextUpSession = null; card.classList.remove('is-pending'); card.style.display = 'none'; };
 
   // Same "real workout" test realWorkoutsBetween() uses, and for the same reason: a workouts row
   // exists from the moment a tile is tapped. completed_at sorts nullsfirst on a desc order in

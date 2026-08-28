@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-28-1538">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-28-1612">
 
   <!-- ── D-LOG MUST NEVER RENDER UNSTYLED (28 Aug 2026) ────────────────────────────────────────
        Del opened the app one minute after a push on 28 Aug and got a page of raw serif text. The
@@ -207,7 +207,12 @@
          renders per-user data; an unreplaced placeholder is indistinguishable from a data leak. -->
     <div class="landing-greeting" id="landing-greeting"></div>
     <div class="landing-date" id="landing-date"></div>
-    <div class="daily-quote" id="daily-quote" style="display:none;">
+    <!-- In the layout from the first frame, invisible until the quote lands (E19, 28 Aug 2026).
+         It used to be display:none and was shown by the fetch that filled it, so every Home open
+         pushed everything below it down by a line or two the moment the quote arrived — and the
+         quote was the FIRST thing Home waited for. `is-pending` hides it without taking it out of
+         the flow, and .daily-quote reserves two lines whether or not the fetch ever answers. -->
+    <div class="daily-quote is-pending" id="daily-quote">
       <span class="quote-text" id="quote-text"></span>
       <span class="quote-author" id="quote-author"></span>
     </div>
@@ -217,7 +222,10 @@
          and a button, and it comes out at roughly half what the stacked version measured.
          next-up-go is a SPAN, deliberately: the whole card is the click target, and a real <button>
          inside it would bubble its own click into startNextSession() as well. -->
-    <div class="next-up" id="next-up" onclick="startNextSession()">
+    <!-- `is-pending` (E19): the card is laid out and invisible rather than display:none, so the
+         two stat tiles under it don't get shoved down a card's height when renderNextUp() lands.
+         The height is the real card's, not a guessed number — see the CSS. -->
+    <div class="next-up is-pending" id="next-up" onclick="startNextSession()">
       <div class="next-up-main">
         <div class="next-up-text">
           <div class="next-up-name" id="next-up-name"></div>
@@ -251,7 +259,21 @@
         <div class="landing-stat-label">avg steps</div>
       </div>
     </div>
-    <div class="week-strip" id="home-week-strip"></div>
+    <!-- Seven empty days, in the markup (E19, 28 Aug 2026). buildWeekStrip() replaces the lot the
+         moment it has the week's workouts, but until then this is what holds the bottom half of
+         Home still: the strip used to be an empty div, so it had NO height at all and everything
+         below it jumped up a row's worth when the last request on the page finally answered.
+         Not placeholder data — Mon–Sun is the same for everyone and a grey dot is the untrained
+         state, which is the honest thing to show before the answer arrives. -->
+    <div class="week-strip" id="home-week-strip">
+      <div class="week-day"><div class="wd-name">Mon</div><div class="wd-dot"></div></div>
+      <div class="week-day"><div class="wd-name">Tue</div><div class="wd-dot"></div></div>
+      <div class="week-day"><div class="wd-name">Wed</div><div class="wd-dot"></div></div>
+      <div class="week-day"><div class="wd-name">Thu</div><div class="wd-dot"></div></div>
+      <div class="week-day"><div class="wd-name">Fri</div><div class="wd-dot"></div></div>
+      <div class="week-day"><div class="wd-name">Sat</div><div class="wd-dot"></div></div>
+      <div class="week-day"><div class="wd-name">Sun</div><div class="wd-dot"></div></div>
+    </div>
     <!-- Only visible when the last export is over a week old. The whole line is the button. -->
     <div class="backup-nudge" id="backup-nudge" onclick="exportAllData()"></div>
     <div class="landing-actions">
@@ -895,6 +917,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-28-1538"></script>
+<script src="js/app.js?v=2026-08-28-1612"></script>
 </body>
 </html>

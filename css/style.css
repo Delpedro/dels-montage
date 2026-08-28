@@ -382,6 +382,16 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
    rather than 34: at 34 it was the largest thing on Home, which is a lot of shout for a card whose
    job is "tap here". `.next-up-go` only LOOKS like a button — the card owns the click. */
 .next-up { display: none; position: relative; overflow: hidden; background: var(--sc-bg); border: 1px solid var(--sc-bd); border-radius: 12px; padding: 0.625rem 0.75rem 0.625rem 1.125rem; margin-bottom: 1.25rem; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* RESERVED, NOT HIDDEN (E19, 28 Aug 2026). renderNextUp() is a network read and the card sits above
+   the stat tiles, so display:none until it answered meant Home painted, then shoved its own middle
+   down by a card. `is-pending` lays the card out and paints nothing: visibility:hidden also takes
+   the taps, and renderNextUp() drops the class whichever way it goes — a real card on one side,
+   display:none on the other. The height is the real card's rather than a magic number, because the
+   two empty lines below give the name and sub-line their true line boxes at their true font sizes;
+   `.next-up-go` already carries "Start →" in the markup and measures itself. */
+.next-up.is-pending { display: block; visibility: hidden; }
+.next-up.is-pending .next-up-name::before,
+.next-up.is-pending .next-up-sub::before { content: '\00a0'; }
 .next-up::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--sc); }
 .next-up:active { filter: brightness(1.35); }
 .next-up-main { display: flex; align-items: center; gap: 12px; }
@@ -393,8 +403,17 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 /* One line under the greeting, not a card (19 Aug 2026). As a bordered tile with an accent rail it
    read as something to act on and sat directly above Next up, which is the only thing on Home that
    actually wants tapping. Empty until the quote loads, so a failed fetch leaves nothing rather than
-   a stuck "Loading..." — and no gap either, since the block stays display:none until then. */
-.daily-quote { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin: -0.5rem 0 1.25rem; }
+   a stuck "Loading...".
+   min-height is 3em against a line-height of 1.5, i.e. exactly TWO lines, and it is deliberately a
+   floor and not a fixed height (E19, 28 Aug 2026). Of the 23 quotes, half fit one line on a phone
+   and half take two, and the longest takes three — so two lines is the height that costs nothing on
+   most days, and a quote that runs over is allowed to run over rather than being clipped. Before
+   this the block had no height at all until the fetch answered, and the answer arriving pushed the
+   whole page down. A failed fetch now leaves two lines of nothing, which is the price of the page
+   not moving: a stable gap beats a jump. */
+.daily-quote { font-size: 12.5px; line-height: 1.5; min-height: 3em; color: var(--muted); margin: -0.5rem 0 1.25rem; }
+/* Laid out, painting nothing, until renderDailyQuote() drops the class. */
+.daily-quote.is-pending { visibility: hidden; }
 .quote-text { font-style: italic; }
 .quote-author { color: var(--muted2); white-space: nowrap; margin-left: 4px; }
 .landing-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 1.25rem; }
