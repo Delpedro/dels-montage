@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1504';
+const APP_BUILD = '2026-08-28-1519';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -9092,7 +9092,15 @@ async function enableRestAlerts() {
   if (permission !== 'granted') {
     // iOS only shows the system prompt once ever. After a refusal the only way back is Settings, so
     // say that rather than letting a second tap look broken.
-    showToast('Notifications are off — turn them on in iPhone Settings › D-LOG', 'error');
+    // ── AND NAME THE RIGHT SETTINGS (28 Aug 2026) ────────────────────────────────────────────────
+    // Del tapped this on the PC and was told to go to iPhone Settings. Right on the phone, nonsense
+    // on a laptop, and it reads as the app being broken rather than as the browser having said no.
+    // iOS is the only platform with the one-prompt-ever rule, so it is the only one that earns the
+    // specific instruction; everywhere else the block is per-site and lives in the browser.
+    const onIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    showToast(onIOS ? 'Notifications are off — turn them on in iPhone Settings › D-LOG'
+                    : 'Notifications are blocked for this site — allow them in your browser', 'error');
     return false;
   }
 
@@ -9111,8 +9119,25 @@ async function enableRestAlerts() {
       auth: b64FromBuffer(sub.getKey('auth')),
       user_agent: navigator.userAgent.slice(0, 300),
     };
+    // ── ONE ROW PER PERSON PER DEVICE, AND NO SHARED CONFLICT TARGET (C20, 28 Aug 2026) ──────────
+    // This was one upsert on `?on_conflict=endpoint`, and it is why Charlie could not switch rest
+    // alerts on at all on Del's phone: "Couldn't save the subscription (403)". The endpoint belongs
+    // to the INSTALL, not to the account — the same phone hands the same URL to whoever is signed in
+    // — so the upsert resolved to ON CONFLICT DO UPDATE against a row owned by Del, and
+    // push_subscriptions_update_own (`auth.uid() = user_id`) refused it. PostgREST answers 403, and
+    // there was no way round it from the app: the row blocking them is a row RLS also hides.
+    //
+    // The primary key is (user_id, endpoint) now — migration 20260828160000, proven in a rolled-back
+    // transaction with Charlie's claims set — so there is a row each and nothing to conflict on.
+    //
+    // Delete-then-insert rather than an upsert, deliberately. Both statements are RLS-scoped to the
+    // caller's own row, so neither can reach anyone else's however the keys change later, and there
+    // is no conflict target to keep in step with the constraint. The DELETE clears this account's
+    // own stale keys for this device — a re-subscribe rotates p256dh and auth — and matches nothing
+    // on a first subscribe, which is not a failure and is not reported as one.
+    await sb(`push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}`, 'DELETE', null, { quiet: true });
     // user_id defaults to auth.uid(), same as profiles — the client never says whose row this is.
-    const res = await sb('push_subscriptions?on_conflict=endpoint', 'POST', row, { upsert: true, quiet: true });
+    const res = await sb('push_subscriptions', 'POST', row, { quiet: true });
     if (!res.ok) {
       showToast(`Couldn't save the subscription (${res.status})`, 'error');
       return false;

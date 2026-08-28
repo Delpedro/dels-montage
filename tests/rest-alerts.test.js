@@ -276,6 +276,108 @@ const app = load({
   await boot.reconcileRestAlerts();
   eq(boot.restAlertsOn(), false, 'an unstamped off is not read as an unclaimed on');
 
+  // ── 6. A SECOND PERSON ON THE SAME PHONE CAN SWITCH ALERTS ON (C20, 28 Aug 2026) ─────────
+  // Charlie tapped Rest alerts on Del's iPhone and got "Couldn't save the subscription (403)". The
+  // endpoint belongs to the install, not the account, so the upsert on `?on_conflict=endpoint`
+  // resolved to ON CONFLICT DO UPDATE against Del's row — and push_subscriptions_update_own refuses
+  // it. There was no way round it from the app: the row in the way is one RLS also hides.
+  //
+  // The key is (user_id, endpoint) now and this is a delete-then-insert. What the test pins is the
+  // shape of the two requests, because that is the whole fix: an upsert creeping back in here is the
+  // 403 coming back with it.
+  {
+    const requests = [];
+    let permission6 = 'granted';
+    let postStatus = 200;
+    const toasts = [];
+    let painted6 = 0;
+
+    const mountEnable = (userAgent, platform, touch) => load({
+      functions: ['enableRestAlerts', 'pushSupported', 'urlB64ToUint8Array', 'b64FromBuffer',
+                  'restAlertsDeviceAccount'],
+      decls: ['VAPID_PUBLIC_KEY', 'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'LAST_ACCOUNT_STORE'],
+      deps: {
+        atob: (b64) => Buffer.from(b64, 'base64').toString('binary'),
+        btoa: (bin) => Buffer.from(bin, 'binary').toString('base64'),
+        window: { PushManager: function () {}, Notification: function () {} },
+        get Notification() {
+          return { get permission() { return permission6; }, requestPermission: async () => permission6 };
+        },
+        localStorage: {
+          getItem: (k) => (k in store ? store[k] : null),
+          setItem: (k, v) => { store[k] = String(v); },
+          removeItem: (k) => { delete store[k]; },
+        },
+        navigator: {
+          userAgent, platform, maxTouchPoints: touch,
+          serviceWorker: {
+            ready: Promise.resolve({
+              pushManager: {
+                getSubscription: async () => ({
+                  endpoint: 'https://web.push.apple.com/abc',
+                  getKey: () => new Uint8Array([1, 2, 3]).buffer,
+                }),
+              },
+            }),
+          },
+        },
+        sb: async (path, method, body, opts) => {
+          requests.push({ path, method, opts });
+          return { ok: method === 'POST' ? postStatus === 200 : true, status: method === 'POST' ? postStatus : 204 };
+        },
+        showToast: (msg, type) => toasts.push({ msg, type }),
+        paintRestAlertsButton: () => { painted6++; },
+      },
+    });
+
+    const iphone = mountEnable('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', 'iPhone', 5);
+
+    for (const k of Object.keys(store)) delete store[k];
+    store['dlog_last_account'] = 'ctrlaltdelboy25@gmail.com';   // Charlie, on Del's phone
+    requests.length = 0;
+
+    const okd = await iphone.enableRestAlerts();
+    eq(okd, true, 'the second account on the phone can switch rest alerts on');
+    eq(requests.length, 2, 'two requests: clear my own row for this device, then insert it');
+    eq(requests[0].method, 'DELETE', 'the delete goes first');
+    ok(/^push_subscriptions\?endpoint=eq\./.test(requests[0].path),
+      'and is scoped to this device\'s endpoint — RLS scopes it to this account, so it cannot reach Del\'s row');
+    eq(requests[1].method, 'POST', 'then a plain insert');
+    eq(requests[1].path, 'push_subscriptions',
+      'with NO on_conflict target — the conflict against another account\'s row IS the 403');
+    ok(!requests[1].opts || !requests[1].opts.upsert,
+      'and no merge-duplicates header, for the same reason');
+    eq(store['dlog_rest_alerts'], '1', 'the flag goes on');
+    eq(store['dlog_rest_alerts_owner'], 'ctrlaltdelboy25@gmail.com', 'stamped to the account that asked for it');
+    ok(painted6 > 0, 'and the button repaints');
+
+    // A failed insert must not leave the app claiming alerts are on — that is the July cardio bug,
+    // where a write 400'd and the toast said success.
+    for (const k of Object.keys(store)) delete store[k];
+    store['dlog_last_account'] = 'del@example.com';
+    requests.length = 0;
+    toasts.length = 0;
+    postStatus = 403;
+    eq(await iphone.enableRestAlerts(), false, 'a refused insert reports failure');
+    eq(store['dlog_rest_alerts'], undefined, 'and does not switch the flag on behind a failure');
+    ok(/403/.test(toasts[toasts.length - 1].msg), 'the toast carries the status, which is what named this bug');
+    postStatus = 200;
+
+    // ── The copy on a refused permission. Del tapped this on the PC and was told to go to iPhone
+    //    Settings, which reads as the app being broken rather than the browser having said no. ──
+    permission6 = 'denied';
+    toasts.length = 0;
+    await iphone.enableRestAlerts();
+    ok(/iPhone Settings/.test(toasts[0].msg), 'on an iPhone it names iPhone Settings — iOS asks once, ever');
+
+    const desktop = mountEnable('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128', 'Win32', 0);
+    toasts.length = 0;
+    await desktop.enableRestAlerts();
+    ok(!/iPhone/.test(toasts[0].msg), 'on a PC it does not send him to iPhone Settings');
+    ok(/browser/.test(toasts[0].msg), 'it says the browser is blocking it, which is what actually happened');
+    permission6 = 'granted';
+  }
+
   console.log(`  ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });
