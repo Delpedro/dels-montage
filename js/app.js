@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1612';
+const APP_BUILD = '2026-08-28-1621';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -2348,6 +2348,9 @@ async function loadProfile() {
   const rows = await sb('profiles?select=*&limit=1');
   if (!rows || !rows[0]) return;   // not onboarded — the greeting drops the name, see getGreeting()
   PROFILE = rows[0];
+  // The server has just spoken, so this is the freshest the name ever gets. Written here and
+  // nowhere else on the read path: the next launch greets from it before it sends a request.
+  rememberDisplayName(PROFILE.display_name);
 }
 
 // ─── WHO IS THE OWNER OF THIS APP (E17, 28 Aug 2026) ──────
@@ -2959,6 +2962,10 @@ async function obFinish() {
     return;
   }
   PROFILE = { ...(PROFILE || {}), ...row };
+  // Also here, not only in loadProfile(): a name changed through "Your details" would otherwise
+  // leave the old one cached, and the next launch would greet with it for a moment before the
+  // profile read corrected it. A rename that flashes the previous name is its own small bug.
+  rememberDisplayName(row.display_name);
   markOnboarded();
   try { localStorage.removeItem(obDraftKey()); } catch (e) {}
   if (row.start_weight_kg !== null) await obSaveFirstWeighIn(row.start_weight_kg);
@@ -3177,32 +3184,65 @@ async function saveGoals() {
 // ─── INIT ─────────────────────────────────────────────────
 async function initApp(page = 'home') {
   document.getElementById('log-date').max = todayStr();
-  await autoCloseStaleWorkouts();  // Clean up orphans from >24hrs ago before rendering the session grid
-  await loadSessionTemplates();  // Fixed-session templates now live in Supabase, not a hardcoded array — must resolve before anything reads SESSIONS
+
+  // ── ONE WAVE, NOT FOUR (E19 follow-up, 28 August 2026) ───────────────────────────────────────
+  // Del: "the good afternoon del and the next up programme takes at least 2/3 seconds to load in".
+  //
+  // enterApp() has ALREADY revealed Home by the time this runs, so whatever this function waits for
+  // is time he spends looking at an empty page. It used to wait for four round trips one after the
+  // other — stale-workout housekeeping, then the templates, then the exercise library, then the
+  // profile — before it painted a greeting that needs one column of one row. Four sequential trips
+  // on a phone is precisely the two to three seconds he is describing, and none of the first three
+  // has anything to do with the words "Good afternoon, Del".
+  //
+  // Every read below is independent of every other one, so they all leave now and each `await`
+  // further down simply picks up whichever it needs. The dependency ORDER is unchanged — templates
+  // still resolve before anything reads SESSIONS, the library is still built before the logger can
+  // open — but the total wait is the slowest single read instead of the sum of all of them.
+  const templatesReady = loadSessionTemplates();
+  // Both before the build, and together rather than one after the other. The catalogue is what a
+  // brand-new account's picker is made of, so it cannot be a background read the way
+  // loadCustomExercises() is: the dropdown would be empty for the first second of the first session
+  // anyone ever logs.
+  const libraryReady = Promise.all([loadExerciseIds(), loadExerciseCatalogue()]);
+  // Two independent single-row reads. Both must resolve before showPage(): loadHomePage prints the
+  // greeting, and renderCheckinSummary/loadHistory judge macros against the targets.
+  const profileReady = loadProfile();
+  const goalsReady = loadGoals();
+  // Next up's own read, fired HERE rather than from inside renderNextUp() at the far end of the
+  // boot — it was a whole extra round trip queued behind everything above it, which is the other
+  // half of what Del named. Only when Home is the page being opened: see takeBootNextUpRows() for
+  // why rows fetched at boot must never be handed to a Home opened later in the session.
+  if (page === 'home') bootNextUpRows = fetchNextUpRows();
+
+  // Housekeeping on workout rows more than 24 hours old, and NOT awaited any more. It was the first
+  // thing the app did and the first thing everything else queued behind, to tidy rows that have
+  // been sitting there since yesterday and can go on sitting there another second. Nothing painted
+  // on any screen depends on its result.
+  autoCloseStaleWorkouts();
+
+  // THE GREETING, BEFORE A SINGLE REQUEST. getGreeting() falls back to the name this account last
+  // used on this device, so on every launch after the first it is on screen in the same frame Home
+  // is revealed in. Painted again below once the profile lands, in case the server disagrees.
+  paintGreeting();
+
+  await templatesReady;
   // Starts the freshness clock, so restoring straight onto the Workout tab (sessionStorage remembers
   // the last page) does not fire a second read of what we just read. See refreshSessionTemplates().
   lastTemplateRefresh = Date.now();
   // Before the build, not after: buildExerciseLibrary() folds EXERCISE_VARIATIONS in, and every
   // workout_sets write consults EXERCISE_IDS — the logger can open the moment initApp returns.
-  // Both before the build, and together rather than one after the other — this runs on every app
-  // start, sometimes on a gym connection. The catalogue is what a brand-new account's picker is
-  // made of, so it cannot be a background read the way loadCustomExercises() is: the dropdown would
-  // be empty for the first second of the first session anyone ever logs.
-  await Promise.all([loadExerciseIds(), loadExerciseCatalogue()]);
+  await libraryReady;
   EXERCISE_LIBRARY = buildExerciseLibrary();
   loadCustomExercises();  // Merges into EXERCISE_LIBRARY in the background — Open Workout dropdown reads it lazily
-  // Two independent single-row reads, so they go together rather than one after the other — this
-  // runs on every app start, sometimes on a gym connection. Both must resolve before showPage():
-  // loadHomePage prints the greeting, and renderCheckinSummary/loadHistory judge macros against
-  // the targets.
-  await Promise.all([loadProfile(), loadGoals()]);
+
+  await Promise.all([profileReady, goalsReady]);
   buildSessionGrid();
   renderCheckinSummary();
   // Before showPage(), not inside it. loadHomePage() sets this too, but it is async and the
   // onboarding overlay opens immediately after — so on a brand-new account an unpainted greeting is
   // what they look at for the whole eight-step form.
-  const greet = document.getElementById('landing-greeting');
-  if (greet) greet.textContent = getGreeting();
+  paintGreeting();
   showPage(page);
   // Last, and after showPage() on purpose: the overlay opens over an app that has already painted,
   // so finishing the form reveals a Home that is ready rather than a blank frame. See
@@ -3263,8 +3303,47 @@ function dayIndex(len) {
 function getGreeting() {
   const h = new Date().getHours();
   const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  const name = (PROFILE.display_name || '').trim();
+  // PROFILE first, the remembered name second (E19 follow-up, 28 Aug 2026). Del: "the good
+  // afternoon del and the next up programme takes at least 2/3 seconds to load in". His name is
+  // one column of one row, and it was arriving four round trips into the boot — so the first thing
+  // on the screen was the last thing to appear. It does not change, so there is nothing to wait
+  // for: the cache paints it before a single request is sent, and the profile read overwrites it
+  // a moment later with whatever the server says.
+  const name = (PROFILE.display_name || cachedDisplayName() || '').trim();
   return name ? `${part}, ${name}` : part;
+}
+
+// ── THE REMEMBERED NAME IS KEYED ON THE ACCOUNT, AND THAT IS THE WHOLE SAFETY OF IT ──────────────
+// A cached greeting is one careless key away from the 25 Aug bug in enterApp()'s comment — a
+// brand-new account greeted "Good afternoon, Del". So this is scoped exactly like onboardedKey()
+// and obDraftKey(): the signed-in email is IN the key, so another account cannot read this one's
+// name, it simply finds nothing and greets without a name until its own profile lands. Combined
+// with pageHasServedASession forcing a reload between accounts, authSession is always the right
+// account by the time anything here runs.
+function cachedNameKey() {
+  return `dlog_name:${authSession?.email || ''}`;
+}
+
+function cachedDisplayName() {
+  try { return localStorage.getItem(cachedNameKey()) || ''; } catch (e) { return ''; }
+}
+
+// Called wherever the display name becomes known — the profile read on every launch, and the
+// onboarding form when it is edited. An empty name CLEARS the entry rather than leaving the old
+// one behind: someone who blanks their name must not keep being greeted by it.
+function rememberDisplayName(name) {
+  try {
+    const key = cachedNameKey();
+    const clean = (name || '').trim();
+    if (clean) localStorage.setItem(key, clean); else localStorage.removeItem(key);
+  } catch (e) {}
+}
+
+// Paints the greeting from whatever is known right now. Cheap, synchronous and safe to call as
+// often as the answer might have changed — at boot from the cache, and again when the profile lands.
+function paintGreeting() {
+  const greet = document.getElementById('landing-greeting');
+  if (greet) greet.textContent = getGreeting();
 }
 
 // ─── LANDING PAGE ─────────────────────────────────────────
@@ -3640,6 +3719,28 @@ function nextInRotation(recent, sessions = SESSIONS, programmes = TRAINING_PROGR
 // The session the card is currently offering, so the tap handler doesn't recompute it.
 let nextUpSession = null;
 
+// The rows Next up reasons over. One function so the boot prefetch and renderNextUp() cannot drift
+// apart — a `select` that differed between the two would hand the card a row shape it silently
+// reads as empty. completed_at sorts nullsfirst on a desc order in PostgREST, which is what puts
+// today's in-progress session ahead of today's finished one.
+function fetchNextUpRows() {
+  return sb('workouts?select=session_type,date,notes,completed_at,workout_sets(id),cardio_logs(id)&order=date.desc,completed_at.desc&limit=20');
+}
+
+// ── THE BOOT PREFETCH IS ONE-SHOT, AND IT HAS TO BE (E19 follow-up, 28 Aug 2026) ─────────────────
+// initApp() fires this read at the same time as everything else so the card is not a round trip
+// behind the page it sits on. The rows are then a snapshot of the moment the app opened, so exactly
+// one render may use them: the first one. Take Home, train, come back to Home, and a reused
+// snapshot would offer the session that was just finished. Reading it clears it, and every later
+// render fetches fresh — which is what renderNextUp() did every time before this.
+let bootNextUpRows = null;
+
+function takeBootNextUpRows() {
+  const rows = bootNextUpRows;
+  bootNextUpRows = null;
+  return rows;
+}
+
 // Paints the card, or hides it. One request, deliberately not awaited by loadHomePage — a slow gym
 // connection must not hold the rest of Home behind it.
 //
@@ -3656,9 +3757,10 @@ async function renderNextUp() {
   const hide = () => { nextUpSession = null; card.classList.remove('is-pending'); card.style.display = 'none'; };
 
   // Same "real workout" test realWorkoutsBetween() uses, and for the same reason: a workouts row
-  // exists from the moment a tile is tapped. completed_at sorts nullsfirst on a desc order in
-  // PostgREST, which is what puts today's in-progress session ahead of today's finished one.
-  const rows = await sb('workouts?select=session_type,date,notes,completed_at,workout_sets(id),cardio_logs(id)&order=date.desc,completed_at.desc&limit=20') || [];
+  // exists from the moment a tile is tapped. On the first Home of the session these rows are already
+  // in flight — initApp() sent them with the rest of the boot rather than leaving the card to ask a
+  // round trip later. See takeBootNextUpRows() and fetchNextUpRows().
+  const rows = await (takeBootNextUpRows() || fetchNextUpRows()) || [];
   const recent = rows.filter(workoutRowHasContent);
 
   // `recent` answers "where am I in the rotation", which is a question only finished work can

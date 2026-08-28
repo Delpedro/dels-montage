@@ -114,8 +114,17 @@ const at = (type, date) => ({ session_type: type, date });
   const helper = src.slice(src.indexOf('function workoutRowHasContent'), src.indexOf('function draftHasContentFor'));
   ok(/workout_sets \|\| \[\]\)\.length > 0/.test(helper) && /cardio_logs \|\| \[\]\)\.length > 0/.test(helper) && /notes \|\| ''\)\.trim\(\) !== ''/.test(helper),
      'and that helper is still sets-or-cardio-or-notes');
-  ok(/order=date\.desc,completed_at\.desc/.test(fn),
+  // The query moved into fetchNextUpRows() on 28 Aug (E19 follow-up) so the boot prefetch and the
+  // card ask for exactly the same thing — a `select` that drifted between the two would hand the
+  // card a row shape it reads as empty. So the ordering is asserted where it now lives, and the
+  // card is asserted to go through that one function rather than carrying a second copy of it.
+  const rowsFn = src.slice(src.indexOf('function fetchNextUpRows'), src.indexOf('let bootNextUpRows'));
+  ok(/order=date\.desc,completed_at\.desc/.test(rowsFn),
      'and still asks for them newest-first, with an in-progress session ahead of a finished one');
+  ok(/takeBootNextUpRows\(\) \|\| fetchNextUpRows\(\)/.test(fn),
+     'the card takes the boot rows if they are there and fetches its own if they are not');
+  ok(!/workouts\?select=/.test(fn),
+     'and holds no second copy of the query to drift from the first');
   ok(/liveWorkoutRow\(rows, todayStr\(\)\)/.test(fn),
      'and asks liveWorkoutRow() which session is live rather than reading it off recent[0]');
 }

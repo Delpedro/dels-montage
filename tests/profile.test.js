@@ -37,17 +37,28 @@ function atHour(h) {
 
 function app(hour, sbImpl) {
   const calls = [];
+  // A fresh localStorage per harness. getGreeting() falls back to the name this account last used on
+  // this device (E19 follow-up, 28 Aug 2026 — the greeting was arriving four round trips into the
+  // boot), so the cache has to start EMPTY here or section 2's "no profile row" cases would be
+  // answered by a leftover name instead of by the absence of one.
+  const store = {};
   const deps = {
     Date: atHour(hour),
     sb: async (p, ...rest) => { calls.push(p); return sbImpl ? sbImpl(p, ...rest) : []; },
+    authSession: { email: 'test@example.com' },
+    localStorage: {
+      getItem: k => (k in store ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: k => { delete store[k]; },
+    },
   };
   const lifted = load({
     decls: ['PROFILE'],
-    functions: ['getGreeting', 'loadProfile'],
+    functions: ['getGreeting', 'loadProfile', 'cachedNameKey', 'cachedDisplayName', 'rememberDisplayName'],
     deps,
     accessors: { profile: '() => PROFILE', setProfile: 'p => { PROFILE = p; }' },
   });
-  return { ...lifted, calls };
+  return { ...lifted, calls, store };
 }
 
 console.log('Profiles — the app knows who is using it');
