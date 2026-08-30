@@ -1061,6 +1061,17 @@ mark.hl.on { background: var(--accent); color: #fff; }
 /* ─── SUPERSETS (11 Aug 2026) ─────────────────────────────── */
 /* The ⇄ button at the foot of each exercise block opens a picker of what to superset it with. */
 .ss-btn { display: block; width: 100%; margin-top: 6px; padding: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); background: none; border: 1px dashed var(--border2); border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+/* Move-an-exercise-today, 30 Aug 2026. The arrows share the tail row with ⇄ Superset rather than
+   going up into .ex-name-row, which already carries the name, the ✕ and the timer ring and is the
+   row whose controls were clipping against the card edge on 28 Aug.
+   Same dashed, muted treatment as the button beside them: this is a nudge, not a verdict, and it
+   takes no colour. A disabled arrow is dimmed rather than hidden, so the row never changes width
+   under your thumb as a block reaches the top or the bottom. */
+.ex-tail-row { display: flex; align-items: stretch; gap: 6px; }
+.ex-tail-row .ss-btn { flex: 1; }
+.ex-move-btn { flex: 0 0 38px; margin-top: 6px; padding: 7px 0; font-size: 13px; line-height: 1; color: var(--muted); background: none; border: 1px dashed var(--border2); border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+.ex-move-btn:active:not(:disabled) { border-style: solid; border-color: var(--accent); color: var(--accent); }
+.ex-move-btn:disabled { opacity: 0.3; cursor: default; }
 .ss-btn.active { color: var(--blue); border-style: solid; border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, transparent); }
 /* E18, 30 Aug 2026. The variations button sits directly under the superset one and shares its shape,
    so it must NOT share its colour: --blue has meant superset app-wide since 11 Aug, and two blue

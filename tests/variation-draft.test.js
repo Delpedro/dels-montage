@@ -122,7 +122,7 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
     functions: ['prevSetsForVariation', 'applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft', 'bwSyncAll',
                 'getSessionById'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets', 'pendingRest',
-            'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder',
+            'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder', 'sessionOrderToday',
             // saveDraft now stamps the draft with the live template (C13/C14) and reads it from here.
             'SESSIONS'],
     deps,

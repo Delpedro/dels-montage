@@ -195,7 +195,8 @@ console.log('  what saveDraft actually writes');
   const draft = load({
     functions: ['saveDraft', 'getSessionById'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets', 'pendingRest',
-            'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder', 'SESSIONS'],
+            'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder', 'sessionOrderToday',
+            'SESSIONS'],
     deps: {
       document: { getElementById: () => null, querySelectorAll: () => [] },
       localStorage: {

@@ -54,6 +54,10 @@ let freshTemplate = null;
 const app = load({
   functions: [
     'esc', 'jsAttr', 'exerciseAddOptionsHtml', 'templateAddExerciseOptionsHtml',
+    // unitsInOrder + moveUnitInOrder are the pure halves the ✎ editor now shares with the live
+    // logger (30 Aug 2026) — templateUnits() and moveTemplateExercise() are thin wrappers over them,
+    // so these cases are still asserting the editor's real behaviour.
+    'unitsInOrder', 'moveUnitInOrder',
     'activeTemplateGroups', 'templateGroupMap', 'templateGroupOf', 'templateUnits',
     'templateDisplayOrder', 'templateExerciseByName', 'pairTemplateSuperset', 'clearTemplateSuperset',
     'templateSupersetPickerHtml', 'addTemplateSupersetPartner', 'addTemplateExercise',

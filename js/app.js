@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-30-1148';
+const APP_BUILD = '2026-08-30-1206';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -605,6 +605,17 @@ let supersetGroups = [];
 // The exercise order with no supersets applied. What's displayed is derived from this plus the groups
 // (displayExerciseOrder), so unpairing always drops an exercise back where it started.
 let supersetBaseOrder = [];
+// TODAY'S ORDER, and null until the lifter actually moves something (30 Aug 2026).
+//
+// Del: "let's say I start upper a, and the 2nd exercise on the list is busy so I pick something else
+// on the list, need the ability to move that up so it's in sequence (but don't affect the template)."
+//
+// It has to be its own lane rather than riding on the draft's supersetBaseOrder, because
+// resolveBaseOrder() deliberately IGNORES that for a fixed session — the template outranks the draft
+// every time, which is the C12 fix and must stay. This is the opposite case and the distinction is
+// the whole design: a stale draft order must lose to the template, an order the lifter just dragged
+// into place must not. Null until touched, so a session nobody reorders behaves exactly as before.
+let sessionOrderToday = null;
 // Only write superset_group back to the DB on save if this workout ever had a link toggled/restored
 // — otherwise every ordinary save would fire pointless PATCHes over every set.
 let supersetsTouched = false;
@@ -4240,20 +4251,53 @@ function templateGroupOf(name) {
 // unit of one. Mirrors displayExerciseOrder() in the live logger — a pair that snaps together on
 // screen there has to stay together here, or the template shows an order the logger won't honour.
 function templateUnits() {
-  const groups = activeTemplateGroups();
+  return unitsInOrder(editingTemplateExercises.map(e => e.name), activeTemplateGroups());
+}
+
+// The same chunking, with the globals taken out: a base order plus its groups, cut into the things
+// ↑/↓ actually move. A superset is ONE unit, a solo exercise is a unit of one.
+//
+// Shared by the ✎ editor and the live logger since 30 Aug. They had been one function and a plan to
+// write a second one — and this file already has the lesson about that (see exerciseAddOptionsHtml:
+// "rather than drifting apart the way the two cardio renderers did"). A pair that snaps together on
+// screen has to stay together in both places, and that rule is now written once.
+function unitsInOrder(baseOrder, groups) {
+  const present = new Set(baseOrder || []);
+  const groupList = (groups || []).map(g => g.filter(n => present.has(n))).filter(g => g.length > 1);
   const groupOf = {};
-  groups.forEach((g, i) => g.forEach(n => { groupOf[n] = i; }));
+  groupList.forEach((g, i) => g.forEach(n => { groupOf[n] = i; }));
   const emitted = new Set();
   const units = [];
-  editingTemplateExercises.forEach(ex => {
-    if (emitted.has(ex.name)) return;
-    const gi = groupOf[ex.name];
-    if (gi === undefined) { units.push([ex.name]); emitted.add(ex.name); return; }
-    const unit = groups[gi].filter(n => !emitted.has(n));
+  (baseOrder || []).forEach(name => {
+    if (emitted.has(name)) return;
+    const gi = groupOf[name];
+    if (gi === undefined) { units.push([name]); emitted.add(name); return; }
+    const unit = groupList[gi].filter(n => !emitted.has(n));
     unit.forEach(n => emitted.add(n));
     units.push(unit);
   });
   return units;
+}
+
+// Swaps a unit with its neighbour and returns the NEW base order — pure, returns a fresh array, and
+// returns the order unchanged when there is nowhere to go.
+//
+// The swap writes the two units back into the slots those units already occupy, so every exercise not
+// involved keeps its base position and can still be unpaired back into it. Plain adjacent-swap was the
+// 14 Aug bug: nudging one half of a superset stepped it over its own partner, leaving the tag intact
+// and the rows split, and the logger would silently snap them back together anyway.
+function moveUnitInOrder(baseOrder, groups, name, dir) {
+  const order = [...(baseOrder || [])];
+  const units = unitsInOrder(order, groups);
+  const u = units.findIndex(unit => unit.includes(name));
+  const target = u + dir;
+  if (u < 0 || target < 0 || target >= units.length) return order;
+
+  const seq = dir < 0 ? [...units[u], ...units[target]] : [...units[target], ...units[u]];
+  const moving = new Set(seq);
+  const slots = order.reduce((acc, n, i) => (moving.has(n) ? [...acc, i] : acc), []);
+  slots.forEach((slot, k) => { order[slot] = seq[k]; });
+  return order;
 }
 
 // What the editor actually shows: base order, with each superset emitted whole at the earliest slot
@@ -4519,17 +4563,7 @@ function renderTemplateEditorRows() {
 // can still be unpaired back into it.
 function moveTemplateExercise(name, dir) {
   if (!templateExerciseByName(name)) return;
-  const units = templateUnits();
-  const u = units.findIndex(unit => unit.includes(name));
-  const target = u + dir;
-  if (u < 0 || target < 0 || target >= units.length) return;
-
-  const seq = dir < 0 ? [...units[u], ...units[target]] : [...units[target], ...units[u]];
-  const moving = new Set(seq);
-  const order = editingTemplateExercises.map(e => e.name);
-  const slots = order.reduce((acc, n, i) => (moving.has(n) ? [...acc, i] : acc), []);
-  slots.forEach((slot, k) => { order[slot] = seq[k]; });
-
+  const order = moveUnitInOrder(editingTemplateExercises.map(e => e.name), activeTemplateGroups(), name, dir);
   const byName = {};
   editingTemplateExercises.forEach(e => { byName[e.name] = e; });
   editingTemplateExercises = order.map(n => byName[n]).filter(Boolean);
@@ -4706,6 +4740,10 @@ async function saveSessionTemplate() {
       const y = window.scrollY;
       supersetGroups = [];
       supersetsTouched = false;
+      // A ✎ edit is the later deliberate act, so it outranks a move made earlier in the same
+      // session. Without this the order Del just saved would be silently overlaid by the one he
+      // nudged twenty minutes ago — C12 wearing the other coat.
+      sessionOrderToday = null;
       selectedSession = { ...fresh, exercises: fresh.exercises.map(e => ({ ...e })) };
       await buildWorkoutLogger(selectedSession);
       window.scrollTo(0, y);
@@ -4943,6 +4981,7 @@ async function beginWorkoutSession(session, openRowsPrefetch = null) {
   removedSessionExercises = [];
   supersetGroups = [];
   supersetBaseOrder = [];
+  sessionOrderToday = null;
   supersetsTouched = false;
   return true;
 }
@@ -5347,10 +5386,86 @@ function applySupersetOrder() {
       logger.insertBefore(blocks[i], blocks[i - 1].nextElementSibling);
     }
   }
+  // Every path that changes the order ends up here — a move, a pairing, an unpairing, a removal —
+  // so the arrows' own disabled state is refreshed in one place rather than at four call sites.
+  refreshMoveButtons();
 }
 
+// ── MOVING AN EXERCISE MID-SESSION (30 Aug 2026) ──────────────────────────────────────────────
+// The machine you wanted is busy, so you do the next one and come back. This puts the block where
+// you actually did it, and TOUCHES NOTHING PERMANENT: the template is not written, and the sets
+// already logged are not re-stamped — a set's place in history is its date and its own row, not the
+// order the blocks happen to sit in.
+//
+// It moves whole supersets, never one half of one, via the same moveUnitInOrder() the ✎ editor uses.
+//
+// applySupersetOrder() moves the existing DOM nodes instead of re-rendering, which is what makes this
+// safe to do mid-set: typed-but-unsaved weights, done state and a running rest timer all survive.
+function moveLoggerExercise(name, dir) {
+  if (!selectedSession || selectedSession.cardio) return;
+  const next = moveUnitInOrder(supersetBaseOrder, activeSupersetGroups(), name, dir);
+  if (next.join(' ') === supersetBaseOrder.join(' ')) return;   // already at the end
+  supersetBaseOrder = next;
+  sessionOrderToday = [...next];
+  applySupersetOrder();
+  saveDraft(selectedSession.id);
+}
+
+// The arrows live on blocks that applySupersetOrder() moves without re-rendering, so their own
+// disabled state is the one thing a move cannot fix by itself.
+function refreshMoveButtons() {
+  const units = unitsInOrder(supersetBaseOrder, activeSupersetGroups());
+  units.forEach((unit, i) => {
+    unit.forEach(n => {
+      const up = document.getElementById(`move-up-${n}`);
+      const down = document.getElementById(`move-down-${n}`);
+      if (up) up.disabled = i === 0;
+      if (down) down.disabled = i === units.length - 1;
+    });
+  });
+}
+
+// Today's order laid over the template's. Names the lifter has already placed keep that placing;
+// anything the template has since gained (a ✎ add, or one of today's own Add Exercises) follows on
+// in the template's own order rather than disappearing.
+//
+// Deliberately NOT a replacement for resolveBaseOrder(): that one answers "what does this session
+// look like", and it must keep letting the template win. This answers "and where did the lifter put
+// things this morning", which is a different question asked one step later.
+function applyTodayOrder(baseOrder, todayOrder) {
+  if (!todayOrder || !todayOrder.length) return baseOrder;
+  const present = new Set(baseOrder);
+  const placed = todayOrder.filter(n => present.has(n));
+  const seen = new Set(placed);
+  return [...placed, ...baseOrder.filter(n => !seen.has(n))];
+}
+
+// Today's order, if this device made one before a mid-session refresh. Same 24h expiry and same
+// session-id guard as every other draft read.
+function peekDraftSessionOrder(sessionId) {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return null;
+    const draft = JSON.parse(raw);
+    if (draft.sessionId !== sessionId) return null;
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return null;
+    return draft.sessionOrder || null;
+  } catch (e) { return null; }
+}
+
+// ⇄ Superset and the two move arrows share one row (30 Aug 2026). The arrows deliberately did NOT go
+// into .ex-name-row: that row already carries the name, the ✕ and the rest-timer ring, and it is the
+// row whose ✕/timer were clipping against the card edge on 28 Aug. Two more controls in there would
+// have re-opened that.
+//
+// ↑/↓ rather than a drag: Del asked to "move that up", and a long-press drag on a phone mid-set,
+// with a rest timer running and sweat on the screen, is the wrong instrument for it.
 function renderSupersetControl(ex) {
-  return `<button type="button" class="ss-btn" id="ss-${esc(ex.name)}" onclick="toggleSupersetPicker('${jsAttr(ex.name)}')">⇄ Superset</button>
+  return `<div class="ex-tail-row">
+      <button type="button" class="ex-move-btn" id="move-up-${esc(ex.name)}" onclick="moveLoggerExercise('${jsAttr(ex.name)}', -1)" aria-label="Move ${esc(ex.name)} earlier in today's session">↑</button>
+      <button type="button" class="ex-move-btn" id="move-down-${esc(ex.name)}" onclick="moveLoggerExercise('${jsAttr(ex.name)}', 1)" aria-label="Move ${esc(ex.name)} later in today's session">↓</button>
+      <button type="button" class="ss-btn" id="ss-${esc(ex.name)}" onclick="toggleSupersetPicker('${jsAttr(ex.name)}')">⇄ Superset</button>
+    </div>
     <div class="ss-picker" id="ss-picker-${esc(ex.name)}" style="display:none;"></div>`;
 }
 
@@ -5998,6 +6113,10 @@ async function buildWorkoutLogger(session) {
       if (fromTemplate.length) { supersetGroups = fromTemplate; supersetsTouched = true; }
     }
     supersetBaseOrder = resolveBaseOrder(session, draftSs.baseOrder);
+    // Then today's own moves, if any were made before this refresh. Layered on TOP of the resolved
+    // order rather than replacing it, so a ✎ change made on another device still arrives.
+    sessionOrderToday = peekDraftSessionOrder(session.id);
+    supersetBaseOrder = applyTodayOrder(supersetBaseOrder, sessionOrderToday);
     applySupersetOrder();
   }
 
@@ -6045,6 +6164,7 @@ async function buildWorkoutLogger(session) {
   <button class="btn btn-save btn-full" onclick="saveWorkout()" style="margin-bottom:1rem;">Save Workout</button>`;
 
   logger.innerHTML = html;
+  refreshMoveButtons();   // first paint: the top block's ↑ and the last one's ↓ have nowhere to go
   const draftVariations = restoreDraft(session);
 
   // Restore already-saved sets on resume: paint rest times, fill empty inputs, mark exercises done
@@ -6501,6 +6621,10 @@ function saveDraft(sessionId) {
     draft.removedExercises = removedSessionExercises;
     draft.supersetGroups = supersetGroups;
     draft.supersetBaseOrder = supersetBaseOrder;
+    // Separate from supersetBaseOrder on purpose — see the note on sessionOrderToday. This one is
+    // written only once something has actually been moved, so a session nobody reorders stores
+    // nothing and keeps letting the template win outright.
+    draft.sessionOrder = sessionOrderToday;
     // The template as it stands RIGHT NOW — not selectedSession, which already carries today's
     // one-off adds, removals and −/+ adjustments. That difference is the whole point: on the way
     // back in, comparing the two is what tells today's edits from the ✎ editor's (C13/C14 —
