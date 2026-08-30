@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-28-1657';
+const APP_BUILD = '2026-08-30-1148';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -4178,6 +4178,15 @@ let editingTemplateExercises = [];
 // exercise's stored tag on open, written back out as tags on save.
 let editingTemplateGroups = [];
 let editingTemplatePickerFor = null;
+// E18, 30 Aug 2026 — which exercise's variation panel is open, and the renames waiting on Save.
+//
+// Nothing here writes until Save Changes, exactly like the rest of this editor. That matters more
+// for variations than for anything else on the row: a rename has to re-label the past sets that
+// carry the old string, and doing that the moment the box is dismissed would leave the history
+// renamed and the template not, if the editor were then closed without saving.
+let editingTemplateVarFor = null;
+let editingTemplateVarRenames = [];   // [{ name, from, to }], applied in order at save
+let editingTemplateVarTouched = [];   // exercise names whose list changed — the propagation set
 
 function openSessionEditor(sessionId) {
   const session = getSessionById(sessionId);
@@ -4188,6 +4197,9 @@ function openSessionEditor(sessionId) {
   editingTemplateExercises.forEach(e => { if (e.supersetGroup) (byTag[e.supersetGroup] ||= []).push(e.name); });
   editingTemplateGroups = Object.values(byTag).filter(g => g.length > 1);
   editingTemplatePickerFor = null;
+  editingTemplateVarFor = null;
+  editingTemplateVarRenames = [];
+  editingTemplateVarTouched = [];
   document.getElementById('edit-session-title').textContent = `Edit ${session.name}`;
   const delLink = document.getElementById('delete-session-link');
   if (delLink) delLink.style.display = session.programme === CUSTOM_PROGRAMME_ID ? 'block' : 'none';
@@ -4201,6 +4213,9 @@ function closeSessionEditor() {
   editingTemplateExercises = [];
   editingTemplateGroups = [];
   editingTemplatePickerFor = null;
+  editingTemplateVarFor = null;
+  editingTemplateVarRenames = [];
+  editingTemplateVarTouched = [];
 }
 
 // ── Template supersets ──
@@ -4311,6 +4326,150 @@ async function addTemplateSupersetPartner(name, selectEl) {
   pairTemplateSuperset(name, partner);
 }
 
+// ── Variations the USER types (E18, 30 Aug 2026) ──────────────────────────────────────────
+// Del's objection, with a screenshot of the Smith | BB toggle: "it would be cool to allow them add
+// these options (to suit their gym) and not ME, DEL, DEVELOPER gym only !!"
+//
+// It is a free list of strings, not a tick-list of equipment, and his own templates are the argument:
+// Hack Squat carries ["Hack Squat", "Leg Press"] (two different lifts), Tricep Pushdown carries
+// attachments, and Seated Calf Raise carries ["Old Mach", "New Mach"] — two specific machines in one
+// gym in Ireland. No enumerable list on earth produces that last one.
+//
+// Nothing new is stored: session_exercises.variations and exercises.variations are both free string
+// arrays that already hold exactly this, and a typed-in lift already gets an `exercises` row via the
+// custom_exercises link trigger. What was missing was a way to type into them.
+function templateVariationsOf(name) {
+  const ex = templateExerciseByName(name);
+  return Array.isArray(ex?.variations) ? ex.variations : [];
+}
+
+function toggleTemplateVariationPicker(name) {
+  editingTemplateVarFor = editingTemplateVarFor === name ? null : name;
+  editingTemplatePickerFor = null;   // one panel open at a time — the row is narrow enough as it is
+  renderTemplateEditorRows();
+}
+
+function markTemplateVariationsTouched(name) {
+  if (!editingTemplateVarTouched.includes(name)) editingTemplateVarTouched.push(name);
+}
+
+// Writes the list back onto the row, collapsing an empty list to `undefined` rather than `[]` — the
+// logger renders the toggle on `ex.variations` being truthy, and an empty array would draw an empty
+// control. saveSessionTemplate() already writes `ex.variations ?? null`.
+function setTemplateVariations(name, list) {
+  const ex = templateExerciseByName(name);
+  if (!ex) return;
+  if (list.length) ex.variations = list;
+  else delete ex.variations;
+  markTemplateVariationsTouched(name);
+  renderTemplateEditorRows();
+}
+
+function templateVariationPickerHtml(name) {
+  const list = templateVariationsOf(name);
+  let html = `<div class="ss-picker" style="display:block;">
+    <div class="ss-picker-title">${list.length ? 'Tap one to rename it' : 'Variations of this exercise'}</div>`;
+  list.forEach(v => {
+    html += `<button type="button" class="ss-pick" onclick="renameTemplateVariation('${jsAttr(name)}','${jsAttr(v)}')">${esc(v)}` +
+      `<span class="ss-pick-note">rename</span></button>` +
+      `<button type="button" class="ss-pick ss-pick-clear" onclick="removeTemplateVariation('${jsAttr(name)}','${jsAttr(v)}')">✕ Remove ${esc(v)}</button>`;
+  });
+  if (!list.length) {
+    // Said in his words, not the schema's: this is the control he ringed on the screenshot.
+    html += `<div class="ss-picker-empty">None yet. Add the ways you actually do this lift — the machine, the bar, the attachment — and they become a toggle on the exercise while you log it.</div>`;
+  }
+  html += `<button type="button" class="ss-pick" onclick="addTemplateVariation('${jsAttr(name)}')">+ Type a variation…</button>`;
+  return html + `</div>`;
+}
+
+async function addTemplateVariation(name) {
+  const raw = await askPrompt({
+    title: `Variation of ${name}`,
+    label: 'What do you call it?',
+    placeholder: 'e.g. Old Mach',
+    yes: 'Add it',
+    maxlength: 24,
+  });
+  const v = raw ? raw.trim() : '';
+  if (!v) return;
+  // Same rule as exercise names: these strings are interpolated into inline onclick handlers.
+  if (/['"`]/.test(v)) { showToast('Avoid quotes/apostrophes — try again without them', 'error'); return; }
+  const list = templateVariationsOf(name);
+  if (list.some(x => x.toLowerCase() === v.toLowerCase())) {
+    showToast(`${name} already has a ${v}`, 'error');
+    return;
+  }
+  setTemplateVariations(name, [...list, v]);
+}
+
+// A rename has to carry the history with it, or every set logged under the old string falls out of
+// the Last time card and out of the previous-set numbers you load the machine off — the variation is
+// part of how history is keyed (see selectedVariations / fetchPreviousSetsFor).
+//
+// So it PROFILES first and says the number out loud before anything is agreed to. That is the
+// standing rule for a data change on this project, and this is the first one a user can trigger
+// themselves rather than one applied by hand from a migration.
+async function renameTemplateVariation(name, from) {
+  const raw = await askPrompt({
+    title: `Rename ${from}`,
+    label: 'New name',
+    value: from,
+    yes: 'Rename',
+    maxlength: 24,
+  });
+  const to = raw ? raw.trim() : '';
+  if (!to || to === from) return;
+  if (/['"`]/.test(to)) { showToast('Avoid quotes/apostrophes — try again without them', 'error'); return; }
+  const list = templateVariationsOf(name);
+  if (list.some(x => x.toLowerCase() === to.toLowerCase())) {
+    showToast(`${name} already has a ${to}`, 'error');
+    return;
+  }
+
+  const logged = await countSetsForVariation(name, from);
+  if (logged > 0) {
+    const ok = await askConfirm({
+      title: `Rename ${logged} logged ${logged === 1 ? 'set' : 'sets'}?`,
+      body: `${logged} ${logged === 1 ? 'set is' : 'sets are'} logged as ${from}. Renaming re-labels ${logged === 1 ? 'it' : 'them'} to ${to} so your history stays together.`,
+      yes: `Rename ${from} → ${to}`,
+      no: 'Leave it alone',
+    });
+    if (!ok) return;
+  }
+
+  // Queued, not applied — Save Changes is what writes. A rename chained onto an earlier one in the
+  // same sitting (Old Mach → Mach 1 → Machine A) keeps both hops, so the sets follow the whole path.
+  editingTemplateVarRenames.push({ name, from, to });
+  setTemplateVariations(name, list.map(x => (x === from ? to : x)));
+}
+
+// Read-only count of the sets carrying this label. Reads by exercise_id, never by the `exercise`
+// text column: the id is the identity and the text is a label (20 Aug), so a lift respelled at any
+// point still counts its own history here.
+async function countSetsForVariation(name, variation) {
+  const id = EXERCISE_IDS[name];
+  const scope = id
+    ? `exercise_id=eq.${id}`
+    : `exercise=eq.${encodeURIComponent(name)}`;
+  const rows = await sb(`workout_sets?${scope}&variation=eq.${encodeURIComponent(variation)}&select=id`, 'GET', null, { quiet: true });
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+async function removeTemplateVariation(name, v) {
+  const logged = await countSetsForVariation(name, v);
+  const ok = await askConfirm({
+    title: `Remove ${v}?`,
+    body: logged > 0
+      ? `${logged} logged ${logged === 1 ? 'set stays' : 'sets stay'} labelled ${v} in your history — this only stops it being offered when you log ${name}.`
+      : `It stops being offered when you log ${name}.`,
+    yes: 'Remove it',
+    no: 'Keep it',
+    danger: true,
+  });
+  if (!ok) return;
+  setTemplateVariations(name, templateVariationsOf(name).filter(x => x !== v));
+}
+
 function renderTemplateEditorRows() {
   const list = document.getElementById('edit-session-exercises');
   const groupMap = templateGroupMap();
@@ -4327,6 +4486,7 @@ function renderTemplateEditorRows() {
     const tag = groupMap[ex.name];
     const partners = tag ? (templateGroupOf(ex.name) || []).filter(n => n !== ex.name && groupMap[n]) : [];
     const ui = unitIndex[ex.name] ?? 0;
+    const vars = templateVariationsOf(ex.name);
     return `
     <div class="template-ex-row${tag ? ' in-superset' : ''}">
       <div class="template-ex-name">${esc(ex.name)}${tag ? `<span class="pf-ss">s/s ${esc(tag)}</span>` : ''}</div>
@@ -4340,6 +4500,8 @@ function renderTemplateEditorRows() {
       </div>
       <button type="button" class="ss-btn${partners.length ? ' active' : ''}" onclick="toggleTemplateSupersetPicker('${jsAttr(ex.name)}')">${partners.length ? `⇄ Superset with ${esc(partners.join(' + '))}` : '⇄ Superset'}</button>
       ${editingTemplatePickerFor === ex.name ? templateSupersetPickerHtml(ex.name) : ''}
+      <button type="button" class="ss-btn var-btn-row${vars.length ? ' active' : ''}" onclick="toggleTemplateVariationPicker('${jsAttr(ex.name)}')">${vars.length ? `${esc(vars.join(' / '))}` : '+ Variations'}</button>
+      ${editingTemplateVarFor === ex.name ? templateVariationPickerHtml(ex.name) : ''}
     </div>`;
   }).join('') || '<div class="empty">No exercises — add one below</div>';
   const addRow = document.getElementById('edit-session-add-row');
@@ -4447,6 +4609,55 @@ async function promptTemplateCustomExercise() {
   return added;   // so the superset picker can pair with what was just typed in
 }
 
+// The half of E18 that is not the session being edited.
+//
+// A VARIATION BELONGS TO THE LIFT, NOT TO THIS ROW. Seated Calf Raise is in Lower A and Lower B, and
+// naming its two machines in one of them and not the other is the inconsistency you would hit on the
+// very next session — so the list is written to `exercises` (the per-lift copy EXERCISE_VARIATIONS is
+// built from) and to every OTHER session_exercises row of the same lift. This session's own rows were
+// just written by the caller.
+//
+// Both writes are RLS-scoped to the caller, and `exercises` is per-user (exercises_user_name_key is
+// UNIQUE (user_id, name)). Nothing here can reach the shared exercise_catalogue — its only policy is
+// SELECT, so a label from one person's gym cannot become everybody's default. That is the whole point
+// of the item.
+//
+// Returns false if a write failed, so the caller can stop before closing the editor and reporting
+// success. A rename that half-applies is the one outcome worth being loud about: the sets would carry
+// a name the template no longer offers.
+async function applyTemplateVariationChanges() {
+  // Renames first and in order — the sets have to move off the old string before the list that no
+  // longer contains it becomes the source of truth.
+  for (const { name, from, to } of editingTemplateVarRenames) {
+    const id = EXERCISE_IDS[name];
+    const scope = id ? `exercise_id=eq.${id}` : `exercise=eq.${encodeURIComponent(name)}`;
+    const res = await sb(`workout_sets?${scope}&variation=eq.${encodeURIComponent(from)}`,
+      'PATCH', { variation: to }, { quiet: true });
+    if (!res.ok) { showToast(`Couldn't rename ${from} in your history (${res.status})`, 'error'); return false; }
+  }
+
+  for (const name of editingTemplateVarTouched) {
+    const ex = templateExerciseByName(name);
+    const list = Array.isArray(ex?.variations) && ex.variations.length ? ex.variations : null;
+    const id = EXERCISE_IDS[name];
+    if (id) {
+      const res = await sb(`exercises?id=eq.${id}`, 'PATCH', { variations: list }, { quiet: true });
+      if (!res.ok) { showToast(`Couldn't save variations for ${name} (${res.status})`, 'error'); return false; }
+    }
+    // Every other session carrying this lift. `session_id=neq` rather than a name-only filter: this
+    // session's rows were deleted and reinserted a moment ago and already carry the new list.
+    await sb(`session_exercises?name=eq.${encodeURIComponent(name)}&session_id=neq.${editingTemplateSessionId}`,
+      'PATCH', { variations: list }, { quiet: true });
+    // In memory too, so a lift that is in no template at all (typed into Open Workout) offers its
+    // variations before the next app start rather than after it.
+    if (list) EXERCISE_VARIATIONS[name] = list;
+    else delete EXERCISE_VARIATIONS[name];
+  }
+  editingTemplateVarRenames = [];
+  editingTemplateVarTouched = [];
+  return true;
+}
+
 // Delete-all-then-reinsert for this session's exercises — same idiom completeExercise() already
 // uses for idempotent re-saves, and far simpler than diffing individual reorder/add/remove ops.
 async function saveSessionTemplate() {
@@ -4469,6 +4680,7 @@ async function saveSessionTemplate() {
     const postRes = await sb('session_exercises', 'POST', rows, { quiet: true });
     if (!postRes.ok) { showToast(`Save failed (${postRes.status})`, 'error'); return; }
   }
+  if (!await applyTemplateVariationChanges()) return;
   await loadSessionTemplates();
   lastTemplateRefresh = Date.now();   // freshest read there is — don't let a foreground redo it
   EXERCISE_LIBRARY = buildExerciseLibrary();

@@ -74,6 +74,10 @@ const app = load({
       return { ok: true, status: 200 };
     },
     showToast: (msg, kind) => { calls.toasts.push([msg, kind]); },
+    // E18, 30 Aug 2026. Saving the template now also writes the variation edits made in the same
+    // sitting; that path has its own suite (template-variations.test.js) and is stubbed here so
+    // these cases keep asserting the superset ordering and nothing else.
+    applyTemplateVariationChanges: async () => true,
     loadSessionTemplates: async () => {},
     buildExerciseLibrary: () => LIBRARY,
     closeSessionEditor: () => {},

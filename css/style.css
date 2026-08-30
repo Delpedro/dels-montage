@@ -1062,6 +1062,12 @@ mark.hl.on { background: var(--accent); color: #fff; }
 /* The ⇄ button at the foot of each exercise block opens a picker of what to superset it with. */
 .ss-btn { display: block; width: 100%; margin-top: 6px; padding: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); background: none; border: 1px dashed var(--border2); border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
 .ss-btn.active { color: var(--blue); border-style: solid; border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, transparent); }
+/* E18, 30 Aug 2026. The variations button sits directly under the superset one and shares its shape,
+   so it must NOT share its colour: --blue has meant superset app-wide since 11 Aug, and two blue
+   dashed buttons on one row would say the same thing twice about two unrelated controls.
+   Filled state is NEUTRAL — this is identity ("Old Mach / New Mach"), not a verdict and not a
+   pairing. Same reasoning as the E2 meta row's neutral track. */
+.ss-btn.var-btn-row.active { color: var(--text); border-style: solid; border-color: var(--border2); background: var(--bg2); font-weight: 600; }
 /* Linked blocks share a blue rail, so a superset reads as one unit once they've snapped together */
 /* The blue edge is drawn INSIDE the block's own width, so the 2px has to come off the padding it
    sits on — without this every child of a paired block walks 2px right and the two round controls

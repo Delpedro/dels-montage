@@ -271,7 +271,10 @@ console.log('the app asks its own questions now');
   // `await askConfirm({` rather than `askConfirm({`: the latter also matches the definition, and a
   // call site that forgot its await would be a bug this test should catch rather than count.
   const asks = code.match(/await askConfirm\(\{/g) || [];
-  eq(asks.length, 9, 'all nine questions go through askConfirm() — the ninth is Delete your account?');
+  // 30 Aug 2026: 9 → 11. E18 added two, both about a variation the user typed — renaming one that
+  // has logged sets behind it, and removing one. Neither is a name box, so they are here and not in
+  // the askPrompt count below.
+  eq(asks.length, 11, 'all eleven questions go through askConfirm() — the last two are E18\'s variation rename and remove');
 
   ok(/bodyEl\.textContent = body;/.test(code),
      'the body is written with textContent — session and exercise names are user-typed');
@@ -304,7 +307,9 @@ console.log('the app asks its own questions now');
   const typed = code.match(/await askPrompt\(\{/g) || [];
   // The fourth is not a name: it is the word DELETE, typed to confirm an account deletion. Same box,
   // same rule — the most destructive screen in the app is not the one that gets a native dialog.
-  eq(typed.length, 4, 'all four typed-in dialogs go through askPrompt()');
+  // 30 Aug 2026: 4 → 6. E18's two are the variation boxes — "Old Mach" typed in, and the same box
+  // pre-filled to rename it.
+  eq(typed.length, 6, 'all six typed-in dialogs go through askPrompt()');
 
   ok(/return Promise\.resolve\(null\)/.test(code),
      'and the one unrecoverable case answers null rather than falling back to a native dialog');
