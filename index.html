@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-08-31-1609">
+  <link rel="stylesheet" href="css/style.css?v=2026-08-31-1634">
 
   <!-- ── D-LOG MUST NEVER RENDER UNSTYLED (28 Aug 2026) ────────────────────────────────────────
        Del opened the app one minute after a push on 28 Aug and got a page of raw serif text. The
@@ -39,6 +39,68 @@
         document.head.appendChild(link);
       }
       window.addEventListener('load', function () { repair(0); });
+    })();
+  </script>
+
+  <!-- ── AND D-LOG MUST NEVER RENDER WITHOUT ITS SCRIPT (31 Aug 2026, C26) ─────────────────────
+       The block above proves the STYLESHEET applied and, until today, nothing proved the same
+       about js/app.js — even though the comment above says the check is inline precisely because
+       "app.js is the file that went missing" is a load that has to repair itself.
+
+       That gap is a silent dead button. #login-form's Get In is
+       `onsubmit="event.preventDefault(); handleLogin();"` — an inline attribute — so on a load
+       where app.js never ran, index.html still paints the login card, the password manager fills
+       it from static markup, and the tap calls a function that does not exist. No error, no
+       spinner, nothing. Del, 31 Aug, after taking a build through the update banner: "got stuck on
+       the log in (username and password populated, but the get in button) didnt work - so a hard
+       reset of app was required... the hard reset of app on phone is fucking horrible".
+
+       Same shape as the CSS repair: check the OUTCOME, not the cause. `handleLogin` is a function
+       declaration in app.js, so it exists the moment that file compiles and is absent if the file
+       404s or fails to parse — whatever the reason.
+
+       ⚠️ THIS RUNS ON DOMContentLoaded, NOT load, AND THAT IS LOAD-BEARING. app.js boots from its
+       own `window.addEventListener('load', ...)`. A copy injected after load has already fired
+       defines handleLogin but never boots, which trades a dead button for a dead app. Injecting
+       during DOMContentLoaded means the browser still has the load event to fire, so app.js
+       registers in time and boots normally. The loadFired fallback covers the case where this runs
+       late anyway. -->
+  <script>
+    (function () {
+      var loadFired = false;
+      window.addEventListener('load', function () { loadFired = true; });
+
+      function scripted() {
+        return typeof window.handleLogin === 'function';
+      }
+      /* Worst case, after three tries: say so. A dead button that explains itself is still a bad
+         morning, but it is not the silent one that cost Del a force-quit with no idea why. */
+      function giveUp() {
+        var diag = document.getElementById('login-diag');
+        if (diag && !diag.textContent) {
+          diag.textContent = "App files didn't load — close D-LOG completely and reopen it";
+          diag.className = 'login-diag warn';
+        }
+      }
+      function repair(attempt) {
+        if (scripted()) {
+          /* Only when this load's own script never ran AND the event has already gone: app.js's
+             boot listener was registered too late to hear it, so give it the one it missed. The
+             only other load listener at this point is the stylesheet repair, which no-ops when the
+             page is already styled. */
+          if (loadFired) { try { window.dispatchEvent(new Event('load')); } catch (e) {} }
+          return;
+        }
+        if (attempt > 2) { giveUp(); return; }
+        var s = document.createElement('script');
+        /* Fresh cache key each time, exactly as the stylesheet repair does, so neither the HTTP
+           cache nor a service worker entry can hand back the same miss. */
+        s.src = 'js/app.js?repair=' + Date.now();
+        s.onload = function () { setTimeout(function () { repair(attempt + 1); }, 60); };
+        s.onerror = function () { setTimeout(function () { repair(attempt + 1); }, 800); };
+        document.head.appendChild(s);
+      }
+      document.addEventListener('DOMContentLoaded', function () { repair(0); });
     })();
   </script>
 
@@ -917,6 +979,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-08-31-1609"></script>
+<script src="js/app.js?v=2026-08-31-1634"></script>
 </body>
 </html>

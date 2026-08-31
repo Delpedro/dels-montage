@@ -240,6 +240,139 @@ console.log('Getting in');
   eq(resolves, 1, 'and when both the frame and the fallback fire, it settles once');
 }
 
+// ── C26: THE SHELL MUST PROVE app.js RAN, NOT JUST THE STYLESHEET ──────────
+// Del, 31 Aug, straight after a build arrived through the update banner: "got stuck on the log in
+// (username and password populated, but the get in button) didnt work - so a hard reset of app was
+// required (this is exactly like it was before)".
+//
+// Get In is an INLINE onsubmit calling handleLogin(), so a load where app.js never ran gives a
+// button that does literally nothing — no error, no spinner — and a force-quit is the only cure.
+// The shell already proved the stylesheet applied (--dlog-css) and proved nothing about the script.
+//
+// This is a source check because the repair is inline, dependency-free markup that no harness
+// loads — same reasoning as the native-confirm() grep in confirm-dialog.test.js. What it pins is
+// the three properties that make it work at all, each of which is easy to "tidy" away later.
+{
+  const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+
+  ok(/typeof window\.handleLogin === 'function'/.test(html),
+    'the shell checks the OUTCOME — handleLogin exists — rather than trying to detect why app.js is missing');
+  ok(/js\/app\.js\?repair=/.test(html),
+    'and re-requests app.js on a fresh cache key, so neither the HTTP cache nor the SW can hand back the same miss');
+
+  // The ordering property. app.js boots from its own window 'load' listener, so a copy injected
+  // after load has already fired defines handleLogin but never boots — a dead app instead of a dead
+  // button. Injecting during DOMContentLoaded leaves the load event still to come.
+  ok(/DOMContentLoaded['"]\s*,\s*function \(\) \{ repair\(0\); \}/.test(html),
+    'the script repair runs on DOMContentLoaded, NOT load — app.js must still hear the load event it boots from');
+  ok(/loadFired/.test(html) && /dispatchEvent\(new Event\('load'\)\)/.test(html),
+    'and if load fired anyway, the repaired app.js is handed the event it missed');
+
+  // The worst case still has to say something. A silent dead button is the actual complaint.
+  ok(/App files didn't load/.test(html),
+    'after the retries are spent the login screen says so, instead of leaving a button that does nothing');
+
+  // The stylesheet repair must not have been disturbed while adding its sibling.
+  ok(/--dlog-css/.test(html) && /css\/style\.css\?repair=/.test(html),
+    'the original stylesheet repair is still in place alongside it');
+}
+
+// The greps above prove the repair is written; these run it. A source check alone would be
+// asserting the call and not the output, which is how C12 once shipped as fixed and was not.
+// The REAL inline block is lifted out of index.html and driven against a stub DOM.
+{
+  const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+  const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+  const src = blocks.find(b => b.includes('handleLogin'));
+  ok(!!src, 'the script repair block is findable in index.html');
+
+  // recoverAt: which injection attempt finally defines handleLogin. 0 = app.js was fine all along,
+  // Infinity = it never comes back.
+  function run(recoverAt) {
+    const injected = [];
+    const queue = [];
+    const diag = { textContent: '', className: '' };
+    let dispatched = 0;
+    const docL = {}, winL = {};
+
+    const document = {
+      addEventListener: (ev, fn) => { (docL[ev] = docL[ev] || []).push(fn); },
+      getElementById: id => (id === 'login-diag' ? diag : null),
+      createElement: () => ({}),
+      head: {
+        appendChild: el => {
+          injected.push(el.src);
+          queue.push(() => {
+            if (injected.length >= recoverAt) window.handleLogin = () => {};
+            el.onload();
+          });
+        },
+      },
+    };
+    const window = {
+      addEventListener: (ev, fn) => { (winL[ev] = winL[ev] || []).push(fn); },
+      dispatchEvent: () => { dispatched++; },
+      handleLogin: recoverAt === 0 ? () => {} : undefined,
+    };
+    const setTimeout = fn => { queue.push(fn); };
+
+    new Function('window', 'document', 'setTimeout', 'Event', src)(
+      window, document, setTimeout, function Event() {}
+    );
+
+    const fire = (bag, ev) => (bag[ev] || []).forEach(fn => fn());
+    return {
+      boot: (loadFirst) => {
+        if (loadFirst) fire(winL, 'load');
+        fire(docL, 'DOMContentLoaded');
+        for (let i = 0; i < 40 && queue.length; i++) queue.shift()();
+      },
+      get injected() { return injected; },
+      get dispatched() { return dispatched; },
+      diag,
+    };
+  }
+
+  // 1. app.js ran. Nothing should happen at all — no refetch of a 300KB file on every healthy load.
+  {
+    const env = run(0);
+    env.boot(false);
+    eq(env.injected.length, 0, 'a healthy load re-requests nothing');
+    eq(env.dispatched, 0, 'and fires no synthetic load event');
+    eq(env.diag.textContent, '', 'and says nothing on the login screen');
+  }
+
+  // 2. app.js missing, and the first re-request brings it back. This is Del's case.
+  {
+    const env = run(1);
+    env.boot(false);
+    eq(env.injected.length, 1, 'a missing app.js is re-requested exactly once when the retry works');
+    ok(/^js\/app\.js\?repair=\d+/.test(env.injected[0]), 'on a fresh cache key');
+    eq(env.dispatched, 0, 'load had not fired yet, so app.js will hear the real one — no synthetic event');
+    eq(env.diag.textContent, '', 'and the user is never shown a failure that did not happen');
+  }
+
+  // 3. Same, but the load event already went. app.js boots from window 'load', so it registered too
+  //    late to hear it — without this it would define handleLogin and never start.
+  {
+    const env = run(1);
+    env.boot(true);
+    eq(env.injected.length, 1, 'still one re-request');
+    eq(env.dispatched, 1, 'and the repaired app.js is handed the load event it missed, exactly once');
+  }
+
+  // 4. It never comes back. Three tries, then say so rather than leaving a silent dead button.
+  {
+    const env = run(Infinity);
+    env.boot(false);
+    eq(env.injected.length, 3, 'three attempts, then it stops rather than hammering forever');
+    ok(/App files didn't load/.test(env.diag.textContent),
+      'and the login screen finally explains the dead button instead of staying silent');
+    ok(/warn/.test(env.diag.className), 'in the warning colour');
+    eq(env.dispatched, 0, 'nothing is booted when there is nothing to boot');
+  }
+}
+
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
 })();
