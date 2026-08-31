@@ -220,5 +220,111 @@ const bannerZ = Number((cssSrc.match(/\.update-banner \{[^}]*z-index: (\d+)/) ||
 const loginZ = Number((cssSrc.match(/#login-screen \{[^}]*z-index: (\d+)/) || [])[1]);
 ok(bannerZ > loginZ, `the update banner (${bannerZ}) sits above the login screen (${loginZ})`);
 
+// ── 8. "ALWAYS OFFER" (31 Aug 2026) ────────────────────────────────────────
+//
+// Del: "lets TRY always offer". A new build is an offer, never a surprise reload. Three things have
+// to hold, and two of them are the traps the item was written around:
+//
+//   - applyUpdate() is never reached automatically while the flag is on;
+//   - the offer SURVIVES BEING IGNORED, because it is now the only way into a new build — shown once
+//     and forgotten is indistinguishable from silently staying stale;
+//   - the silent path is still there to flip back to. "TRY" was the word he used.
+
+ok(/const ALWAYS_OFFER_UPDATE = true;/.test(appSrc), 'the always-offer flag exists and is on');
+ok(/if \(ALWAYS_OFFER_UPDATE\) \{ showUpdateBanner\(\); return; \}/.test(check),
+  'a new build gets the banner and returns — the banner is the only route in');
+ok(check.indexOf('ALWAYS_OFFER_UPDATE') < check.indexOf('await applyUpdate()'),
+  'and it returns BEFORE the automatic reload, which is the whole feature');
+ok(check.indexOf('ALWAYS_OFFER_UPDATE') < check.indexOf("sessionStorage.setItem('dlog_update_tried'"),
+  'nothing on the silent path runs while the flag is on');
+
+// Reversible in one line: every gate of the silent path is still present, in order, below the flag.
+ok(/if \(currentWorkoutId\) \{ showUpdateBanner\(\); return; \}/.test(check), 'the mid-workout gate is kept for the flip back');
+ok(/if \(sessionStorage\.getItem\('dlog_update_tried'\) === build\) \{ showUpdateBanner\(\); return; \}/.test(check),
+  'the one-automatic-reload fuse is kept, not deleted');
+ok(/await applyUpdate\(\);/.test(check), 'and the silent reload itself is still there to switch back on');
+ok(/if \(!build \|\| build === APP_BUILD\) \{ hideUpdateBanner\(\); return; \}/.test(check),
+  'an offer is withdrawn once the server agrees we are current');
+
+// The stamp moved: it is written against the build being loaded, immediately before the reload.
+ok(/sessionStorage\.setItem\('dlog_update_tried', serverBuild\)/.test(apply),
+  "applyUpdate() records the attempt — a manual reload is the only kind there is now");
+ok(apply.indexOf("setItem('dlog_update_tried'") > apply.indexOf('newBuildIsServable'),
+  'a reload that never happens leaves no record saying it did');
+ok(apply.indexOf("setItem('dlog_update_tried'") < apply.indexOf('location.reload()'),
+  'and the record is written before the page goes');
+
+// The banner, run for real. A fake DOM, because "it is still there on the next check" is behaviour,
+// not a string in the source.
+const bannerSrc = appSrc.slice(appSrc.indexOf('function updateReloadAlreadyTried'),
+  appSrc.indexOf("document.addEventListener('visibilitychange'"));
+function bannerHarness(serverBuild, tried) {
+  const store = tried ? { dlog_update_tried: tried } : {};
+  const state = { el: null, classes: new Set() };
+  const document = {
+    body: {
+      classList: { add: (c) => state.classes.add(c), remove: (c) => state.classes.delete(c) },
+      appendChild: (node) => { state.el = node; },
+    },
+    getElementById: (id) => (id === 'update-banner' ? state.el : null),
+    createElement: () => {
+      const node = { id: '', className: '', label: null };
+      Object.defineProperty(node, 'innerHTML', {
+        set(html) { node.label = /update-banner-msg/.test(html) ? { textContent: '' } : null; },
+        get() { return ''; },
+      });
+      node.querySelector = (sel) => (sel === '.update-banner-msg' ? node.label : null);
+      node.remove = () => { state.el = null; };
+      return node;
+    },
+  };
+  const sessionStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  const fns = new Function('document', 'sessionStorage', 'serverBuild',
+    `${bannerSrc}\nreturn { showUpdateBanner, hideUpdateBanner, updateReloadAlreadyTried };`)(document, sessionStorage, serverBuild);
+  return { ...fns, state, store, text: () => (state.el && state.el.label ? state.el.label.textContent : null) };
+}
+
+let h = bannerHarness('2026-09-01-0900', null);
+h.showUpdateBanner();
+eq(h.text(), 'New version ready', 'a fresh sighting reads as an offer');
+eq(h.state.classes.has('has-update-banner'), true, 'and the screen is told the slot is taken');
+const first = h.state.el;
+h.showUpdateBanner();
+h.showUpdateBanner();
+ok(h.state.el === first, 're-asserting on the next check reuses the same bar — no stack of banners');
+eq(h.text(), 'New version ready', 'an ignored offer is still an offer');
+
+// The one that matters: something removed it, and the next foreground check puts it back. Under
+// always-offer a bar that is gone is a user stranded on an old build with nothing to tap.
+h.state.el = null;
+h.showUpdateBanner();
+ok(h.state.el !== null, 'a banner that disappears comes back on the next check');
+
+h = bannerHarness('2026-09-01-0900', '2026-09-01-0900');
+h.showUpdateBanner();
+eq(h.text(), "Update didn't take — close and reopen the app",
+  'a build we already reloaded for and are still not running says so, rather than offering the same tap again');
+
+h = bannerHarness('2026-09-01-0900', null);
+h.showUpdateBanner();
+h.store.dlog_update_tried = '2026-09-01-0900';
+h.showUpdateBanner();
+eq(h.text(), "Update didn't take — close and reopen the app", 'and an existing bar changes its words rather than being stuck with them');
+
+eq(h.updateReloadAlreadyTried(null), false, 'no build is not a match');
+eq(h.updateReloadAlreadyTried('2026-08-31-1509'), false, 'a different build is not a match');
+
+h.hideUpdateBanner();
+eq(h.state.el, null, 'withdrawing the offer removes the bar');
+eq(h.state.classes.has('has-update-banner'), false, 'and gives the slot back');
+
+// The bar can now sit there for a whole session, and it wins on z-index against both things that
+// share its slot. A toast the app hides behind a permanent banner is a bug report Del never sees.
+const bannerBottom = Number((cssSrc.match(/\.update-banner \{[^}]*bottom: (\d+)px/) || [])[1]);
+const toastShift = Number((cssSrc.match(/body\.has-update-banner \.toast \{[^}]*bottom: (\d+)px/) || [])[1]);
+const findShift = Number((cssSrc.match(/body\.has-update-banner \.find-bar \{[^}]*bottom: (\d+)px/) || [])[1]);
+ok(toastShift > bannerBottom, `the toast clears the banner (${toastShift}px vs ${bannerBottom}px)`);
+ok(findShift > bannerBottom, `the find bar clears the banner (${findShift}px vs ${bannerBottom}px)`);
+
 console.log(`sw-update: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

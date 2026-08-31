@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-31-1509';
+const APP_BUILD = '2026-08-31-1522';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -75,6 +75,21 @@ let lastUpdateCheck = 0;
 const UPDATE_THROTTLE_MS = 20000;
 const UPDATE_POLL_MS = 60000;
 
+// ─── "ALWAYS OFFER" — 31 August 2026 ──────────────────────────────────────
+// Del: "i just wish that notification was 100% of the time, and none of this having to close the
+// app", and then, having heard the downside: "lets TRY always offer".
+//
+// So a new build is now always an OFFER and never a surprise reload. The banner is the only route
+// into a new build and applyUpdate() only ever runs off a tap.
+//
+// The trade, taken deliberately: an offer can be ignored, so the app can sit on an old build for as
+// long as he leaves the bar alone, and a bug filed from that build is a bug in code that may already
+// be fixed. That is why the banner has to survive being ignored rather than being shown once.
+//
+// One flag, on purpose — the silent path below is intact and untouched, so this is reversible in one
+// line if the ignorable bar turns out to be worse than the surprise reload.
+const ALWAYS_OFFER_UPDATE = true;
+
 // `force` skips the throttle (used on first load). Silent on any failure — a flaky connection
 // must never block the app, and the next foreground will try again.
 async function checkForUpdate(force = false) {
@@ -88,7 +103,11 @@ async function checkForUpdate(force = false) {
     const { build } = await res.json();
     serverBuild = build || null;
     renderLoginDiag();
-    if (!build || build === APP_BUILD) return;
+    if (!build || build === APP_BUILD) { hideUpdateBanner(); return; }
+
+    // The offer, and nothing else. Every gate below this line belongs to the silent path: they are
+    // kept, in order, for the flip back, and none of them is reachable while the flag is on.
+    if (ALWAYS_OFFER_UPDATE) { showUpdateBanner(); return; }
 
     // Mid-workout, a surprise reload in the middle of typing a set is worse than being one build
     // behind — offer it instead. (Inputs are draft-saved, but a running rest timer and the scroll
@@ -190,6 +209,11 @@ async function applyUpdate() {
       await Promise.all(regs.map(r => r.update()));
     }
   } catch (e) {}
+  // Stamp the build we are about to load, immediately before the reload and nowhere earlier — a
+  // reload that never happens must not leave a record saying it did. On the way back this is what
+  // lets the banner say "didn't take" instead of offering the identical tap a second time. The
+  // silent path writes the same key for its own reason and the value is the same either way.
+  try { if (serverBuild) sessionStorage.setItem('dlog_update_tried', serverBuild); } catch (e) {}
   location.reload();
 }
 
@@ -202,13 +226,50 @@ function loginInputBusy() {
   return !!((email && email.value) || (pass && pass.value));
 }
 
+// True when a reload has already been taken for this exact build inside this web view.
+//
+// This is `dlog_update_tried`, and it used to be the fuse that let the app reload itself once per
+// build and then stop — the guard against a reload LOOP leaving the app unusable rather than merely
+// stale. Under "always offer" nothing reloads on its own, so that loop cannot happen and the fuse is
+// no longer holding anything shut. The FACT it records is still worth having, and it is now the only
+// thing in the app that knows it: we reloaded for this build, and we came back running the old one.
+//
+// sessionStorage on purpose. A genuine relaunch — which is the one thing that reliably cures it —
+// clears it, so the app never carries a stale accusation into a fresh launch.
+function updateReloadAlreadyTried(build) {
+  try { return !!build && sessionStorage.getItem('dlog_update_tried') === build; }
+  catch (e) { return false; }
+}
+
+// The offer has to survive being ignored, because under "always offer" it is the only way into a new
+// build. So it is re-asserted on every check that sees a mismatch — visibilitychange, pageshow, the
+// 60s poll — rather than being shown once and assumed to still be there. Idempotent: the same bar is
+// reused, only its words can change.
 function showUpdateBanner() {
-  if (document.getElementById('update-banner')) return;
-  const bar = document.createElement('div');
-  bar.id = 'update-banner';
-  bar.className = 'update-banner';
-  bar.innerHTML = `<span>New version ready</span><button type="button" onclick="applyUpdate()">Update</button>`;
-  document.body.appendChild(bar);
+  const msg = updateReloadAlreadyTried(serverBuild)
+    ? "Update didn't take — close and reopen the app"
+    : 'New version ready';
+  let bar = document.getElementById('update-banner');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'update-banner';
+    bar.className = 'update-banner';
+    bar.innerHTML = `<span class="update-banner-msg"></span><button type="button" onclick="applyUpdate()">Update</button>`;
+    document.body.appendChild(bar);
+  }
+  const label = bar.querySelector('.update-banner-msg');
+  if (label && label.textContent !== msg) label.textContent = msg;
+  // The toast and the find bar share this slot at the bottom of the screen. The bar used to be a
+  // rare, momentary thing; now it can sit there for a whole session, so they move up while it does.
+  document.body.classList.add('has-update-banner');
+}
+
+// Only ever called when the server agrees we are current — a rollback, or the update landing while
+// the bar was still up. An offer for a build that no longer exists is worse than no offer.
+function hideUpdateBanner() {
+  const bar = document.getElementById('update-banner');
+  if (bar) bar.remove();
+  document.body.classList.remove('has-update-banner');
 }
 
 // The two moments a resumed PWA can notice it's stale: coming back to the foreground, and being

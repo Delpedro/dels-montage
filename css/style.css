@@ -1128,6 +1128,12 @@ mark.hl.on { background: var(--accent); color: #fff; }
    overlay, so a banner below it is invisible on the one screen where it is the only way out of a
    stale build. Above the 200/300 modals too, which it already was. */
 .update-banner { position: fixed; left: 12px; right: 12px; bottom: 78px; z-index: 1000; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--accent); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); box-shadow: 0 6px 20px rgba(35,31,26,0.16); }
+/* "Always offer" (31 Aug 2026) turned this from a bar that appeared for a second into one that can
+   sit there for a whole session. The toast (bottom 85px) and the find bar (bottom 78px) share its
+   slot and both lose to its z-index, so a permanent offer would quietly cover every toast the app
+   shows — including the ones that name a failed write. They move up while it is on screen. */
+body.has-update-banner .toast { bottom: 130px; }
+body.has-update-banner .find-bar { bottom: 126px; }
 .update-banner button { padding: 7px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; background: var(--accent); border: none; border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
 
 /* ─── THE APP'S OWN CONFIRM (19 Aug 2026) ──────────────────
