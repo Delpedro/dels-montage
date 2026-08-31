@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-31-1334';
+const APP_BUILD = '2026-08-31-1355';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -675,6 +675,43 @@ function sbHeaders(token, method) {
   };
 }
 
+// D4 — "Save failed (400) — not saved" is not a bug report. Del hit one on 25 Aug 2026 and the most
+// he could say afterwards was *"dont have exacts, i just know it happened yesterday"* — because the
+// toast named the status code and never named the thing that failed. There was nothing to reproduce
+// and nothing to grep for. Every failure message below now names the write, so the next sighting
+// arrives already diagnosed.
+//
+// The label is the USER'S noun, not the table's. `daily_logs` is "Check-in" on every screen it
+// appears on; a toast that says `daily_logs` teaches him the schema instead of the symptom. The
+// console line above each toast still carries the raw path, which is the half that is for me.
+const SB_LABELS = {
+  workouts: 'Workout',
+  workout_sets: 'Sets',
+  daily_logs: 'Check-in',
+  cardio_logs: 'Cardio',
+  conditioning_logs: 'Conditioning',
+  session_templates: 'Session',
+  session_exercises: 'Session exercises',
+  goals: 'Targets',
+  profiles: 'Profile',
+  custom_exercises: 'Exercise',
+  exercises: 'Exercise',
+  exercise_catalogue: 'Exercise list',
+  push_subscriptions: 'Rest alerts',
+  rest_alerts: 'Rest alert booking',
+  rest_alert_log: 'Alert log',
+  app_meta: 'App data',
+  quotes: 'Quote',
+};
+
+// The path is PostgREST's, so the table is everything before the query string.
+// An unmapped table returns null and every caller keeps its previous wording: a table added next
+// month must never make a message WORSE than it was before this existed.
+function sbWhat(path) {
+  const table = String(path || '').split('?')[0].split('/')[0];
+  return SB_LABELS[table] || null;
+}
+
 // A dead connection makes fetch() *throw* rather than return a failed response, so every network
 // error has to be caught before the .ok checks below are ever reached. netFail() is the single place
 // that decides what the user is told. It throttles because one screen fires several requests — an
@@ -685,7 +722,14 @@ function netFail(what, path, err) {
   const now = Date.now();
   if (now - lastNetToastAt < 4000) return;
   lastNetToastAt = now;
-  showToast(what === 'GET' ? "No signal — couldn't load" : 'No signal — NOT saved', 'error');
+  // A READ is deliberately left unnamed here, and that is not an oversight. Offline means every
+  // request on the screen failed, and the throttle hands the toast to whichever one lost the race —
+  // so naming it would point Del at the quote when the whole page is down. A WRITE is the opposite:
+  // it is the thing he just tapped, it is usually the only request in flight, and it is the one he
+  // needs named.
+  if (what === 'GET') { showToast("No signal — couldn't load", 'error'); return; }
+  const label = sbWhat(path);
+  showToast(label ? `No signal — ${label.toLowerCase()} NOT saved` : 'No signal — NOT saved', 'error');
 }
 
 // `opts.quiet` suppresses the generic failure toast below — pass it when the caller reports the
@@ -743,7 +787,10 @@ async function sb(path, method = 'GET', body = null, { quiet = false, upsert = f
       // read-side twin of the write bug that lost the July cardio. The [] stays (callers do
       // (rows || []).forEach and must not throw), but it is no longer silent.
       console.error(`sb() GET failed (${res.status}): ${path}`);
-      if (!quiet) showToast(`Couldn't load (${res.status})`, 'error');
+      // Named here, unlike the offline case above: the server answered, so exactly this read failed
+      // and the others on the screen may well have succeeded.
+      const what = sbWhat(path);
+      if (!quiet) showToast(what ? `Couldn't load ${what.toLowerCase()} (${res.status})` : `Couldn't load (${res.status})`, 'error');
       return [];
     }
     return res.json();
@@ -754,7 +801,13 @@ async function sb(path, method = 'GET', body = null, { quiet = false, upsert = f
   // to check can no longer report a false success.
   if (!res.ok && !quiet) {
     console.error(`sb() ${method} failed (${res.status}): ${path}`);
-    showToast(`Save failed (${res.status}) — not saved`, 'error');
+    const what = sbWhat(path);
+    // "not saved" is a lie about a DELETE — the user was removing something, not saving it — and a
+    // toast that describes the wrong action is how a report comes back unusable a second time.
+    const msg = !what ? `Save failed (${res.status}) — not saved`
+      : method === 'DELETE' ? `Couldn't remove ${what.toLowerCase()} (${res.status})`
+      : `${what} not saved (${res.status})`;
+    showToast(msg, 'error');
   }
   return res;
 }
@@ -4708,7 +4761,10 @@ async function saveSessionTemplate() {
   if (!editingTemplateSessionId) return;
   const id = editingTemplateSessionId;
   const delRes = await sb(`session_exercises?session_id=eq.${id}`, 'DELETE', null, { quiet: true });
-  if (!delRes.ok) { showToast(`Save failed (${delRes.status})`, 'error'); return; }
+  // These two toasts describe the SAME tap and must not say the same thing (D4). Which of the two
+  // halves failed is the difference between "nothing happened" and "your exercises are gone", and
+  // the old shared `Save failed (400)` told him neither.
+  if (!delRes.ok) { showToast(`Session not saved (${delRes.status}) — nothing was changed`, 'error'); return; }
   const groupMap = templateGroupMap();   // presence-filtered, so a removed partner can't leave a tag behind
   // sort_order is the BASE order, not what's on screen: the pairs are stored as tags and both the
   // editor and the logger re-derive the together-on-screen order from them on open. Writing the
@@ -4722,7 +4778,10 @@ async function saveSessionTemplate() {
   }));
   if (rows.length) {
     const postRes = await sb('session_exercises', 'POST', rows, { quiet: true });
-    if (!postRes.ok) { showToast(`Save failed (${postRes.status})`, 'error'); return; }
+    // The delete landed and the insert did not, so this session's exercises are actually GONE until
+    // he saves again. Saying "Save failed" and leaving him to find an empty session later is the
+    // worse failure of the two. ⚠️ The save is not atomic — logged as C22, not fixed here.
+    if (!postRes.ok) { showToast(`Session exercises not saved (${postRes.status}) — they were cleared, reopen ✎ and save again`, 'error'); return; }
   }
   if (!await applyTemplateVariationChanges()) return;
   await loadSessionTemplates();

@@ -53,9 +53,11 @@ function build({ fetchImpl, token = 'jwt-abc', refreshTo = null, now = () => Dat
     // netFetch is lifted rather than stubbed: these tests shadow the global fetch, and every
     // request in the app now goes through the wrapper to get its deadline. Exercising the real one
     // keeps this harness honest about what sb() actually calls.
-    functions: ['netFail', 'sb', 'createWorkoutRow', 'netFetch'],
-    decls: ['lastNetToastAt', 'NET_TIMEOUT_MS'],
+    functions: ['sbWhat', 'netFail', 'sb', 'createWorkoutRow', 'netFetch'],
+    decls: ['lastNetToastAt', 'NET_TIMEOUT_MS', 'SB_LABELS'],
     deps,
+    // A lifted const is a closed-over binding, not a returned value — reach it through an accessor.
+    accessors: { labels: '() => SB_LABELS' },
   });
   return { ...api, toasts, logouts, calls };
 }
@@ -96,7 +98,7 @@ console.log('sb() offline + failed-read');
   eq(res.ok, false, 'offline write is not ok — callers checking res.ok see the failure');
   eq(res.status, 503, 'offline write reports 503 (0 is not a legal Response status)');
   eq(h.toasts.length, 1, 'offline write toasts');
-  eq(h.toasts[0].msg, 'No signal — NOT saved', 'offline write toast says NOT saved, unambiguously');
+  eq(h.toasts[0].msg, 'No signal — sets NOT saved', 'offline write toast names the write AND says NOT saved (D4)');
 }
 
 // ── 3. quiet suppresses the offline toast too ──────────────────────────────
@@ -136,13 +138,13 @@ console.log('sb() offline + failed-read');
   const rows = await h.sb('session_templates?select=*');
   eq(rows.length, 0, 'a 500 on GET still returns [] so callers do not throw');
   eq(h.toasts.length, 1, 'a 500 on GET toasts instead of rendering as "no data"');
-  eq(h.toasts[0].msg, "Couldn't load (500)", 'the failed-read toast carries the status code');
+  eq(h.toasts[0].msg, "Couldn't load session (500)", 'the failed-read toast carries the status code and names the read');
 }
 {
   // The URL-length time bomb in loadHistory() lands here one day. It must not look like an empty DB.
   const h = build({ fetchImpl: status(414) });
   await h.sb('workout_sets?workout_id=in.(...)');
-  eq(h.toasts[0].msg, "Couldn't load (414)", 'a 414 surfaces as an error, not as an empty history');
+  eq(h.toasts[0].msg, "Couldn't load sets (414)", 'a 414 surfaces as an error, not as an empty history');
 }
 
 // ── 6. the happy path and the 401 retry still work ─────────────────────────
@@ -221,6 +223,80 @@ console.log('sb() offline + failed-read');
     fetchImpl: async (url, opts, n) => { if (n === 1) return new Response('{}', { status: 401 }); throw new TypeError('Failed to fetch'); },
   });
   eq(await h.createWorkoutRow('upper-a'), null, 'connection dying during its 401 retry returns null');
+}
+
+// ── 9. D4: the toast names WHICH write failed ──────────────────────────────
+// Del hit a "Save failed" on 25 Aug 2026 and could only say "it happened yesterday" — the message
+// named the status code and not the thing. These assert the TOAST TEXT a user would read, never
+// that sbWhat() was called: the whole item is what appears on the screen.
+{
+  const h = build({ fetchImpl: status(400) });
+  await h.sb('daily_logs', 'POST', [{ weight: 80 }]);
+  eq(h.toasts[0].msg, 'Check-in not saved (400)', 'a failed check-in write names the check-in');
+}
+{
+  const h = build({ fetchImpl: status(500) });
+  await h.sb('workouts?id=eq.1', 'PATCH', { notes: 'x' });
+  eq(h.toasts[0].msg, 'Workout not saved (500)', 'a failed workout write names the workout');
+}
+{
+  const h = build({ fetchImpl: status(400) });
+  await h.sb('cardio_logs', 'POST', [{}]);
+  eq(h.toasts[0].msg, 'Cardio not saved (400)', 'cardio is named — the write that was silently lost in July');
+}
+{
+  // "not saved" is a lie about a delete: he was removing something, not saving it.
+  const h = build({ fetchImpl: status(409) });
+  await h.sb('workout_sets?id=eq.1', 'DELETE');
+  eq(h.toasts[0].msg, "Couldn't remove sets (409)", 'a failed DELETE says remove, not save');
+}
+{
+  // An unmapped table must never make the message worse than it was before D4 existed.
+  const h = build({ fetchImpl: status(400) });
+  await h.sb('some_new_table', 'POST', [{}]);
+  eq(h.toasts[0].msg, 'Save failed (400) — not saved', 'an unlabelled table falls back to the old wording');
+}
+{
+  const h = build({ fetchImpl: status(500) });
+  await h.sb('some_new_table?select=*');
+  eq(h.toasts[0].msg, "Couldn't load (500)", 'an unlabelled read falls back to the old wording too');
+}
+{
+  const h = build({ fetchImpl: status(400) });
+  await h.sb('daily_logs', 'POST', [{}], { quiet: true });
+  eq(h.toasts.length, 0, 'quiet still suppresses the named toast — the caller owns the message');
+}
+
+// sbWhat() itself: the path is PostgREST's, so the table is everything before the query string.
+{
+  const h = build({ fetchImpl: status(200) });
+  eq(h.sbWhat('workout_sets?workout_id=eq.7&select=*'), 'Sets', 'the query string is stripped');
+  eq(h.sbWhat('daily_logs'), 'Check-in', 'a bare table resolves');
+  eq(h.sbWhat('nope'), null, 'an unknown table resolves to null, not to a guess');
+  eq(h.sbWhat(''), null, 'an empty path does not throw');
+  eq(h.sbWhat(undefined), null, 'an undefined path does not throw');
+}
+
+// The user must never be shown a table name. Every label is a word off a screen he has seen.
+{
+  const h = build({ fetchImpl: status(200) });
+  const bad = Object.entries(h.labels()).filter(([, v]) => /_/.test(v) || v[0] !== v[0].toUpperCase());
+  eq(bad.length, 0, `every label is a capitalised user-facing noun, not a table name — offenders: ${JSON.stringify(bad)}`);
+}
+
+// The guard that keeps this from decaying: a table added next month gets a label, or this fails.
+// Same idea as the native-confirm() grep in confirm-dialog.test.js — no behavioural test can notice
+// a seventeenth table being introduced, and the fallback silently reinstates the original bug.
+{
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  const h = build({ fetchImpl: status(200) });
+  const labels = h.labels();
+  const tables = new Set([...src.matchAll(/\bsb\(\s*[`'"]([a-z_]+)/g)].map(m => m[1]));
+  const unlabelled = [...tables].filter(t => !(t in labels));
+  eq(unlabelled.length, 0, `every table sb() is called with has a label — missing: ${unlabelled.join(', ')}`);
+  ok(tables.size >= 15, `the table scrape still finds the call sites (found ${tables.size})`);
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);
