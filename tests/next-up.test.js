@@ -217,5 +217,48 @@ const at = (type, date) => ({ session_type: type, date });
   eq(liveWorkoutRow(null, TODAY, noDraft), null, 'and a failed GET (sb returns []) never crashes the card');
 }
 
+// ── C17: the sub-line must not claim things that are false of a one-session programme ──────
+// Charlie's account — one session in the programme — read "CTRL 1st Workout — 1 / 1 · after CTRL
+// 1st Workout · today". nextInRotation() wraps modulo the rotation length, so with a single session
+// `after` IS the session being offered. Del, 27 Aug: "this user only has one workout — worth
+// catching this now". It is what EVERY new account sees first, so it is worth more than it looks.
+{
+  const TODAY = '2026-08-21';
+  const { nextUpSubLine } = load({
+    functions: ['nextUpSubLine', 'lastTrainedLabel'],
+    deps: { todayStr: () => TODAY, dateStr: () => '' },
+  });
+
+  const solo = { id: 'ctrl-1st-workout', name: 'CTRL 1st Workout' };
+  const one = { session: solo, after: solo, afterDate: TODAY, position: 1, total: 1 };
+
+  const soloLine = nextUpSubLine(one);
+  ok(!/after CTRL 1st Workout/.test(soloLine), 'a lone session is no longer offered as coming after itself');
+  ok(!/1 \/ 1/.test(soloLine), 'and a counter that can only ever read 1 / 1 is dropped');
+  eq(soloLine, 'Last trained today',
+    'what is left is the one thing that is true — and it is spelled out, because a bare "today" under a session name reads as when it is DUE');
+
+  // A real rotation must keep everything it had. The clauses are dropped on their own tests, not by
+  // special-casing the one-session card, so this is the assertion that stops the fix over-reaching.
+  const rot = {
+    session: { id: 'lower-a', name: 'Lower 1' },
+    after: { id: 'upper-a', name: 'Upper 1' },
+    afterDate: TODAY, position: 2, total: 4,
+  };
+  eq(nextUpSubLine(rot), '2 / 4 · after Upper 1 · today', 'a four-session rotation is untouched');
+
+  // Two sessions: the counter IS meaningful and the wrap points at the other one, so both survive.
+  const pair = {
+    session: { id: 'upper-a', name: 'Upper 1' },
+    after: { id: 'lower-a', name: 'Lower 1' },
+    afterDate: TODAY, position: 1, total: 2,
+  };
+  eq(nextUpSubLine(pair), '1 / 2 · after Lower 1 · today', 'and a two-session programme keeps both clauses');
+
+  // No date to report: the line is simply absent rather than trailing a stray separator.
+  eq(nextUpSubLine({ session: solo, after: solo, afterDate: null, position: 1, total: 1 }), '',
+    'nothing true to say leaves an empty line, never a dangling ·');
+}
+
 console.log(`  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

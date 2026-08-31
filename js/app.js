@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-31-1643';
+const APP_BUILD = '2026-08-31-1645';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -4058,6 +4058,25 @@ function nextInRotation(recent, sessions = SESSIONS, programmes = TRAINING_PROGR
   return { session: rotation[at], after: last, afterDate: lastDate, position: at + 1, total: rotation.length };
 }
 
+// The Next up card's one sub-line, built from the clauses that are actually TRUE of this programme.
+// See the comment at the call site — with a single session, "1 / 1 · after <itself>" was both.
+//
+// Extracted so it can be tested without a DOM: it is the only part of renderNextUp() that makes a
+// claim, and the claim was wrong for every new account.
+function nextUpSubLine(next) {
+  const parts = [];
+  // A counter that always reads 1 / 1 tells you nothing about where you are.
+  if (next.total > 1) parts.push(next.position + ' / ' + next.total);
+  // With one session in the programme the rotation wraps onto itself, so this would name the
+  // session the card is already offering.
+  if (next.after && next.after.id !== next.session.id) parts.push('after ' + next.after.name);
+  const when = lastTrainedLabel(next.afterDate);
+  // Bare after a clause it qualifies ("after Upper 1 · today"); spelled out when it stands alone,
+  // because on its own "today" under a session name reads as when it is DUE, not when it was done.
+  if (when) parts.push(parts.length ? when : 'Last trained ' + when);
+  return parts.join(' · ');
+}
+
 // The session the card is currently offering, so the tap handler doesn't recompute it.
 let nextUpSession = null;
 
@@ -4140,10 +4159,20 @@ async function renderNextUp() {
   // One sub-line carries what the label, the step counter, the focus and the after-line used to say
   // across four rows (27 Aug 2026, cut 11). A live session says so here, since the "In progress"
   // label it used to have has no row of its own any more. `4 / 4`, not `4 of 4` \u2014 Del's note.
+  //
+  // \u26a0\ufe0f EVERY CLAUSE BELOW IS CONDITIONAL, AND THAT IS C17 (fixed 31 Aug 2026). A one-session
+  // programme has no rotation to be next in: nextInRotation() wraps modulo the rotation length, so
+  // with one session `after` IS the session being offered and `position / total` is always 1 / 1.
+  // Charlie's account read "CTRL 1st Workout \u2014 1 / 1 \u00b7 after CTRL 1st Workout \u00b7 today".
+  // Del, 27 Aug: "this user only has one workout \u2014 worth catching this now". It is the FIRST thing
+  // a new account sees, because a fresh programme starts at exactly one session.
+  //
+  // Each clause is dropped on its own test rather than the whole line being special-cased, so a
+  // two-session rotation (where the counter is meaningful but the wrap still points at the other
+  // one) keeps everything that is true of it.
   const sub = liveSession
     ? 'In progress \u00b7 started today, not saved yet'
-    : next.position + ' / ' + next.total + ' \u00b7 after ' + next.after.name
-      + ' \u00b7 ' + lastTrainedLabel(next.afterDate);
+    : nextUpSubLine(next);
 
   card.className = 'next-up ' + colour;
   card.style.display = 'block';
