@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-31-1355';
+const APP_BUILD = '2026-08-31-1509';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -810,6 +810,54 @@ async function sb(path, method = 'GET', body = null, { quiet = false, upsert = f
     showToast(msg, 'error');
   }
   return res;
+}
+
+// ─── REPLACING A SET OF ROWS WHOLESALE (C22, 31 Aug 2026) ─
+// Two saves in this app replace rows rather than edit them: the ✎ session editor rewrites a session's
+// `session_exercises`, and Mark Done rewrites one exercise's `workout_sets`. Both are DELETE-then-POST
+// and PostgREST has no client-side transaction to wrap them in, so a POST that failed after a DELETE
+// that succeeded left the session with NO exercises, or the exercise with no sets. Every row was still
+// sitting in this tab's memory at that moment — the app just never put them back. D4's toast made the
+// damage visible ("they were cleared"); this makes it not happen.
+//
+// ⚠️ DO NOT "SIMPLIFY" THIS INTO INSERT-FIRST-DELETE-AFTER. That is the obvious fix and it does not
+// work here: `workout_sets` carries UNIQUE (workout_id, exercise, set_number), so the replacement rows
+// collide with the very rows they are replacing. The order has to stay DELETE → POST, which means the
+// safety has to be a rollback rather than a reordering.
+//
+// So the old rows are read IN FULL before the delete — `select=*`, ids included — and re-POSTed if the
+// insert fails. Neither table has a generated column (checked 31 Aug), so a row that came out of a
+// SELECT goes back in exactly as it was, `created_at` and `id` and all.
+//
+// `buildRows` is a function rather than an array because saveExerciseSets() needs those same old rows
+// to carry rest times across a re-save (mergeExistingRests) — one GET does both jobs, and the read
+// still happens before the delete, which is the 13 Aug fix and must stay that way.
+//
+// Returns { ok: true } or { ok: false, stage, status, lost }:
+//   stage 'delete'            — nothing was touched
+//   stage 'post', lost: false — the old rows are back, nothing changed
+//   stage 'post', lost: true  — the restore failed too and the rows really are gone
+// `lost` is the only case worth a different sentence to the user, and it takes two failed writes in a
+// row to reach. Note a failed GET also returns [] (sb() does that for every read), so an unreadable
+// table restores nothing and reports lost: false — in practice the DELETE on the next line fails on the
+// same dead connection and returns at stage 'delete' before that can mislead anyone.
+async function replaceRows(table, scope, buildRows) {
+  const before = await sb(`${table}?${scope}&select=*`, 'GET', null, { quiet: true });
+  const old = Array.isArray(before) ? before : [];
+  const rows = buildRows(old) || [];
+  const delRes = await sb(`${table}?${scope}`, 'DELETE', null, { quiet: true });
+  if (!delRes.ok) return { ok: false, stage: 'delete', status: delRes.status, lost: false };
+  if (!rows.length) return { ok: true };
+  const postRes = await sb(table, 'POST', rows, { quiet: true });
+  if (postRes.ok) return { ok: true };
+  // Nothing to put back is not a failed restore: a session that was empty before the save is empty
+  // after it, which is exactly where it started.
+  let restored = true;
+  if (old.length) {
+    const back = await sb(table, 'POST', old, { quiet: true });
+    restored = !!back.ok;
+  }
+  return { ok: false, stage: 'post', status: postRes.status, lost: !restored };
 }
 
 // Needs the inserted row back (for its id), so it can't use sb()'s `return=minimal` POST — but it
@@ -4757,14 +4805,11 @@ async function applyTemplateVariationChanges() {
 
 // Delete-all-then-reinsert for this session's exercises — same idiom completeExercise() already
 // uses for idempotent re-saves, and far simpler than diffing individual reorder/add/remove ops.
+// It goes through replaceRows() so a failed insert puts the old exercises back instead of leaving the
+// session empty (C22) — read the comment on that function before changing the order of anything here.
 async function saveSessionTemplate() {
   if (!editingTemplateSessionId) return;
   const id = editingTemplateSessionId;
-  const delRes = await sb(`session_exercises?session_id=eq.${id}`, 'DELETE', null, { quiet: true });
-  // These two toasts describe the SAME tap and must not say the same thing (D4). Which of the two
-  // halves failed is the difference between "nothing happened" and "your exercises are gone", and
-  // the old shared `Save failed (400)` told him neither.
-  if (!delRes.ok) { showToast(`Session not saved (${delRes.status}) — nothing was changed`, 'error'); return; }
   const groupMap = templateGroupMap();   // presence-filtered, so a removed partner can't leave a tag behind
   // sort_order is the BASE order, not what's on screen: the pairs are stored as tags and both the
   // editor and the logger re-derive the together-on-screen order from them on open. Writing the
@@ -4776,12 +4821,15 @@ async function saveSessionTemplate() {
     band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i,
     superset_group: groupMap[ex.name] || null
   }));
-  if (rows.length) {
-    const postRes = await sb('session_exercises', 'POST', rows, { quiet: true });
-    // The delete landed and the insert did not, so this session's exercises are actually GONE until
-    // he saves again. Saying "Save failed" and leaving him to find an empty session later is the
-    // worse failure of the two. ⚠️ The save is not atomic — logged as C22, not fixed here.
-    if (!postRes.ok) { showToast(`Session exercises not saved (${postRes.status}) — they were cleared, reopen ✎ and save again`, 'error'); return; }
+  const res = await replaceRows('session_exercises', `session_id=eq.${id}`, () => rows);
+  // These toasts describe the SAME tap and must not say the same thing (D4). "Nothing was changed" and
+  // "your exercises are gone" are two different instructions, and the old shared `Save failed (400)`
+  // gave him neither. Since C22 the second one takes two failed writes to reach.
+  if (!res.ok) {
+    showToast(res.lost
+      ? `Session exercises not saved (${res.status}) — they were cleared, reopen ✎ and save again`
+      : `Session not saved (${res.status}) — nothing was changed`, 'error');
+    return;
   }
   if (!await applyTemplateVariationChanges()) return;
   await loadSessionTemplates();
@@ -5473,7 +5521,7 @@ function applySupersetOrder() {
 function moveLoggerExercise(name, dir) {
   if (!selectedSession || selectedSession.cardio) return;
   const next = moveUnitInOrder(supersetBaseOrder, activeSupersetGroups(), name, dir);
-  if (next.join(' ') === supersetBaseOrder.join(' ')) return;   // already at the end
+  if (next.join('\0') === supersetBaseOrder.join('\0')) return;   // already at the end
   supersetBaseOrder = next;
   sessionOrderToday = [...next];
   applySupersetOrder();
@@ -6846,8 +6894,6 @@ function collectExerciseSets(ex, supersetGroup) {
   return sets;
 }
 
-// Replaces one exercise's rows wholesale. Returns null on success, or the HTTP status that failed.
-// The DELETE is checked because if it failed the POST below would duplicate every set.
 // Carries already-recorded rest times across a re-save. Rest reaches the database two different ways:
 // before the first Mark Done it buffers in `pendingRest` (and is consumed there), and after it the
 // stopwatch PATCHes straight onto the row. So re-tapping Mark Done — which is how you fix a typo —
@@ -6865,17 +6911,16 @@ function mergeExistingRests(sets, existingRows) {
     : { ...s, rest_seconds: byNum[s.set_number] });
 }
 
+// Replaces one exercise's rows wholesale. Returns null on success, or { status, lost } on failure.
+//
+// The rows are read before the delete, not after — these are the rows about to be thrown away, and
+// they are needed twice over: mergeExistingRests() recovers the rest times off them, and replaceRows()
+// puts them back if the insert fails (C22). A failed read returns [] and merges nothing, which is the
+// right trade: a lost rest time must never be the thing that blocks the sets from saving.
 async function saveExerciseSets(exName, sets) {
   const scope = `workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}`;
-  // Read before the delete, not after — these are the rows about to be thrown away. Quiet, and a
-  // failure just returns [] (no merge): the DELETE below fails too on a dead connection and reports
-  // it properly, and a lost rest time must never be the thing that blocks the sets from saving.
-  const existing = await sb(`workout_sets?${scope}&select=set_number,rest_seconds`, 'GET', null, { quiet: true });
-  const rows = mergeExistingRests(sets, existing);
-  const delRes = await sb(`workout_sets?${scope}`, 'DELETE', null, { quiet: true });
-  if (!delRes.ok) return delRes.status;
-  const saveRes = await sb('workout_sets', 'POST', rows, { quiet: true });
-  return saveRes.ok ? null : saveRes.status;
+  const res = await replaceRows('workout_sets', scope, (existing) => mergeExistingRests(sets, existing));
+  return res.ok ? null : { status: res.status, lost: res.lost };
 }
 
 // Paints a block as saved. `dataset.done` is the flag the rest of the app reads — refreshSupersetUi()
@@ -6964,12 +7009,18 @@ async function completeExerciseInner(exName) {
   // and written — the retry then only re-does what's actually missing.
   const saved = [];
   for (const { name, sets } of pending) {
-    const failedStatus = await saveExerciseSets(name, sets);
-    if (failedStatus) {
+    const failed = await saveExerciseSets(name, sets);
+    if (failed) {
       abandonRestAfterFailedSave(restFor);
       saved.forEach(markExerciseBlockDone);
       if (saved.length) currentWorkoutHasSets = true;   // some rows did land — the workout isn't empty
-      showToast(`${name} not saved (${failedStatus}) — tap Mark Done again`, 'error');
+      // `lost` means the rollback failed too, so sets saved by an EARLIER Mark Done on this exercise
+      // went with it. The instruction is the same either way — what is typed into the block is still
+      // on screen — but he is owed the difference between "not saved" and "not saved, and the earlier
+      // ones are gone", or the next bug report is unusable again (D4).
+      showToast(failed.lost
+        ? `${name} not saved (${failed.status}) — its earlier sets were cleared too, tap Mark Done again`
+        : `${name} not saved (${failed.status}) — tap Mark Done again`, 'error');
       return;
     }
     saved.push(name);
@@ -7154,14 +7205,16 @@ async function saveWorkout() {
     // wrote a second copy of every cardio row. Sets have always been idempotent; cardio wasn't.
     // Deliberately inside the `if`: on a resume the cardio entries come from the draft, so an
     // unconditional wipe could bin rows the UI has no way to re-post.
-    const wipeRes = await sb(`cardio_logs?workout_id=eq.${currentWorkoutId}`, 'DELETE', null, { quiet: true });
-    if (!wipeRes.ok) {
-      showToast(`Cardio save failed (${wipeRes.status}) — rest of workout not saved either, tap Save Workout again`, 'error');
-      return;
-    }
-    const cardioRes = await sb('cardio_logs', 'POST', cardioRows, { quiet: true });
+    //
+    // The third site of the C22 hole and the reason this goes through replaceRows() too (31 Aug 2026):
+    // a wipe that succeeded followed by an insert that failed left an already-saved cardio entry gone
+    // from a workout that still says it needs saving. Fixing two of the three would have left the one
+    // table this app has already lost real data from as the odd one out.
+    const cardioRes = await replaceRows('cardio_logs', `workout_id=eq.${currentWorkoutId}`, () => cardioRows);
     if (!cardioRes.ok) {
-      showToast(`Cardio save failed (${cardioRes.status}) — rest of workout not saved either, tap Save Workout again`, 'error');
+      showToast(cardioRes.lost
+        ? `Cardio save failed (${cardioRes.status}) — your cardio was cleared, re-enter it and tap Save Workout again`
+        : `Cardio save failed (${cardioRes.status}) — rest of workout not saved either, tap Save Workout again`, 'error');
       return;
     }
   }

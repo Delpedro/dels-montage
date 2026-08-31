@@ -97,7 +97,7 @@ function fakeDoc(overrides = {}) {
   function build(responses) {
     const calls = [];
     const api = load({
-      functions: ['mergeExistingRests', 'saveExerciseSets'],
+      functions: ['mergeExistingRests', 'saveExerciseSets', 'replaceRows'],
       decls: ['currentWorkoutId'],
       deps: {
         sb: async (path, method = 'GET', body = null) => {
@@ -122,7 +122,9 @@ function fakeDoc(overrides = {}) {
     eq(h.calls[0].method, 'GET', 'the existing rows are read FIRST — after the DELETE they are gone');
     eq(h.calls[1].method, 'DELETE', 'then the delete');
     eq(h.calls[2].method, 'POST', 'then the insert');
-    ok(h.calls[0].path.includes('select=set_number,rest_seconds'), 'the read asks only for what the merge needs');
+    // Widened from set_number,rest_seconds on 31 Aug (C22): the same read is now also the rollback
+    // copy, so it has to bring back whole rows, not the two columns the merge needs.
+    ok(h.calls[0].path.includes('select=*'), 'the read brings back the whole rows, not just the rest columns');
     ok(h.calls[0].path.includes('workout_id=eq.w-1'), 'scoped to this workout');
     ok(h.calls[0].path.includes('exercise=eq.Leg%20Press'), 'and to this exercise, URL-encoded');
     eq(h.calls[2].body[0].rest_seconds, 90, 'the row that gets inserted carries the recovered rest');
@@ -138,15 +140,143 @@ function fakeDoc(overrides = {}) {
 
   {
     const h = build((path, method) => (method === 'GET' ? [] : method === 'DELETE' ? errRes(503) : okRes));
-    eq(await h.saveExerciseSets('Dips', [{ set_number: 1 }]), 503, 'a failed delete reports its status and stops');
+    const failed = await h.saveExerciseSets('Dips', [{ set_number: 1 }]);
+    eq(failed.status, 503, 'a failed delete reports its status and stops');
+    eq(failed.lost, false, 'and nothing was lost — the rows were never deleted');
     eq(h.calls.length, 2, 'and never reaches the insert');
   }
 
   {
     const h = build((path, method) => (method === 'GET' ? [] : method === 'POST' ? errRes(400) : okRes));
-    eq(await h.saveExerciseSets('Dips', [{ set_number: 1 }]), 400, 'a failed insert reports its status');
+    const failed = await h.saveExerciseSets('Dips', [{ set_number: 1 }]);
+    eq(failed.status, 400, 'a failed insert reports its status');
+    eq(failed.lost, false, 'and nothing was lost — there was nothing there to lose');
+    eq(h.calls.length, 3, 'so no restore is attempted');
+  }
+
+  // ── C22: the DELETE landed, the POST did not, and the rows must come back ──
+  // Before 31 Aug 2026 this pair left the exercise with no sets at all. Every row was in memory the
+  // whole time; the app just never put them back. Same hole in the ✎ editor — see section 5.
+  {
+    const OLD = [
+      { id: 'r1', workout_id: 'w-1', exercise: 'Dips', set_number: 1, weight: 30, reps: 10, rest_seconds: 90 },
+      { id: 'r2', workout_id: 'w-1', exercise: 'Dips', set_number: 2, weight: 30, reps: 9, rest_seconds: 105 },
+    ];
+    let posts = 0;
+    const h = build((path, method) => {
+      if (method === 'GET') return OLD;
+      if (method === 'DELETE') return okRes;
+      posts++;
+      return posts === 1 ? errRes(400) : okRes;   // the new rows fail, the restore succeeds
+    });
+    const failed = await h.saveExerciseSets('Dips', [{ set_number: 1, reps: 12, rest_seconds: 0 }]);
+    eq(failed.status, 400, 'the failure still reports the status that caused it');
+    eq(failed.lost, false, 'but nothing is lost, because the old rows went back');
+    eq(h.calls.length, 4, 'read, delete, failed insert, restore');
+    eq(h.calls[3].method, 'POST', 'the restore is a plain insert of what was read at the start');
+    deep(h.calls[3].body, OLD, 'and it puts back exactly those rows — ids, weights and rests included');
+  }
+
+  {
+    // The double failure. Two writes in a row have to fail to get here, which in practice means the
+    // connection died — and THAT is the one case where the sets really are gone.
+    const h = build((path, method) => {
+      if (method === 'GET') return [{ id: 'r1', set_number: 1, reps: 10 }];
+      return method === 'DELETE' ? okRes : errRes(503);
+    });
+    const failed = await h.saveExerciseSets('Dips', [{ set_number: 1, reps: 12 }]);
+    eq(failed.status, 503, 'the status is the one from the save, not from the failed restore');
+    eq(failed.lost, true, 'and it says so: the rows are gone');
   }
 })();
+
+// ── 5. C22 — the ✎ session editor cannot leave a session with no exercises ──
+// saveSessionTemplate() uses the same delete-then-reinsert, and a POST that failed after the DELETE
+// emptied the session. The toast said so honestly (D4) and left Del to repair it by hand.
+(async () => {
+  console.log('saving the session editor rolls back instead of clearing the session');
+
+  const OLD_ROWS = [
+    { id: 'se1', session_id: 'lower-b', name: 'Hack Squat', sets: 3, sort_order: 0 },
+    { id: 'se2', session_id: 'lower-b', name: 'RDL', sets: 3, sort_order: 1 },
+  ];
+
+  function build(responses) {
+    const calls = [];
+    const toasts = [];
+    const api = load({
+      functions: ['saveSessionTemplate', 'exerciseIdFields', 'replaceRows'],
+      decls: ['editingTemplateExercises', 'editingTemplateSessionId', 'EXERCISE_IDS',
+              'EXERCISE_LIBRARY', 'selectedProgramme', 'selectedSession', 'lastTemplateRefresh'],
+      deps: {
+        sb: async (path, method = 'GET', body = null) => {
+          calls.push({ path, method, body });
+          return responses(method, calls.length);
+        },
+        showToast: (msg, kind) => toasts.push({ msg, kind }),
+        templateGroupMap: () => ({}),
+        applyTemplateVariationChanges: async () => true,
+        loadSessionTemplates: async () => {},
+        buildExerciseLibrary: () => ({}),
+        closeSessionEditor: () => {},
+        buildSessionGrid: () => {},
+        document: { getElementById: () => ({ style: { display: 'none' } }) },
+      },
+      accessors: {
+        setUp: `(rows) => {
+          editingTemplateSessionId = 'lower-b';
+          editingTemplateExercises = rows;
+          EXERCISE_IDS = {};
+        }`,
+      },
+    });
+    api.setUp([{ name: 'Hack Squat', sets: 4, reps: '8', rest: '120s' }]);
+    return { ...api, calls, toasts };
+  }
+
+  {
+    let posts = 0;
+    const h = build((method) => {
+      if (method === 'GET') return OLD_ROWS;
+      if (method === 'DELETE') return okRes;
+      posts++;
+      return posts === 1 ? errRes(400) : okRes;
+    });
+    await h.saveSessionTemplate();
+    eq(h.calls.length, 4, 'read, delete, failed insert, restore');
+    deep(h.calls[3].body, OLD_ROWS, 'the session gets its old exercises back');
+    eq(h.toasts[0].msg, 'Session not saved (400) — nothing was changed',
+      'and the toast says nothing changed, because nothing did');
+  }
+
+  {
+    const h = build((method) => (method === 'GET' ? OLD_ROWS : method === 'DELETE' ? okRes : errRes(503)));
+    await h.saveSessionTemplate();
+    eq(h.toasts[0].msg, 'Session exercises not saved (503) — they were cleared, reopen ✎ and save again',
+      'only the double failure gets the loud message — the one that tells him to repair it by hand');
+  }
+
+  {
+    // A save that never got as far as deleting anything must not claim the exercises were cleared.
+    const h = build((method) => (method === 'GET' ? OLD_ROWS : method === 'DELETE' ? errRes(503) : okRes));
+    await h.saveSessionTemplate();
+    eq(h.calls.length, 2, 'a failed delete stops there');
+    eq(h.toasts[0].msg, 'Session not saved (503) — nothing was changed', 'and says so');
+  }
+})();
+
+// ── 6. No raw NUL bytes in js/app.js ───────────────────────────────────────
+// moveLoggerExercise() compares two orders by joining them on a separator no exercise name can
+// contain. That separator was written as the LITERAL character rather than the escape `\0`, which
+// makes grep and ripgrep treat the whole file as binary: they print "Binary file js/app.js matches"
+// and never show the matching lines. It silently truncated a search on 31 Aug. The escape reads
+// identically to the JS engine and keeps the file text.
+{
+  console.log('js/app.js stays a text file');
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  eq((src.match(/\u0000/g) || []).length, 0, 'no raw NUL byte anywhere in the source');
+  ok(src.includes("join('\\0')"), 'the order comparison still uses a NUL separator, written as an escape');
+}
 
 // ── 3. saveWorkout — the cardio retry ───────────────────────────────────────
 (async () => {
@@ -156,7 +286,9 @@ function fakeDoc(overrides = {}) {
     const calls = [];
     const toasts = [];
     const api = load({
-      functions: ['saveWorkout'],
+      // replaceRows is the real one (C22): the cardio wipe-and-reinsert runs through it, and these
+      // cases assert exactly which cardio rows reach the POST.
+      functions: ['saveWorkout', 'replaceRows'],
       decls: ['selectedSession', 'selectedProgramme', 'currentWorkoutId', 'currentWorkoutHasSets',
               'supersetGroups', 'supersetBaseOrder', 'supersetsTouched'],
       deps: {
@@ -191,10 +323,14 @@ function fakeDoc(overrides = {}) {
     const h = build({ cardioRows: cardio, sbImpl: () => okRes });
     await h.saveWorkout();
     const cardioCalls = h.calls.filter(c => c.path.startsWith('cardio_logs'));
-    eq(cardioCalls.length, 2, 'cardio is written as a delete then an insert');
-    eq(cardioCalls[0].method, 'DELETE', 'the delete comes first');
-    ok(cardioCalls[0].path.includes('workout_id=eq.w-9'), 'and clears only this workout\'s rows');
-    eq(cardioCalls[1].method, 'POST', 'then the rows go in');
+    // Three since C22 (31 Aug 2026), not two: the read in front is the copy that goes back if the
+    // insert fails. Deleting an already-saved cardio entry and then failing to re-insert it is the
+    // one way this screen can lose data, and cardio is the table it has actually happened to.
+    eq(cardioCalls.length, 3, 'cardio is read, deleted, then re-inserted');
+    eq(cardioCalls[0].method, 'GET', 'the read comes first, so a failed insert has something to put back');
+    eq(cardioCalls[1].method, 'DELETE', 'then the delete');
+    ok(cardioCalls[1].path.includes('workout_id=eq.w-9'), 'and clears only this workout\'s rows');
+    eq(cardioCalls[2].method, 'POST', 'then the rows go in');
     eq(h.toasts[0].type, 'success', 'and the workout saves');
     eq(h.session(), null, 'the session is closed out');
   }

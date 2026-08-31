@@ -62,7 +62,10 @@ const app = load({
     'templateDisplayOrder', 'templateExerciseByName', 'pairTemplateSuperset', 'clearTemplateSuperset',
     'templateSupersetPickerHtml', 'addTemplateSupersetPartner', 'addTemplateExercise',
     'moveTemplateExercise', 'changeTemplateExerciseSets', 'removeTemplateExercise',
-    'saveSessionTemplate', 'exerciseIdFields',
+    // C22, 31 Aug 2026: the save goes through replaceRows() now, so it comes along for the ride.
+    // The real one, not a stub — these cases assert the rows that reach the POST, and a stub would
+    // let a change in that plumbing pass unnoticed.
+    'saveSessionTemplate', 'exerciseIdFields', 'replaceRows',
   ],
   decls: ['editingTemplateExercises', 'editingTemplateGroups', 'editingTemplatePickerFor',
     'editingTemplateSessionId', 'EXERCISE_LIBRARY', 'EXERCISE_IDS', 'selectedProgramme',
