@@ -205,18 +205,35 @@ fresh();
   deep(app.renames().map(r => `${r.from}→${r.to}`), ['Old Mach→Mach 1', 'Mach 1→Machine A'],
     '3. chained renames keep every hop, in order');
 
-  // ── 4. Removing ──────────────────────────────────────────────────────────────────────
+  // ── 4. Removing (C24, rewritten 31 Aug 2026) ─────────────────────────────────────────
+  // This used to promise the sets would "stay labelled ... in your history", which reads as
+  // harmless and is not: prevSetsForVariation() falls back only to UNTAGGED rows, so a label no
+  // variation offers any more is reachable by nothing and those sets vanish as previous sets for
+  // EVERY variation of the lift. That is what happened to Del's Lateral Raise. Removing now clears
+  // the label instead, putting the sets back in the shared pile.
   fresh();
   setCount = 12;
   await app.removeTemplateVariation('Seated Calf Raise', 'New Mach');
   has(calls.confirms[0].body, '12', '4. says how many sets carry it');
-  has(calls.confirms[0].body, 'stay', '4. and that the history is NOT deleted');
+  has(calls.confirms[0].body, 'shared history', '4. and says where they go, not just that they survive');
+  has(calls.confirms[0].body, 'hidden', '4. and names the consequence of leaving them labelled');
   deep(app.varsOf('Seated Calf Raise'), ['Old Mach'], '4. removed from the offered list');
+  deep(app.renames().map(r => `${r.from}→${r.to}`), ['New Mach→null'],
+    '4. and queues a clear-the-label pass, so the 12 sets rejoin the shared history');
 
   fresh();
   confirmReturns = false;
   await app.removeTemplateVariation('Seated Calf Raise', 'New Mach');
   deep(app.varsOf('Seated Calf Raise'), ['Old Mach', 'New Mach'], '4. declined → nothing removed');
+  deep(app.renames(), [], '4. declined → and no history change queued either');
+
+  // Nothing logged under it: there is no history to rescue, so nothing is queued against the
+  // database at all. A removal must not write to workout_sets just because it can.
+  fresh();
+  setCount = 0;
+  await app.removeTemplateVariation('Seated Calf Raise', 'New Mach');
+  deep(app.varsOf('Seated Calf Raise'), ['Old Mach'], '4. an unused variation still just goes');
+  deep(app.renames(), [], '4. and touches no history, because there is none to touch');
 
   // ── 5. An empty list is absent, never [] ─────────────────────────────────────────────
   // The logger draws the toggle on `ex.variations` being truthy, so [] would render an empty control.
@@ -256,6 +273,19 @@ fresh();
   ok(!w.some(x => x.path.includes('exercise_catalogue')), '6. the shared catalogue is never written');
 
   deep(app.renames(), [], '6. the queue is cleared once applied');
+
+  // C24: the same machinery carries a REMOVAL, whose "new label" is no label. The assertion that
+  // matters is the body — `{ variation: null }` is what puts those sets back in the shared pile,
+  // and a stringified "null" would quietly create a label called null instead.
+  fresh();
+  setCount = 12;
+  await app.removeTemplateVariation('Seated Calf Raise', 'New Mach');
+  calls.writes = [];
+  eq(await app.applyTemplateVariationChanges(), true, '6. a removal applies cleanly too');
+  const clear = calls.writes.find(x => x.path.startsWith('workout_sets?'));
+  ok(!!clear, '6. a removal with logged sets does write to the history');
+  has(clear.path, 'variation=eq.New%20Mach', '6. scoped to the label being cleared');
+  eq(clear.body.variation, null, '6. and clears it to a real null, not the string "null"');
   deep(app.touched(), [], '6. and so is the propagation set');
 
   // Emptying a list writes null, not [] — same reason as section 5, one layer down.

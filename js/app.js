@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-31-1634';
+const APP_BUILD = '2026-08-31-1643';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -4671,18 +4671,48 @@ async function countSetsForVariation(name, variation) {
   return Array.isArray(rows) ? rows.length : 0;
 }
 
+// ⚠️ REMOVING A VARIATION THAT HAS SETS ORPHANS THEM, AND THE OLD WORDING HID THAT (C24, 31 Aug 2026).
+// It used to say the sets "stay labelled <v> in your history — this only stops it being offered",
+// which reads as harmless and is not. prevSetsForVariation() takes exact matches first and falls back
+// only to UNTAGGED rows, so a label no variation offers any more is reachable by nothing: those sets
+// stop appearing as previous sets for every variation of the lift, not just the removed one.
+//
+// Del hit exactly this on Lateral Raise. His history moved from Standing DB / Leaning DB to
+// Restricted / Standing / Sitting, 13 of his 20 sets became unreachable, and all three new names
+// showed the same 7 untagged rows — which is what "the previous lifts are the same for the 3
+// variations" was. The counts were read off the database on 31 Aug and the backfill was run by hand;
+// this is the change that stops it happening to anyone else.
+//
+// So the default action now CLEARS the label rather than stranding it, which puts those sets back in
+// the lift's shared pile where every variation can see them — the fallback working as designed.
+// It is queued as a rename to null because that is precisely what it is, and Save Changes applies it
+// with everything else, so closing the editor without saving cannot leave history relabelled.
 async function removeTemplateVariation(name, v) {
   const logged = await countSetsForVariation(name, v);
+
+  if (!logged) {
+    const ok = await askConfirm({
+      title: `Remove ${v}?`,
+      body: `It stops being offered when you log ${name}.`,
+      yes: 'Remove it',
+      no: 'Keep it',
+      danger: true,
+    });
+    if (!ok) return;
+    setTemplateVariations(name, templateVariationsOf(name).filter(x => x !== v));
+    return;
+  }
+
+  const one = logged === 1;
   const ok = await askConfirm({
     title: `Remove ${v}?`,
-    body: logged > 0
-      ? `${logged} logged ${logged === 1 ? 'set stays' : 'sets stay'} labelled ${v} in your history — this only stops it being offered when you log ${name}.`
-      : `It stops being offered when you log ${name}.`,
-    yes: 'Remove it',
-    no: 'Keep it',
+    body: `${logged} logged ${one ? 'set carries' : 'sets carry'} this label. Clearing it puts ${one ? 'it' : 'them'} back in ${name}'s shared history, where every variation can see ${one ? 'it' : 'them'} — left labelled, ${one ? 'it stays' : 'they stay'} hidden from all of them.`,
+    yes: `Remove and clear the label`,
+    no: `Keep ${v}`,
     danger: true,
   });
   if (!ok) return;
+  editingTemplateVarRenames.push({ name, from: v, to: null });
   setTemplateVariations(name, templateVariationsOf(name).filter(x => x !== v));
 }
 
@@ -4839,7 +4869,13 @@ async function applyTemplateVariationChanges() {
     const scope = id ? `exercise_id=eq.${id}` : `exercise=eq.${encodeURIComponent(name)}`;
     const res = await sb(`workout_sets?${scope}&variation=eq.${encodeURIComponent(from)}`,
       'PATCH', { variation: to }, { quiet: true });
-    if (!res.ok) { showToast(`Couldn't rename ${from} in your history (${res.status})`, 'error'); return false; }
+    // `to === null` is a removal clearing its label (C24), not a rename — say the right thing.
+    if (!res.ok) {
+      showToast(to === null
+        ? `Couldn't clear the ${from} label in your history (${res.status})`
+        : `Couldn't rename ${from} in your history (${res.status})`, 'error');
+      return false;
+    }
   }
 
   for (const name of editingTemplateVarTouched) {

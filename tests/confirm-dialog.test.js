@@ -274,7 +274,11 @@ console.log('the app asks its own questions now');
   // 30 Aug 2026: 9 → 11. E18 added two, both about a variation the user typed — renaming one that
   // has logged sets behind it, and removing one. Neither is a name box, so they are here and not in
   // the askPrompt count below.
-  eq(asks.length, 11, 'all eleven questions go through askConfirm() — the last two are E18\'s variation rename and remove');
+  // 31 Aug 2026: 11 → 12. C24 split the removal in two, and the split is the point: removing a
+  // variation with logged sets behind it now offers to CLEAR the label so those sets rejoin the
+  // lift's shared history, while removing an unused one still just asks. One question cannot do
+  // both jobs — the wording that covered both is what hid the orphaning in the first place.
+  eq(asks.length, 12, 'all twelve questions go through askConfirm() — the last three are the variation rename and the two removals');
 
   ok(/bodyEl\.textContent = body;/.test(code),
      'the body is written with textContent — session and exercise names are user-typed');
