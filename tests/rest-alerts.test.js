@@ -145,7 +145,7 @@ const app = load({
   const boundary = load({
     functions: ['claimDeviceForAccount', 'perDeviceKeys', 'claimRestAlertsFlag'],
     decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE',
-            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE'],
+            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE', 'REST_ARM_STORE'],
     deps: {
       localStorage: shared,
       sessionStorage: {

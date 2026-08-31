@@ -173,7 +173,7 @@ function eq(actual, expected, label) {
     // assertion below passes for the wrong reason on a ReferenceError the try block swallows.
     functions: ['claimDeviceForAccount', 'perDeviceKeys', 'claimRestAlertsFlag'],
     decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE',
-            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE'],
+            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE', 'REST_ARM_STORE'],
     deps: { localStorage: store(local), sessionStorage: store(session) },
   });
 
@@ -232,7 +232,7 @@ function eq(actual, expected, label) {
     // Same extraction as above — claimDeviceForAccount() calls claimRestAlertsFlag().
     functions: ['claimDeviceForAccount', 'perDeviceKeys', 'claimRestAlertsFlag'],
     decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE',
-            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE'],
+            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE', 'REST_ARM_STORE'],
     deps: {
       localStorage: { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); }, removeItem() {} },
       sessionStorage: { removeItem() {} },

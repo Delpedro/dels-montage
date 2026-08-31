@@ -32,7 +32,7 @@ const store = {};
 let nextInterval = 1;
 
 const app = load({
-  functions: ['startRestAfter', 'swStart', 'swParseRest'],
+  functions: ['startRestAfter', 'abandonRestAfterFailedSave', 'swStart', 'swParseRest'],
   deps: {
     swRunning: false,
     swActiveExercise: null,
@@ -179,19 +179,30 @@ function fresh() {
 }
 
 // ── 6. where it is called from ─────────────────────────────────────────────
-// The behaviour that can't be reached through the extracted function, and the one that would be worst
-// to get wrong: a Mark Done that failed to save must not start a rest.
+// ⚠️ THIS SECTION WAS INVERTED ON 31 AUG 2026, AND THE INVERSION IS THE FIX.
+// It used to assert that startRestAfter() came AFTER the save-failure return — the timer started
+// only once every set had been written. Del's Monday session is the bill for that: "Marked done
+// didn't start last watch until I returned to the app". saveExerciseSets() is three round trips per
+// exercise, and a phone that goes in a pocket mid-save is frozen by iOS with the whole chain in
+// flight, so nothing starts — not the watch and not the alert booking either.
+//
+// The rest begins when the set ends, which is when the button is tapped. So the call moved ABOVE the
+// saves, and the property the old ordering was protecting — a failed Mark Done leaves you mid-set,
+// not resting — is now enforced by abandonRestAfterFailedSave() instead, which is asserted for
+// behaviourally in section 7 rather than by where a line happens to sit.
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
   const body = src.slice(src.indexOf('async function completeExercise('), src.indexOf('function startRestAfter('));
 
   const start = body.indexOf('startRestAfter(');
   ok(start > 0, 'completeExercise starts the rest timer');
-  ok(body.indexOf('not saved (${failedStatus})') < start,
-    'and only past the save-failure return, so a failed Mark Done leaves you mid-set, not resting');
+  ok(start < body.indexOf('await saveExerciseSets('),
+    'and starts it BEFORE the first network write — a pocketed phone must not owe the rest to a save');
   ok(body.indexOf('Fill in at least one set first') < start,
-    'and past the nothing-typed return');
-  ok(body.indexOf('lastCompletedExercise = saved[saved.length - 1]') < start,
+    'and past the nothing-typed return, so a Mark Done with nothing filled in still starts nothing');
+  ok(body.indexOf('abandonRestAfterFailedSave(restFor)') > start,
+    'a save that fails takes the rest back rather than leaving one running over a retry');
+  ok(/const restFor = pending\[pending\.length - 1\]\.name/.test(body),
     'and it times the last member of a superset — the block the single Mark Done button sits on');
 
   // Del killed the completion beep on 25 Aug 2026. This used to assert the AudioContext was
@@ -207,6 +218,35 @@ function fresh() {
   const code = src.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
   eq(code.split('startRestAfter(').length - 1, 2,
     'startRestAfter appears twice in the code — its declaration and that one call');
+}
+
+// ── 7. taking the rest back when the save failed (31 Aug 2026) ─────────────
+// The rest now starts at the tap, so the guarantee that used to come free from the call's POSITION
+// has to be paid for here instead. Three cases, and the two that must NOT stop the timer are the
+// interesting ones: this runs a second or more after the tap, and by then the person may have moved.
+{
+  // The ordinary failure: the save 503'd, the rest this Mark Done started is taken back.
+  fresh();
+  app.startRestAfter('Bench Press');
+  eq(app.state().swSaveOnStop, false, 'the auto-started rest is a save:false timer');
+  app.abandonRestAfterFailedSave('Bench Press');
+  eq(calls.stop, 1, 'a failed save stops the rest it started — the retry is the job, not the rest');
+
+  // He tapped another exercise's watch while the save was in flight. That timer is his.
+  fresh();
+  app.startRestAfter('Bench Press');
+  app.swStart('Incline Curl');            // a manual tap: swStart's own swStop fires, hence stop === 1
+  const beforeAbandon = calls.stop;
+  app.abandonRestAfterFailedSave('Bench Press');
+  eq(calls.stop, beforeAbandon, 'a rest that has since moved to another exercise is left alone');
+
+  // He tapped the watch on the SAME exercise. A rest started by hand is one he chose to measure, and
+  // stopping it here would write the walk-to-the-machine onto a set — the 14 Aug bug, from a new door.
+  fresh();
+  app.swStart('Bench Press');
+  eq(app.state().swSaveOnStop, true, 'a hand-started rest is a save:true timer');
+  app.abandonRestAfterFailedSave('Bench Press');
+  eq(calls.stop, 0, 'a rest he started by hand is never stopped by a failed save');
 }
 
 process.on('exit', () => {

@@ -31,11 +31,13 @@ console.log('rest alerts — booking, cancelling, and the 24 Aug gym session');
 // `latency` is the point of the stub: both network calls advance a fake clock, because a stub that
 // resolves instantly cannot tell a deadline apart from a duration, and a gym connection is the case
 // the whole change is for.
-function mount(shared, { upsertOk = true, push = true } = {}) {
+function mount(shared, { upsertOk = true, push = true, dispatchOk = true, visible = false } = {}) {
   const closed = [];
   const logged = [];
   const toasts = [];
   const notifications = [];
+  const shown = [];
+  const timers = [];
   const calls = { sb: [], push: [] };
   let clock = shared.clock;
 
@@ -48,11 +50,19 @@ function mount(shared, { upsertOk = true, push = true } = {}) {
     functions: [
       'restAlertsOn', 'pushSupported', 'restAlertToken', 'setRestAlertToken',
       'clearRestNotifications', 'cancelRestAlert', 'scheduleRestAlert', 'warnRestAlertsOff',
+      'readRestArm', 'writeRestArm', 'clearRestArm', 'dispatchRestAlert', 'ensureRestAlertArmed',
+      'scheduleLocalRestCue', 'showLocalRestCue',
     ],
     decls: ['REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'LAST_ACCOUNT_STORE', 'REST_TOKEN_STORE',
-            'restAlertsOffWarned'],
+            'restAlertsOffWarned', 'REST_ARM_STORE', 'ARM_RETRY_MS', 'ARM_MAX_TRIES', 'ARM_FLOOR_MS',
+            'LOCAL_CUE_STALE_MS', 'swLocalCueTimer'],
     deps: {
       Date: FakeDate,
+      document: { get visibilityState() { return visible ? 'visible' : 'hidden'; } },
+      // The local cue's timer is never let run for real — the tests fire it by hand at a clock they
+      // control, which is the only way to test "the page thawed twenty minutes late".
+      setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+      clearTimeout: (id) => { if (id) timers[id - 1] = null; },
       SUPABASE_URL: 'https://x.supabase.co',
       SUPABASE_KEY: 'anon',
       window: push ? { PushManager: function () {}, Notification: function () {} } : { Notification: function () {} },
@@ -66,11 +76,12 @@ function mount(shared, { upsertOk = true, push = true } = {}) {
         serviceWorker: {
           getRegistration: async () => ({
             getNotifications: async ({ tag }) => notifications.filter((n) => n.tag === tag),
+            showNotification: async (title, opts) => { shown.push({ title, ...opts }); },
           }),
         },
       },
-      sb: async (path, method) => {
-        calls.sb.push({ path, method });
+      sb: async (path, method, body, opts) => {
+        calls.sb.push({ path, method, keepalive: !!(opts && opts.keepalive) });
         clock += shared.latency;
         return { ok: path.startsWith('rest_alerts') ? upsertOk : true, status: upsertOk ? 200 : 503 };
       },
@@ -80,15 +91,26 @@ function mount(shared, { upsertOk = true, push = true } = {}) {
       showToast: (msg, type) => toasts.push({ msg, type }),
       validAccessToken: async () => { clock += shared.latency; return 'jwt'; },
       netFetch: async (url, opts) => {
-        calls.push.push({ url, body: JSON.parse(opts.body) });
+        calls.push.push({ url, body: JSON.parse(opts.body), keepalive: !!opts.keepalive });
+        if (!dispatchOk) return { ok: false, status: 503 };
         return { ok: true };
       },
     },
-    accessors: { now: '() => Date.now()' },
+    accessors: {
+      now: '() => Date.now()',
+      arm: '() => readRestArm()',
+      localTimer: '() => swLocalCueTimer',
+    },
   });
 
   notifications.push({ tag: 'rest-alert', close() { closed.push(this); } });
-  return { ...mod, calls, closed, logged, toasts };
+  // Fires the pending local-cue timer at whatever the fake clock now says. Nothing in the app awaits
+  // it, so the tests do.
+  const fireLocalCue = () => {
+    const t = timers.filter(Boolean).pop();
+    return t ? t.fn() : Promise.resolve();
+  };
+  return { ...mod, calls, closed, logged, toasts, shown, timers, notifications, fireLocalCue, tick: (ms) => { clock += ms; } };
 }
 
 function freshShared(latency = 0) {
@@ -271,6 +293,174 @@ async function main() {
     m.setRestAlertToken('tok-z');
     await m.cancelRestAlert();
     eq(m.closed.length, 3, 'and so does stopping a rest early');
+  }
+
+  // ── 5. THE ARM RECORD — DEL'S MONDAY SESSION, 31 AUG 2026 ────────────────
+  // "2nd set RDLs notification didn't fire, and stopped altogether then". rest_alert_log for that
+  // rest holds ONE row: a `cancelled` two minutes later. No booked, no upsert-failed, no no-jwt, no
+  // throw. The page was frozen by iOS mid-await, the await never resumed, and the alert was never
+  // armed — silently, with nothing anywhere that could ever have noticed.
+  {
+    const shared = freshShared();
+    const m = mount(shared);
+    await m.scheduleRestAlert('RDL', 120);
+
+    const arm = m.arm();
+    ok(!!arm, 'a rest writes an arm record');
+    eq(arm.armed, 1, 'and it is armed once the Edge Function has actually answered');
+    eq(arm.token, m.restAlertToken(), 'keyed by the same token the cancel is scoped to');
+    eq(arm.dueAt, shared.clock + 120000, 'carrying the deadline stamped at the tap, not a duration');
+    ok(m.calls.sb.every((c) => c.keepalive), 'the booking goes out keepalive — it must outlive a frozen page');
+    ok(m.calls.push[0].keepalive, 'and so does the dispatch');
+  }
+
+  // The freeze itself: the tap wrote the intention, and then nothing finished. What must be true
+  // afterwards is that the app can still tell, which is the whole difference from 31 Aug.
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false });
+    await m.scheduleRestAlert('RDL', 120);
+    eq(m.arm().armed, 0, 'a dispatch that did not land leaves the rest booked in intention, not in fact');
+    ok(m.logged.some((l) => l.phase === 'dispatch-failed'), 'and says so in the readout');
+
+    // The watchdog, off the next watch tick. Same token, same deadline — the retry is the repair.
+    const n = mount(shared, { dispatchOk: true });
+    n.tick(5000);
+    n.ensureRestAlertArmed();
+    await new Promise((r) => setImmediate(r));
+    eq(n.calls.push.length, 1, 'the next tick re-fires the booking rather than losing the cue');
+    eq(n.calls.push[0].body.token, m.arm().token, 'with the token the rest already had');
+    eq(n.calls.push[0].body.dueAt, shared.clock + 120000,
+      'and the ORIGINAL deadline — a repair must not push the rest out by however long the freeze was');
+    eq(n.arm().armed, 1, 'and the rest is armed for real this time');
+    ok(n.logged.some((l) => l.phase === 'rebooked'), 'a repair is distinguishable from a first booking in the readout');
+  }
+
+  // Nothing to repair is the common case, and it must cost one storage read.
+  {
+    const shared = freshShared();
+    const m = mount(shared);
+    await m.scheduleRestAlert('RDL', 120);
+    const before = m.calls.push.length;
+    m.ensureRestAlertArmed();
+    m.ensureRestAlertArmed();
+    await new Promise((r) => setImmediate(r));
+    eq(m.calls.push.length, before, 'an armed rest is never re-dispatched by the watchdog');
+  }
+
+  // A repair can never resurrect a rest that is over — the token is the authority, not the record.
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false });
+    await m.scheduleRestAlert('RDL', 120);
+    m.setRestAlertToken('someone-elses-rest');
+    m.ensureRestAlertArmed();
+    await new Promise((r) => setImmediate(r));
+    eq(m.calls.push.length, 1, 'a stale arm record is not re-booked');
+    eq(m.arm(), null, 'it is thrown away instead');
+  }
+
+  // And it gives up rather than hammering a dead gym connection, or booking an alert so late that
+  // the function has no prep window left to send it in.
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false });
+    await m.scheduleRestAlert('RDL', 120);
+    for (let i = 0; i < 20; i++) { m.tick(5000); m.ensureRestAlertArmed(); await new Promise((r) => setImmediate(r)); }
+    eq(m.calls.push.length, 6, 'six attempts and no more — ARM_MAX_TRIES');
+  }
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false });
+    await m.scheduleRestAlert('RDL', 120);
+    m.tick(118000);                       // 2s of rest left
+    m.ensureRestAlertArmed();
+    await new Promise((r) => setImmediate(r));
+    eq(m.calls.push.length, 1, 'a rest with less left than the send needs is not re-booked');
+  }
+
+  // Cancelling clears the record too, or the watchdog would re-book a rest that is over.
+  {
+    const shared = freshShared();
+    const m = mount(shared);
+    await m.scheduleRestAlert('RDL', 120);
+    await m.cancelRestAlert();
+    eq(m.arm(), null, 'stopping a rest clears its arm record');
+    eq(m.localTimer(), null, 'and its local cue');
+  }
+
+  // ── 6. THE CUE THAT NEEDS NO SIGNAL (31 Aug 2026) ────────────────────────
+  // Del trains in a basement and the push needs a server. This is the app showing the same
+  // notification itself, off a plain timer, for a rest the network could not book at all.
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false });
+    await m.scheduleRestAlert('RDL', 120);
+    ok(m.localTimer(), 'a local cue is scheduled at the tap, before anything can go wrong');
+
+    // mount() seeds a leftover alert on the lock screen for section 4; an empty lock screen is the
+    // state this cue is for, and the guard against it is asserted on its own two blocks down.
+    m.notifications.length = 0;
+    m.tick(120000);
+    await m.fireLocalCue();
+    eq(m.shown.length, 1, 'a rest whose push never armed still gets a cue');
+    eq(m.shown[0].body, 'RDL — next set', 'naming the lift, exactly as the push does');
+    eq(m.shown[0].tag, 'rest-alert', 'on the one tag, so it replaces rather than stacks');
+  }
+
+  // Second guard, independent of the first: if anything is already on the lock screen under this
+  // tag, a push got through after all and the app has nothing to add.
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false });
+    await m.scheduleRestAlert('RDL', 120);
+    m.tick(120000);
+    await m.fireLocalCue();
+    eq(m.shown.length, 0, 'an alert already showing means something buzzed — the app does not buzz again');
+  }
+
+  // It is the FALLBACK. A booking that worked owns the cue, or Del gets buzzed twice — which is its
+  // own bug report, and the arm record is what finally lets the two cases be told apart.
+  {
+    const shared = freshShared();
+    const m = mount(shared);
+    await m.scheduleRestAlert('RDL', 120);
+    m.tick(120000);
+    await m.fireLocalCue();
+    eq(m.shown.length, 0, 'a rest whose push IS armed is left to the push — never two buzzes for one rest');
+  }
+
+  // A frozen page runs no timers, and iOS fires the overdue ones on resume. A cue half a session
+  // late is worse than none — sw.js refuses a stale push for the same reason.
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false });
+    await m.scheduleRestAlert('RDL', 120);
+    m.tick(120000 + 60000);
+    await m.fireLocalCue();
+    eq(m.shown.length, 0, 'a timer that thawed a minute late shows nothing');
+  }
+
+  // On screen, the ring going green is the cue. This exists for a phone in a pocket.
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false, visible: true });
+    await m.scheduleRestAlert('RDL', 120);
+    m.tick(120000);
+    await m.fireLocalCue();
+    eq(m.shown.length, 0, 'nothing is pushed at a screen the app is already on');
+  }
+
+  // And a rest that was stopped early is over, whatever the timer still holds.
+  {
+    const shared = freshShared();
+    const m = mount(shared, { dispatchOk: false });
+    await m.scheduleRestAlert('RDL', 120);
+    const fire = m.timers[m.timers.length - 1].fn;
+    await m.cancelRestAlert();
+    m.tick(120000);
+    await fire();
+    eq(m.shown.length, 0, 'a cancelled rest cues nothing, even if its timer still fires');
   }
 }
 

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-30-1206';
+const APP_BUILD = '2026-08-31-1334';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -692,8 +692,14 @@ function netFail(what, path, err) {
 // failure itself with a more specific message, or when the request is background housekeeping the
 // user shouldn't be told about. It suppresses the offline toast too: a write the user never asked
 // for shouldn't announce that the gym has no signal.
-async function sb(path, method = 'GET', body = null, { quiet = false, upsert = false } = {}) {
+// `opts.keepalive` hands the request to the browser process instead of the page's. It matters in
+// exactly one place — arming a rest alert — and it matters a lot: a keepalive request is completed
+// even if the document that started it is frozen, unloaded or discarded a millisecond later, which
+// a normal fetch is not. That is the 31 Aug miss (RDL set 2) in one word. 64KB body cap, which no
+// write in this app is anywhere near.
+async function sb(path, method = 'GET', body = null, { quiet = false, upsert = false, keepalive = false } = {}) {
   const opts = { method };
+  if (keepalive) opts.keepalive = true;
   if (body) opts.body = JSON.stringify(body);
 
   const token = await validAccessToken();
@@ -849,7 +855,7 @@ const LAST_ACCOUNT_STORE = 'dlog_last_account';
 // — the owner will not match them — but A gets theirs back on the way in.
 function perDeviceKeys() {
   return [
-    BACKUP_STORE, HISTORY_FILTER_STORE, STATS_RANGE_STORE, REST_TOKEN_STORE,
+    BACKUP_STORE, HISTORY_FILTER_STORE, STATS_RANGE_STORE, REST_TOKEN_STORE, REST_ARM_STORE,
     'workout_draft', 'sw_state', 'del_page',
   ];
 }
@@ -3507,6 +3513,10 @@ async function loadHomePage() {
   // Ask the server whether the label painted above is out of date — the only thing that gets an
   // already-wiped phone alerting again. See reconcileRestAlerts().
   reconcileRestAlerts();
+
+  // A relaunch mid-rest lands here before it lands in the logger, and the arm record outlives the
+  // web view that wrote it. If a booking was interrupted, this is the earliest it can be repaired.
+  ensureRestAlertArmed();
 
   // renderBackupPrompt() needs no network, so it still appears on gym Wi-Fi that can't reach
   // Supabase — the trip most likely to be far from the PC that runs the other half of the backup.
@@ -6875,12 +6885,29 @@ async function completeExerciseInner(exName) {
     return;
   }
 
+  // ── THE REST STARTS AT THE TAP, NOT WHEN THE NETWORK FINISHES (31 Aug 2026) ────────────────────
+  // Del, off Monday's session: "Marked done didn't start last watch until I returned to the app".
+  // This call used to sit at the BOTTOM of this function, after saveExerciseSets() — which is
+  // GET → DELETE → POST, three round trips, per exercise. So the watch, and with it the alert
+  // booking, waited on the network. Tap Mark Done, put the phone in your pocket, and iOS freezes the
+  // page with the save in flight: nothing starts until you look at the app again, and by then the
+  // rest you were being timed for is over.
+  //
+  // The rest genuinely begins when the set ends, which is when this button is tapped. So it starts
+  // here, before anything can be slow, and is taken back below if the save turns out to have failed
+  // — which preserves the reason it was ever at the bottom: a Mark Done that didn't save leaves you
+  // mid-set with a retry to do, not resting. `pending` is in the same order as `saved`, so the rest
+  // still hangs on the last member of a superset either way.
+  const restFor = pending[pending.length - 1].name;
+  startRestAfter(restFor);
+
   // Saved one exercise at a time so a failure part-way through still leaves the earlier ones green
   // and written — the retry then only re-does what's actually missing.
   const saved = [];
   for (const { name, sets } of pending) {
     const failedStatus = await saveExerciseSets(name, sets);
     if (failedStatus) {
+      abandonRestAfterFailedSave(restFor);
       saved.forEach(markExerciseBlockDone);
       if (saved.length) currentWorkoutHasSets = true;   // some rows did land — the workout isn't empty
       showToast(`${name} not saved (${failedStatus}) — tap Mark Done again`, 'error');
@@ -6894,7 +6921,6 @@ async function completeExerciseInner(exName) {
   saved.forEach(markExerciseBlockDone);
   showToast(saved.length > 1 ? `Superset saved — ${saved.join(' + ')}` : `${saved[0]} saved!`, 'success');
   lastCompletedExercise = saved[saved.length - 1];
-  startRestAfter(lastCompletedExercise);
 }
 
 // The rest timer starts itself on Mark Done (14 Aug 2026). Rest begins the moment a set ends, which
@@ -6915,6 +6941,16 @@ async function completeExerciseInner(exName) {
 function startRestAfter(exName) {
   if (!exName) return;
   swStart(exName, { save: false });
+}
+
+// The save failed after the rest had already started, so take it back — the retry is the job now,
+// not the rest. Two guards, and both are needed: the timer must still be the one this Mark Done
+// started (a tap on another exercise's watch in the meantime is his, not ours), and it must still be
+// a `save: false` timer, because a rest he started by hand is one he chose to measure and this has
+// no business stopping it.
+function abandonRestAfterFailedSave(exName) {
+  if (!swRunning || swActiveExercise !== exName || swSaveOnStop) return;
+  swStop();
 }
 
 function selectEditVariation(exName, variation, btn) {
@@ -9732,6 +9768,61 @@ function setRestAlertToken(token) {
   } catch (e) {}
 }
 
+// ── THE ARM RECORD — WHY A REST CAN NO LONGER GO UNBOOKED IN SILENCE (31 Aug 2026) ───────────────
+// Del's Monday-morning session, read out of rest_alert_log afterwards: RDL set 2 has a `cancelled`
+// row and NOTHING ELSE. No `booked`, no `upsert-failed`, no `no-jwt`, no throw. That combination has
+// exactly one cause — the page went away (iOS froze or discarded the web view) while
+// scheduleRestAlert() was still awaiting its upsert. The await never resumed, so the alert was never
+// armed, and nothing in the app ever noticed. Two hours later he had no cue and no explanation.
+//
+// Three fixes have now been made to "the alert sometimes doesn't fire" and every one of them made a
+// SPECIFIC path more reliable. This is the last one, and it is a different shape on purpose: the
+// booking is now a piece of DURABLE STATE with a retry, rather than a fire-and-forget call whose
+// only record was whether it happened to finish.
+//
+//   • written to localStorage SYNCHRONOUSLY, in the tap, before a single await. A page that dies one
+//     line later still leaves the intention behind.
+//   • `armed` flips to 1 only when the Edge Function has actually answered. Until then the rest is
+//     booked in intention and not in fact, and the app knows the difference.
+//   • ensureRestAlertArmed() re-fires an unarmed booking off the 1s watch tick, off every return to
+//     the foreground, and at boot. An interruption of any kind now costs a retry, not the cue.
+//   • it is keyed by the same token the cancel is, so a repair can never re-arm a rest that is over.
+//
+// localStorage, not sessionStorage, for the same reason the token is: the case that needs repairing
+// most is the app being killed and relaunched mid-rest, and sessionStorage dies with the tab.
+const REST_ARM_STORE = 'dlog_rest_arm';
+
+// Retries are cheap; a hammered dead connection is not. Six attempts over a 60s rest is plenty, and
+// an alert due sooner than the floor is not worth a round trip — the function needs its prep window
+// before the deadline, and a booking that lands after it would be skipped anyway.
+const ARM_RETRY_MS = 4000;
+const ARM_MAX_TRIES = 6;
+const ARM_FLOOR_MS = 4000;
+
+function readRestArm() {
+  try {
+    const raw = localStorage.getItem(REST_ARM_STORE);
+    if (!raw) return null;
+    const arm = JSON.parse(raw);
+    return (arm && arm.token && arm.dueAt) ? arm : null;
+  } catch (e) { return null; }
+}
+
+function writeRestArm(arm) {
+  try { localStorage.setItem(REST_ARM_STORE, JSON.stringify(arm)); } catch (e) {}
+}
+
+// Token-scoped. swStart() stops the previous rest and books the next one in the same tick, so an
+// unscoped clear here would throw away the arm record of the rest that had just started — the same
+// class of bug as the unfiltered DELETE fixed on 24 Aug.
+function clearRestArm(token) {
+  try {
+    const arm = readRestArm();
+    if (token && arm && arm.token !== token) return;
+    localStorage.removeItem(REST_ARM_STORE);
+  } catch (e) {}
+}
+
 // Closes any rest alert still sitting on the lock screen. sw.js tags every one 'rest-alert' so that a
 // new one REPLACES the last rather than stacking — and iOS does not honour the tag. Del came out of a
 // two-hour session on 24 Aug with 17 of them piled up, one per rest, not one of which had meant
@@ -10040,7 +10131,15 @@ function warnRestAlertsOff() {
 
 async function scheduleRestAlert(exName, seconds) {
   if (!(seconds >= 1)) return;
-  if (!restAlertsOn()) { warnRestAlertsOff(); return; }
+  if (!restAlertsOn()) {
+    warnRestAlertsOff();
+    // ── ABSENCE USED TO MEAN FOUR DIFFERENT THINGS (31 Aug 2026) ─────────────────────────────────
+    // This return sat above every log write, so "alerts were switched off" and "the booking died on
+    // the network" and "the rest was cancelled correctly" all left the same trace afterwards: none.
+    // That flaw is what made the 28 Aug readout unreadable. One row, and the gap closes.
+    logRestPhase('alerts-off', '', exName, 'nothing booked — the switch is off for this account');
+    return;
+  }
   // ── THE DEADLINE IS STAMPED HERE, AT THE TAP (24 Aug 2026) ─────────────────────────────────────
   // The function used to be handed a DURATION and started counting it out when it began running, so
   // the upsert below, the token check, the dispatch, the Deno cold start and — on a 180s rest — a
@@ -10050,7 +10149,31 @@ async function scheduleRestAlert(exName, seconds) {
   const dueAt = Date.now() + seconds * 1000;
   const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   setRestAlertToken(token);
+  // Durable before anything can go wrong — see the arm record. Everything below this line is allowed
+  // to be interrupted now, because ensureRestAlertArmed() will finish the job.
+  writeRestArm({ token, dueAt, exercise: exName || '', seconds, armed: 0, tries: 0, lastTry: 0 });
+  scheduleLocalRestCue(token, dueAt, exName);
   clearRestNotifications();   // the last rest's alert is stale the moment this one starts
+  return dispatchRestAlert();
+}
+
+// The network half of arming a rest, split out of scheduleRestAlert() so the watchdog can run it
+// again. Idempotent by construction: same token, same deadline, an upsert on the user's one row, and
+// an Edge Function that re-reads the token just before it sends. Calling this five times for one
+// rest costs five invocations and still produces exactly one cue.
+async function dispatchRestAlert() {
+  const arm = readRestArm();
+  if (!arm || arm.armed) return;
+  if (!restAlertsOn()) return;
+  if (arm.token !== restAlertToken()) { clearRestArm(arm.token); return; }   // the rest is over
+  if (arm.dueAt - Date.now() < ARM_FLOOR_MS) return;
+  if (arm.tries >= ARM_MAX_TRIES) return;
+  if (arm.tries && Date.now() - arm.lastTry < ARM_RETRY_MS) return;
+
+  const attempt = arm.tries + 1;
+  writeRestArm({ ...arm, tries: attempt, lastTry: Date.now() });
+  const { token, dueAt, exercise: exName, seconds } = arm;
+
   try {
     const row = {
       token,
@@ -10058,25 +10181,98 @@ async function scheduleRestAlert(exName, seconds) {
       exercise: exName || null,
       updated_at: new Date().toISOString(),
     };
-    const res = await sb('rest_alerts?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true });
-    if (!res.ok) { logRestPhase('upsert-failed', token, exName, 'status ' + res.status); return; }
+    // keepalive on both requests: the page being frozen a millisecond after the tap is the failure
+    // this whole rewrite is for, and a keepalive request outlives the document that started it.
+    const res = await sb('rest_alerts?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true, keepalive: true });
+    if (!res.ok) { logRestPhase('upsert-failed', token, exName, `status ${res.status} · try ${attempt}`); return; }
     const jwt = await validAccessToken();
-    if (!jwt) { logRestPhase('no-jwt', token, exName); return; }
-    logRestPhase('booked', token, exName, seconds + 's rest');
-    // Not awaited beyond the dispatch — this request stays open for the whole rest by design.
+    if (!jwt) { logRestPhase('no-jwt', token, exName, `try ${attempt}`); return; }
+    logRestPhase(attempt === 1 ? 'booked' : 'rebooked', token, exName, `${seconds}s rest · try ${attempt}`);
     // `seconds` still travels alongside `dueAt` so a function deployed before this change keeps
     // working; the new one prefers the deadline and ignores it.
-    netFetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
+    //
+    // ── THE REPLY IS WHAT ARMS IT, AND THAT IS THE POINT ─────────────────────────────────────────
+    // This used to be fire-and-forget, so a dispatch that died in transit left a rest that looked
+    // booked and would never fire. The function answers immediately (it does its waiting in
+    // waitUntil, not on this connection), so the reply is a cheap, honest confirmation that the
+    // wait is running somewhere that no longer depends on this phone.
+    const res2 = await netFetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
       method: 'POST',
+      keepalive: true,
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ seconds, dueAt, token, exercise: exName || '' }),
-    })
-      .then(r => { if (!r.ok) logRestPhase('dispatch-failed', token, exName, 'status ' + r.status); })
-      .catch(e => logRestPhase('dispatch-failed', token, exName, String(e && e.message || e)));
+    });
+    if (!res2.ok) { logRestPhase('dispatch-failed', token, exName, `status ${res2.status} · try ${attempt}`); return; }
+    const live = readRestArm();
+    if (live && live.token === token) writeRestArm({ ...live, armed: 1 });
   } catch (e) {
-    // No signal — the beep and the wake lock still stand.
-    logRestPhase('book-threw', token, exName, String(e && e.message || e));
+    // No signal. The watch, the ring and the local cue below all still stand, and the next tick
+    // retries this — a gym basement is a delay now, not a lost alert.
+    logRestPhase('dispatch-failed', token, exName, `${String(e && e.message || e)} · try ${attempt}`);
   }
+}
+
+// ── THE WATCHDOG (31 Aug 2026) ───────────────────────────────────────────────────────────────────
+// Runs off the 1s watch tick, every return to the foreground, and boot. Costs one localStorage read
+// when there is nothing to do, which is almost always. This is the line that turns "the booking was
+// interrupted" from a lost cue into a retry, and it is the reason this bug should not come back in
+// a new disguise: it does not care WHY the arming did not finish.
+function ensureRestAlertArmed() {
+  const arm = readRestArm();
+  if (!arm || arm.armed) return;
+  if (arm.token !== restAlertToken()) { clearRestArm(arm.token); return; }
+  // A reload or a discarded web view takes the page's timers with it, so the no-signal fallback has
+  // to be re-armed here too — it is the only cue left for a rest the network cannot book at all.
+  if (!swLocalCueTimer) scheduleLocalRestCue(arm.token, arm.dueAt, arm.exercise);
+  if (arm.dueAt - Date.now() < ARM_FLOOR_MS) return;
+  dispatchRestAlert();
+}
+
+// ── THE CUE THAT NEEDS NO SIGNAL AT ALL (31 Aug 2026) ────────────────────────────────────────────
+// The push is the only cue that reaches a pocketed phone, and it needs a server. Del trains in a
+// basement. So: a plain timer in the page that shows the SAME notification through the service
+// worker registration when the rest is up — no network, no Edge Function, no push service.
+//
+// It is deliberately the fallback and not the primary. It fires only when the push was never armed,
+// so it cannot double up on a booking that worked — being buzzed twice is its own bug report
+// (28 Aug), and the arm record is what finally lets the two be told apart.
+const LOCAL_CUE_STALE_MS = 20000;
+let swLocalCueTimer = null;
+
+function scheduleLocalRestCue(token, dueAt, exName) {
+  clearTimeout(swLocalCueTimer);
+  swLocalCueTimer = null;
+  const delay = dueAt - Date.now();
+  if (!(delay > 0)) return;
+  swLocalCueTimer = setTimeout(() => showLocalRestCue(token, dueAt, exName), delay);
+}
+
+async function showLocalRestCue(token, dueAt, exName) {
+  swLocalCueTimer = null;
+  try {
+    if (restAlertToken() !== token) return;              // the rest was stopped or restarted
+    if (!restAlertsOn()) return;
+    const arm = readRestArm();
+    if (!arm || arm.token !== token || arm.armed) return;  // the push is booked — let it do its job
+    // A suspended page runs no timers, and iOS fires the overdue ones the moment it resumes. A cue
+    // half a session late is worse than no cue — sw.js refuses a stale push for the same reason.
+    if (Date.now() > dueAt + LOCAL_CUE_STALE_MS) return;
+    // On screen, the ring going green IS the cue. This exists for the phone in a pocket.
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
+    if (!('serviceWorker' in navigator)) return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg || typeof reg.showNotification !== 'function') return;
+    const already = await reg.getNotifications({ tag: 'rest-alert' });
+    if (already && already.length) return;               // something already buzzed — don't repeat it
+    await reg.showNotification('Rest over', {
+      body: exName ? `${exName} — next set` : 'Next set',
+      tag: 'rest-alert',
+      renotify: true,
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+    });
+    logRestPhase('local-cue', token, exName, 'shown by the app — the push was never armed');
+  } catch (e) { /* no registration, no permission, no cue — the ring still runs */ }
 }
 
 // Called when a rest ends by any route: stopped, reset, or already announced by the in-app beep.
@@ -10087,6 +10283,11 @@ async function cancelRestAlert() {
   // STARTED rather than the one being cancelled.
   const token = restAlertToken();
   setRestAlertToken(null);
+  // Both of these are synchronous and both are token-scoped, so they run before swStart() books the
+  // next rest and cannot touch it when they do.
+  clearRestArm(token);
+  clearTimeout(swLocalCueTimer);
+  swLocalCueTimer = null;
   clearRestNotifications();
   if (!token || !restAlertsOn()) return;
   try {
@@ -10176,10 +10377,18 @@ function swReleaseWakeLock() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   if (swRunning && !swCompletionCued) swAcquireWakeLock();
+  // Coming back to the front is the one moment guaranteed to happen after a freeze, so it is the
+  // best repair point there is for a booking the freeze interrupted. See ensureRestAlertArmed().
+  ensureRestAlertArmed();
   // If you are looking at the app you have had the cue. Anything still on the lock screen from an
   // earlier rest is now just clutter Del has to swipe away one at a time — see clearRestNotifications().
   clearRestNotifications();
 });
+
+// A resumed iOS PWA can come back through pageshow rather than visibilitychange, and a rest that
+// outlived a discarded web view is repaired from the arm record alone — the watch may be gone with
+// the sessionStorage that held it, and the alert is still worth saving.
+window.addEventListener('pageshow', () => ensureRestAlertArmed());
 
 // Parse "180s" / "90s" / "2min" into a number of seconds, default 60
 function swParseRest(restStr) {
@@ -10311,7 +10520,14 @@ function swStart(exName, { save = true } = {}) {
   // Interval only drives re-renders; the maths is based on Date.now() so
   // even if this interval stutters or pauses, the time shown is still correct
   clearInterval(swInterval);
-  swInterval = setInterval(() => swRenderWatch(exName), 1000);
+  swInterval = setInterval(() => swTick(exName), 1000);
+}
+
+// One tick, two jobs: paint the watch, and make sure the alert for this rest actually got booked.
+// The second is a localStorage read and nothing else on every tick where there is nothing wrong.
+function swTick(exName) {
+  swRenderWatch(exName);
+  ensureRestAlertArmed();
 }
 
 async function swStop() {
@@ -10376,7 +10592,7 @@ function swHandOverWatch(toExName) {
     save: swSaveOnStop
   }));
   clearInterval(swInterval);
-  swInterval = setInterval(() => swRenderWatch(toExName), 1000);
+  swInterval = setInterval(() => swTick(toExName), 1000);
   swRenderWatch(from);      // back to idle — its ring would otherwise stay frozen mid-sweep
   swRenderWatch(toExName);
 }
@@ -10467,6 +10683,9 @@ function swRestoreFromStorage() {
     if (!swCompletionCued) swAcquireWakeLock();
     swRenderWatch(s.exercise);
     clearInterval(swInterval);
-    swInterval = setInterval(() => swRenderWatch(s.exercise), 1000);
+    swInterval = setInterval(() => swTick(s.exercise), 1000);
+    // Navigating back into the logger mid-rest is a resume like any other — if the booking for this
+    // rest never landed, repair it now rather than a second later on the first tick.
+    ensureRestAlertArmed();
   } catch (e) { sessionStorage.removeItem('sw_state'); }
 }

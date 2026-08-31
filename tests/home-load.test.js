@@ -89,7 +89,7 @@ async function main() {
       getWeekStart: () => '2026-08-24',
       getGreeting: () => 'Good morning, Del',
       claimRestAlertsFlag: () => {}, restAlertsDeviceAccount: () => null, paintRestAlertsButton: () => {},
-      reconcileRestAlerts: () => {}, renderBackupPrompt: () => {}, syncBackupState: () => {},
+      reconcileRestAlerts: () => {}, ensureRestAlertArmed: () => {}, renderBackupPrompt: () => {}, syncBackupState: () => {},
       renderNextUp: () => {}, renderDailyQuote: () => req('quotes?select=quote,author&order=id'),
       writeHomeCache: patch => { cached = { ...cached, ...patch }; },
       // No cache in this section, so the empty stubbed answers take the ordinary path rather than
@@ -487,7 +487,7 @@ async function main() {
         buildWeekStrip: () => { wrote = true; }, getWeekStart: () => '2026-08-24',
         getGreeting: () => 'Good morning, Del', sessionDisplayName: t => t,
         claimRestAlertsFlag: () => {}, restAlertsDeviceAccount: () => null, paintRestAlertsButton: () => {},
-        reconcileRestAlerts: () => {}, renderBackupPrompt: () => {}, syncBackupState: () => {},
+        reconcileRestAlerts: () => {}, ensureRestAlertArmed: () => {}, renderBackupPrompt: () => {}, syncBackupState: () => {},
         renderNextUp: () => {}, renderDailyQuote: () => {},
         readHomeCache: () => ({ v: 1, weight: 82.4 }),
         writeHomeCache: () => { wrote = true; },
