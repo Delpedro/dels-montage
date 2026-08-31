@@ -300,6 +300,39 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 }
 /* One set left: removeOpenSetRow is a no-op, so the − says so rather than failing silently. */
 .sets-seg.at-min .sets-step:first-child { opacity: 0.3; }
+
+/* ─── ADD TO THIS SESSION — EXERCISE | CARDIO (E24, 31 Aug 2026) ──────────────
+   The same sunken-track/raised-thumb shape as .sets-seg above, on purpose: the app should have one
+   idea of what "pick between two things" looks like. It replaced two identical cards four
+   millimetres apart, which Del kept mixing up — see renderAddToSessionRow() for the argument.
+
+   ⚠️ THIS THUMB IS TINTED AND THE SETS TRACK ABOVE IS NOT. That is a deliberate split, not drift.
+   The sets control lives inside an exercise block where a tint made it the third terracotta box on
+   one screen ("blend it into the background color", 27 Aug); this one sits alone above Session
+   Notes with nothing to compete with, and Del chose the tint off a contact sheet knowing that.
+   If anything else accent-coloured ever lands down there, this goes back to neutral. */
+.add-seg {
+  display: flex; align-items: center; gap: 2px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border-radius: 10px; padding: 3px; margin-bottom: 8px;
+}
+.add-seg-opt {
+  flex: 1; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; background: none; border-radius: 8px;
+  font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted2);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.add-seg-opt.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg2));
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(35, 31, 26, 0.18);
+}
+.add-seg-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The two pickers share the card and swap on the switch. Belt and braces over the UA's [hidden]
+   rule: .field-input sets no display of its own today, but it is one edit away from doing so. */
+.field-input[hidden] { display: none; }
 .pill-accent { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-weight: 600; }
 
 /* One-line macro entry on the check-in (18 Aug 2026). Set apart from the ordinary fields with a

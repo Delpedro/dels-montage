@@ -190,7 +190,7 @@ console.log('Open Workout — last session, and one tap to repeat it');
 
   // ── 5 ──
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
-  const logger = src.slice(src.indexOf('async function buildWorkoutLogger'), src.indexOf('function renderAddExerciseRow'));
+  const logger = src.slice(src.indexOf('async function buildWorkoutLogger'), src.indexOf('function renderAddToSessionRow'));
 
   ok(logger.includes('session.exercises.length === 0 && !lastTimeHtml'),
     'the "Tap Add Exercise" prompt is gated on there being no card above it');

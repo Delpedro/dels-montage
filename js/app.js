@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-31-1522';
+const APP_BUILD = '2026-08-31-1609';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6259,6 +6259,7 @@ async function buildWorkoutLogger(session) {
   logger.innerHTML = '<div class="loading">Loading previous lifts...</div>';
 
   if (!session.cardioEntries) session.cardioEntries = [];
+  addMode = 'exercise';   // E24: every session opens on the half of the picker that gets used most
 
   // Re-hydrate any one-off add/remove made before a mid-session refresh — Open Workout's exercise
   // list is per-workout by design; fixed sessions get the same "today only" flexibility here too
@@ -6324,16 +6325,18 @@ async function buildWorkoutLogger(session) {
   session.exercises.forEach(ex => { html += renderExerciseBlock(ex, session); });
 
   if (!session.cardio) {
-    // Only worth printing when there is nothing else on the screen. Under the card above it, "tap
-    // Add Exercise below" is a caption on a box already labelled Add Exercise — Del, looking at the
-    // empty Open Workout screen: "too much space, or maybe i just dont like the text".
+    // Only worth printing when there is nothing else on the screen. Under the card above it, a
+    // caption pointing at the box is a caption on a box that already labels itself — Del, looking
+    // at the empty Open Workout screen: "too much space, or maybe i just dont like the text".
     if (session.exercises.length === 0 && !lastTimeHtml) {
-      html += `<div class="empty" style="margin-bottom:0.875rem;">Tap Add Exercise below to get started</div>`;
+      html += `<div class="empty" style="margin-bottom:0.875rem;">Add your first exercise below to get started</div>`;
     }
-    html += renderAddExerciseRow();
   }
 
-  html += renderCardioSection(session);
+  // Cardio entries group above the picker rather than interleaving with the exercise blocks, so the
+  // list still reads as "the lifts, then the cardio" now that the heading between them has gone.
+  html += renderCardioList(session);
+  html += renderAddToSessionRow(session);
 
   html += `<div class="field-group" style="margin-top:0.875rem;">
     <label class="field-label">Session Notes</label>
@@ -6497,13 +6500,80 @@ async function deleteSessionTemplate() {
   buildSessionGrid(selectedProgramme === CUSTOM_PROGRAMME_ID ? null : selectedProgramme);
 }
 
-function renderAddExerciseRow() {
-  return `<div class="card" id="open-add-exercise-row" style="margin-bottom:0.875rem;">
-    <label class="field-label">Add Exercise</label>
-    <select class="field-input" id="open-exercise-select" onchange="handleOpenExerciseSelect(this)">
+// ─── ONE PICKER FOR BOTH KINDS OF THING (E24, 31 Aug 2026) ────────────────
+// This replaced two identical grey headings over two identical native selects, four millimetres
+// apart. Del: "i keep getting this and the add exercise mixed up and if i do it, other users will
+// have same issue". He wrote the app and still tapped the wrong box, so it was a confusion bug and
+// not a preference — and the fix for one of those is to leave ONE target on screen, not to label
+// the second one better. The "Cardio (optional)" section heading went with it.
+//
+// ⚠️ THE TINTED THUMB DELIBERATELY REVISITS THE 27 AUG DECISION, so do not "restore" it. The sets
+// control's track must stay neutral because there it is the third terracotta thing inside an
+// exercise block; this control sits alone at the bottom of the screen with nothing to fight, and
+// Del picked the tint off a contact sheet (cut 1C) knowing that history. If this row ever gains
+// company down there, neutral is the answer again.
+//
+// Both selects stay in the DOM with the ids they have always had — only one is visible at a time —
+// so renderOpenAddExerciseOptions() and handleAddCardio() needed no changes at all.
+function renderAddToSessionRow(session) {
+  // A cardio-only session (CV + Pump) has no exercises to add, so there is nothing to switch
+  // between and a two-way control would be offering a mode that cannot do anything.
+  if (session.cardio) {
+    return `<div class="card" id="add-to-session-row" style="margin-bottom:0.875rem;">
+      <label class="field-label">Add Cardio</label>
+      ${cardioSelectHtml(false)}
+    </div>`;
+  }
+  const exOn = addMode !== 'cardio';
+  return `<div class="card" id="add-to-session-row" style="margin-bottom:0.875rem;">
+    <label class="field-label">Add to this session</label>
+    <div class="add-seg" role="tablist" aria-label="What to add">
+      <button type="button" class="add-seg-opt${exOn ? ' active' : ''}" data-mode="exercise"
+              role="tab" aria-selected="${exOn}" onclick="setAddMode('exercise')">Exercise</button>
+      <button type="button" class="add-seg-opt${exOn ? '' : ' active'}" data-mode="cardio"
+              role="tab" aria-selected="${!exOn}" onclick="setAddMode('cardio')">Cardio</button>
+    </div>
+    <select class="field-input" id="open-exercise-select" onchange="handleOpenExerciseSelect(this)"${exOn ? '' : ' hidden'}>
       ${openExerciseSelectOptionsHtml()}
     </select>
+    ${cardioSelectHtml(exOn)}
   </div>`;
+}
+
+// The cardio picker itself, shared by the two-way control and by the cardio-only session that has
+// no switch above it.
+function cardioSelectHtml(hidden) {
+  return `<select class="field-input" id="cardio-activity-select" onchange="handleAddCardio(this)"${hidden ? ' hidden' : ''}>
+    <option value="" selected disabled>Choose an activity…</option>
+    ${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${esc(a)}">${esc(cardioDisplayName(a))}</option>`).join('')}
+  </select>`;
+}
+
+// Today's cardio entries. Its own container so addCardioEntry() has somewhere stable to append to
+// now that there is no "add cardio" row left to insert in front of.
+function renderCardioList(session) {
+  const entries = session.cardioEntries || [];
+  return `<div id="cardio-list">${entries.map(e => renderCardioBlock(e, 'live', session.id)).join('')}</div>`;
+}
+
+// Which half of the picker is showing. Deliberately NOT persisted and not remembered across
+// sessions: a workout opens ready to add an exercise, which is what this box is for nearly every
+// time it gets touched, and cardio is a once-at-the-end thing.
+let addMode = 'exercise';
+
+function setAddMode(mode) {
+  addMode = mode === 'cardio' ? 'cardio' : 'exercise';
+  const row = document.getElementById('add-to-session-row');
+  if (!row) return;
+  row.querySelectorAll('.add-seg-opt').forEach(btn => {
+    const on = btn.dataset.mode === addMode;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const ex = document.getElementById('open-exercise-select');
+  const ca = document.getElementById('cardio-activity-select');
+  if (ex) ex.hidden = addMode === 'cardio';
+  if (ca) ca.hidden = addMode !== 'cardio';
 }
 
 function openExerciseSelectOptionsHtml() {
@@ -6574,8 +6644,10 @@ async function addOpenExercise(name) {
 
   const wrapper = document.createElement('div');
   wrapper.innerHTML = renderExerciseBlock(def, selectedSession);
-  const addRow = document.getElementById('open-add-exercise-row');
-  addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
+  // Above the cardio list, so a lift added mid-session lands at the bottom of the lifts rather than
+  // after today's cardio (E24 merged the two add rows into one; #cardio-list is the divider now).
+  const anchor = document.getElementById('cardio-list');
+  anchor.parentNode.insertBefore(wrapper.firstElementChild, anchor);
   renderOpenAddExerciseOptions();
   removedSessionExercises = removedSessionExercises.filter(n => n !== name);
   refreshSupersetUi();   // every other block's picker can now offer this one
@@ -6658,19 +6730,6 @@ function formatCardioEntry(c) {
   return details.length ? `${name} ${details.join(', ')}` : name;
 }
 
-function renderCardioSection(session) {
-  const entries = session.cardioEntries || [];
-  return `<div class="section-title" style="font-size:16px;margin-top:0.875rem;margin-bottom:0.5rem;">Cardio (optional)</div>
-    <div id="cardio-list">${entries.map(e => renderCardioBlock(e, 'live', session.id)).join('')}</div>
-    <div class="card" id="add-cardio-row" style="margin-bottom:0.875rem;">
-      <label class="field-label">Add Cardio</label>
-      <select class="field-input" id="cardio-activity-select" onchange="handleAddCardio(this)">
-        <option value="" selected disabled>Choose an activity…</option>
-        ${Object.keys(CARDIO_ACTIVITIES).map(a => `<option value="${a}">${cardioDisplayName(a)}</option>`).join('')}
-      </select>
-    </div>`;
-}
-
 // ─── THE CARDIO BLOCK — ONE RENDERER, TWO SCREENS ─────────
 // The live logger and the History edit modal draw the identical cardio box. They used to do it with
 // two near-identical copies of this function, ~350 lines apart, and **two separate bugs have already
@@ -6736,8 +6795,7 @@ function addCardioEntry(activity, values) {
 
   const wrapper = document.createElement('div');
   wrapper.innerHTML = renderCardioBlock({ id, activity }, 'live', selectedSession.id);
-  const addRow = document.getElementById('add-cardio-row');
-  addRow.parentNode.insertBefore(wrapper.firstElementChild, addRow);
+  document.getElementById('cardio-list').appendChild(wrapper.firstElementChild);
 
   if (values) {
     Object.keys(values).forEach(f => {

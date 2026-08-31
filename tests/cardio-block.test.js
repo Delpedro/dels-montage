@@ -107,5 +107,80 @@ eq(renderCardioBlock({ id: 1, activity: 'HIIT' }, 'nonsense'), '', 'an unknown m
   ok(!out.includes('<b>'), 'and an unescaped tag never lands in the markup');
 }
 
+// ── 6. THE ONE PICKER (E24, 31 Aug 2026) ───────────────────────────────────
+// Two identical cards four millimetres apart became one card with a switch, because Del kept
+// tapping the wrong one — "i keep getting this and the add exercise mixed up".
+//
+// What is worth pinning here is NOT the tint. It is that there is exactly ONE add card on the
+// logger again; that both selects kept the ids the rest of the app addresses them by
+// (renderOpenAddExerciseOptions, handleAddCardio and the draft restore all reach for them); that a
+// cardio-only session gets no switch it cannot use; and that #cardio-list survives, because
+// addCardioEntry() appends into it and addOpenExercise() inserts in front of it.
+{
+  const picker = load({
+    functions: ['esc', 'cardioDisplayName', 'cardioSelectHtml', 'renderCardioList', 'renderAddToSessionRow'],
+    decls: ['CARDIO_ACTIVITIES', 'CARDIO_DISPLAY_NAMES', 'addMode'],
+    deps: {
+      openExerciseSelectOptionsHtml: () => '<option value="">Choose an exercise…</option>',
+      renderCardioBlock: () => '<div class="card cardio-block"></div>',
+    },
+    accessors: { setMode: '(m) => { addMode = m; }' },
+  });
+
+  const countOf = (html, needle) => html.split(needle).length - 1;
+
+  picker.setMode('exercise');
+  const ex = picker.renderAddToSessionRow({ id: 'upper-a', cardioEntries: [] });
+
+  eq(countOf(ex, 'class="card"'), 1, 'ONE add card on the logger, not two — this is the whole item');
+  eq(countOf(ex, 'class="field-label"'), 1, 'and one label, so there is no second grey heading to confuse it with');
+  ok(ex.includes('id="add-to-session-row"'), 'the card has the anchor id the insert paths look for');
+  ok(ex.includes('id="open-exercise-select"'), 'the exercise select keeps its id');
+  ok(ex.includes('id="cardio-activity-select"'), 'the cardio select keeps its id, in the same card');
+  ok(ex.includes('onchange="handleOpenExerciseSelect(this)"'), 'the exercise handler is unchanged');
+  ok(ex.includes('onchange="handleAddCardio(this)"'), 'the cardio handler is unchanged');
+
+  // The two halves swap on the switch; exactly one picker is ever visible.
+  ok(/id="open-exercise-select"(?![^>]*\bhidden\b)[^>]*>/.test(ex), 'exercise mode shows the exercise select');
+  ok(/id="cardio-activity-select"[^>]*\shidden/.test(ex), 'exercise mode hides the cardio select');
+  ok(ex.includes('aria-selected="true"') && ex.includes('data-mode="exercise"'), 'the Exercise tab reports itself selected');
+
+  picker.setMode('cardio');
+  const ca = picker.renderAddToSessionRow({ id: 'upper-a', cardioEntries: [] });
+  eq(countOf(ca, 'class="card"'), 1, 'still one card in cardio mode');
+  ok(/id="open-exercise-select"[^>]*\shidden/.test(ca), 'cardio mode hides the exercise select');
+  ok(/id="cardio-activity-select"(?![^>]*\bhidden\b)[^>]*>/.test(ca), 'cardio mode shows the cardio select');
+
+  // A cardio-only session (CV + Pump) has no exercises to add. Offering a two-way switch there
+  // would be offering a mode that cannot do anything.
+  const only = picker.renderAddToSessionRow({ id: 'cv-pump', cardio: true, cardioEntries: [] });
+  ok(!only.includes('add-seg'), 'a cardio-only session gets no switch');
+  ok(/id="cardio-activity-select"(?![^>]*\bhidden\b)[^>]*>/.test(only), 'and its cardio picker is visible, not hidden behind a mode');
+
+  // #cardio-list is now the divider between the lifts and the cardio, and both insert paths depend
+  // on it existing even when nothing has been added yet.
+  ok(picker.renderCardioList({ cardioEntries: [] }).includes('id="cardio-list"'),
+    'the cardio list container renders even when empty, so appending to it cannot throw');
+}
+
+// ── 7. the two-headings pattern cannot come back unnoticed ─────────────────
+// Same idea as the native-confirm() grep in tests/confirm-dialog.test.js: no behavioural test can
+// notice a second "Add ..." card being pasted back onto the logger next month, and that is exactly
+// how this bug existed in the first place.
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  // Matches the rendered heading, not the phrase, so the comment above renderAddToSessionRow()
+  // explaining why it went does not trip its own guard.
+  ok(!/section-title[^>]*>\s*Cardio \(optional\)/.test(src),
+    'the logger no longer renders a "Cardio (optional)" heading — it was half of what made the two boxes look alike');
+  ok(!src.includes("id=\"add-cardio-row\""),
+    'and the separate add-cardio row is gone with it');
+  // ⚠️ NOT ASSERTED, AND DELIBERATELY: index.html still carries the same two-heading pattern in the
+  // HISTORY EDIT MODAL (`edit-add-cardio-row` under its own "Cardio (optional)"). That is a
+  // different screen from the one E24 was raised against and it is logged, not fixed.
+  ok(!/function renderCardioSection\b/.test(src),
+    'renderCardioSection no longer exists — renderCardioList + renderAddToSessionRow replaced it');
+}
+
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;
