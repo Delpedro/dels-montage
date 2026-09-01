@@ -52,7 +52,7 @@ let dom = {};
 const app = load({
   functions: [
     'refreshSupersetUi', 'swHandOverWatch', 'swElapsed', 'swParseRest',
-    'activeSupersetGroups', 'supersetGroupMap', 'supersetGroupOf', 'shortSessionLabel',
+    'activeSupersetGroups', 'supersetGroupMap', 'supersetGroupOf',
   ],
   decls: ['supersetGroups'],
   deps: {
@@ -62,7 +62,8 @@ const app = load({
     swStartTimestamp: null,
     swTargetSeconds: 60,
     swCompletionCued: false,
-    swSaveOnStop: true,
+    swRestAuto: false,
+    swRestSetNum: null,
     swInterval: null,
     swRenderWatch: n => calls.rendered.push(n),
     closeSupersetPickers: () => { calls.closedPickers++; },
@@ -76,7 +77,7 @@ const app = load({
     clearInterval: id => calls.cleared.push(id),
   },
   accessors: {
-    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionCued, swSaveOnStop, swInterval })',
+    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionCued, swRestAuto, swInterval })',
     setup: `(session, groups, watch) => {
       selectedSession = session;
       supersetGroups = groups;
@@ -85,7 +86,7 @@ const app = load({
       swStartTimestamp = watch ? watch.start : null;
       swTargetSeconds = watch ? watch.target : 60;
       swCompletionCued = watch ? !!watch.cued : false;
-      swSaveOnStop = watch ? watch.save !== false : true;
+      swRestAuto = watch ? watch.auto === true : false;
       swInterval = watch ? 7 : null;
     }`,
   },
@@ -178,11 +179,12 @@ eq(app.state().swCompletionCued, false, 'not yet past the new target — the cue
 render([['Cable Flys', 'Rear Delts']], { exercise: 'Cable Flys', start: NOW - 120000, target: 180, cued: false });
 eq(app.state().swCompletionCued, true, 'already past the new target — no second cue for one rest');
 
-// save:false (a Mark Done rest) must survive the move, or the walk to the next machine gets written
-// onto a set as though it were a real rest — the exact bug fixed on 14 Aug.
-render([['Cable Flys', 'Rear Delts']], { exercise: 'Cable Flys', start: NOW - 5000, target: 90, save: false });
-eq(app.state().swSaveOnStop, false, 'a non-recording timer stays non-recording across the hand-over');
-eq(JSON.parse(store.sw_state).save, false, 'and sw_state says so too');
+// A Mark Done rest must survive the move still marked as the app's. If it came out the other side
+// looking hand-started, abandonRestAfterFailedSave() could no longer take it back after a failed
+// save — and until 1 Sept 2026 the same flag also decided whether the rest was written at all.
+render([['Cable Flys', 'Rear Delts']], { exercise: 'Cable Flys', start: NOW - 5000, target: 90, auto: true });
+eq(app.state().swRestAuto, true, 'an auto-started timer stays auto-started across the hand-over');
+eq(JSON.parse(store.sw_state).auto, true, 'and sw_state says so too');
 
 // A timer already on the surviving member is left completely alone.
 render([['Cable Flys', 'Rear Delts']], { exercise: 'Rear Delts', start: NOW - 5000, target: 60 });
@@ -198,45 +200,36 @@ eq(store.sw_state, undefined, 'and writes no sw_state');
 render([['Cable Flys', 'Rear Delts']], { exercise: 'Incline Chest Press', start: NOW - 5000, target: 90 });
 eq(app.state().swActiveExercise, 'Incline Chest Press', 'a timer on an unpaired block is untouched');
 
-// ── 3 · WEEK STRIP LABELS ───────────────────────────────────────────────────────────────────────
-console.log('  shortSessionLabel');
+// ── 3 · WEEK STRIP LABELS — DELETED 1 SEPT 2026 (C18) ───────────────────────────────────────────
+console.log('  the week strip carries no session name');
 
-// Del's real session names, straight out of session_templates. Letters became numbers on
-// 21 Aug 2026 — a digit is equal to its own uppercase, so it takes the acronym branch and is kept
-// whole rather than being read as an initial. That is the only reason U1 isn't just U.
-eq(app.shortSessionLabel('Upper 1'), 'U1', 'Upper 1 → U1');
-eq(app.shortSessionLabel('Lower 1'), 'L1', 'Lower 1 → L1');
-eq(app.shortSessionLabel('Upper 2'), 'U2', 'Upper 2 → U2');
-eq(app.shortSessionLabel('Lower 2'), 'L2', 'Lower 2 → L2');
-eq(app.shortSessionLabel('Full Body A'), 'FBA', 'Full Body A → FBA');
-eq(app.shortSessionLabel('CV + Pump'), 'CVP', 'CV + Pump → CVP, the + dropped and the acronym kept whole');
-eq(app.shortSessionLabel('Open Workout'), 'OW', 'Open Workout → OW');
+// ⚠️ THIS SECTION USED TO ASSERT shortSessionLabel(): Upper 1 → U1, CV + Pump → CVP, and twenty more.
+// Del asked for the name on the strip on 15 Aug and asked for it off again on 1 Sept, having seen
+// what it does to a name a user types: `CTRL 1st Workout` came out `CTRL1` on the one real second
+// account (C18). His reason is the durable half — "the home screen tells you whats next anyhow… this
+// will get too messy bringing other users into the app".
+//
+// So the assertions are replaced by a guard rather than deleted quietly. No behavioural test can
+// notice an abbreviation being helpfully reinstated next month; this one fails the moment the
+// function or the element comes back.
+{
+  const fs = require('fs'), path = require('path');
+  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  const cssSrc = fs.readFileSync(path.join(__dirname, '..', 'css', 'style.css'), 'utf8');
+  const code = appSrc.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
 
-// The four Upper/Lower sessions are the ones that sit next to each other on the strip, so they are
-// the ones that must not collide.
-const strip = ['Upper 1', 'Lower 1', 'Upper 2', 'Lower 2'].map(app.shortSessionLabel);
-eq(new Set(strip).size, 4, 'the four programme sessions abbreviate to four different labels');
+  ok(!/function shortSessionLabel\(/.test(code), 'shortSessionLabel() is gone from app.js');
+  ok(!/wd-session/.test(code), 'and nothing renders a wd-session element any more');
+  ok(!/\.wd-session\s*\{/.test(cssSrc), 'its stylesheet rule went with it rather than lingering');
 
-// A word already in capitals is an acronym — reducing CV to C would throw away the identifying half.
-eq(app.shortSessionLabel('CV Only'), 'CVO', 'a leading acronym survives whole');
-
-// One word has no initials worth taking, so it keeps its first five letters.
-eq(app.shortSessionLabel('Legs'), 'LEGS', 'a one-word name is kept, not reduced to L');
-eq(app.shortSessionLabel('Conditioning'), 'CONDI', 'a long one-word name is cut to five');
-
-// Names Del could type into "save this Open Workout as a session".
-eq(app.shortSessionLabel('Dels Session 1'), 'DS1', 'a trailing number is kept as-is');
-eq(app.shortSessionLabel('arms-blast'), 'AB', 'a hyphen separates words like a space does');
-eq(app.shortSessionLabel('Push / Pull / Legs'), 'PPL', 'slashes too');
-
-// Five characters is the cap — the tile is a seventh of a phone wide.
-ok(app.shortSessionLabel('A B C D E F G').length <= 5, 'never longer than five characters');
-
-// Junk in, nothing out — the caller falls back to the plain dot on an empty label.
-eq(app.shortSessionLabel(''), '', 'empty name → empty label');
-eq(app.shortSessionLabel(null), '', 'null name → empty label');
-eq(app.shortSessionLabel('   '), '', 'whitespace-only name → empty label');
-eq(app.shortSessionLabel('---'), '', 'punctuation-only name → empty label');
+  // What the strip says instead: a dot on every day, and the tile's own colour for whether it was
+  // trained. The dot must survive — dropping it as well would leave a trained day indistinguishable
+  // from an untrained one on a phone with the tile borders barely visible.
+  const stripFn = appSrc.slice(appSrc.indexOf('async function buildWeekStrip'),
+                              appSrc.indexOf('// ⛔ shortSessionLabel()'));
+  ok(/wd-dot/.test(stripFn), 'every day still paints its dot');
+  ok(/classList\.add\('done'\)/.test(stripFn), "and a trained day still gets 'done', which colours it");
+}
 
 // ── SOURCE-ORDER CHECK ──────────────────────────────────────────────────────────────────────────
 // The hand-over has to happen while the watch is being hidden, not on the next repaint: by then the

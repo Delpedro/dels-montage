@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-01-1311';
+const APP_BUILD = '2026-09-01-1342';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -3944,30 +3944,30 @@ async function buildWeekStrip(containerId = 'home-week-strip', rows = null) {
     if (i === dow) div.classList.add('today');
     const names = byDate[date] || [];
     if (names.length) div.classList.add('done');
-    // The name of what was trained replaces the dot rather than sitting under it: a day carrying a
-    // label is a day that was trained, so the dot alongside it would be saying the same thing twice
-    // in a tile a seventh of a phone wide. Untrained days keep the dot.
-    const label = names.map(shortSessionLabel).filter(Boolean).join(' ');
-    div.innerHTML = `<div class="wd-name">${days[i]}</div>` + (label
-      ? `<div class="wd-session" title="${esc(names.join(', '))}">${esc(label)}</div>`
-      : `<div class="wd-dot"></div>`);
+    // ── THE SESSION NAME CAME OFF THE STRIP (C18, 1 Sept 2026) ───────────────────────────────────
+    // ⚠️ DEL ASKED FOR THE NAME ON 15 AUG AND ASKED FOR IT BACK OFF ON 1 SEPT. Do not "restore" it
+    // as a lost feature: "i think we should remove the name on the strip, considering the home
+    // screen tells you whats next anyhow… as this will get too messy bringing other users into the
+    // app". Both halves matter — Next up already answers what to train, and the abbreviation only
+    // ever worked on the names D-LOG shipped with. `CTRL 1st Workout` came out as `CTRL1` on the
+    // one real second account, which is the bug C18 was raised for; every user names their own
+    // sessions, so there is no squeeze that survives contact with them.
+    // A green tile with a green dot says the one thing this strip is for: that day was trained.
+    div.innerHTML = `<div class="wd-name">${days[i]}</div><div class="wd-dot"></div>`;
+    // Assigned, not interpolated — a title set as a property needs no escaping, and it keeps the
+    // full names (never the initials) for anywhere a pointer exists.
+    if (names.length) div.title = names.join(', ');
     strip.appendChild(div);
   });
 }
 
-// Squeezes a session name into a seventh of a phone's width — "Upper 1" → U1, "Full Body A" → FBA,
-// "CV + Pump" → CVP. Initials, except that a word already written in capitals is an acronym and is
-// kept whole (dropping CV to a bare C would lose the only part that identifies the session). A digit
-// is uppercase-equal to itself, so it survives the same way — which is what keeps Upper 1 and
-// Upper 2 apart on a strip seven columns wide.
-// A one-word name keeps its first five letters instead, since its initial alone says nothing.
-// The full name rides along in the tile's `title`, and History spells every session out in full.
-function shortSessionLabel(name) {
-  const words = (name || '').replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
-  if (!words.length) return '';
-  if (words.length === 1) return words[0].slice(0, 5).toUpperCase();
-  return words.map(w => (w === w.toUpperCase() ? w : w[0])).join('').slice(0, 5).toUpperCase();
-}
+// ⛔ shortSessionLabel() WAS DELETED HERE ON 1 SEPT 2026 (C18) AND MUST NOT COME BACK.
+// It squeezed a session name into a seventh of a phone's width — Upper 1 → U1, CV + Pump → CVP —
+// and it was correct for exactly the names D-LOG ships with. A user's own name has no such squeeze:
+// `CTRL 1st Workout` came out `CTRL1`, which is the report C18 was raised for. Del's answer was to
+// take the name off the strip rather than to find a better abbreviation, and the reason he gave is
+// the one that stays true as other people arrive — Next up already says what to train.
+// `tests/uat-15aug.test.js` guards its absence.
 
 // ─── PROGRAMME / SESSION GRID ─────────────────────────────
 // Session ids that have a *real* completed workout today — drives the "✓ logged today" tick.
@@ -6120,10 +6120,31 @@ async function fetchLastSessionSnapshot(session) {
 // differently. Rounds to the nearest 5s — you are reading this to decide whether to start the next
 // set, and "1:28 vs 1:31" is precision the number doesn't have.
 function lastTimeRestLabel(sets) {
-  const rests = (sets || []).map(s => parseInt(s.rest_seconds)).filter(n => !isNaN(n) && n > 0);
+  const rests = betweenSetRests(sets);
   if (!rests.length) return '';
   const avg = rests.reduce((a, b) => a + b, 0) / rests.length;
   return `rest ${fmtRest(Math.round(avg / 5) * 5)} avg`;
+}
+
+// ── THE LAST SET'S REST IS DATA, BUT IT IS NOT A REST BETWEEN SETS (1 Sept 2026) ─────────────────
+// One rule, one place, because two screens show this number and they must not disagree.
+//
+// Del asked for the rest after his last set back — it was dropped on the floor from 14 Aug, on the
+// grounds that a Mark Done timer measures the walk to the next machine. Profiling his four months
+// before changing anything says the 14 Aug reading was right about WHAT it is and wrong about what
+// to do with it: between-set rests average 111s, last-set gaps average 214s. Nearly double, because
+// the gap contains the walk, the machine wipe and the conversation.
+//
+// So it is recorded now (swStop) and excluded here instead. Averaging all 256 of his in would have
+// moved his rest figure from 1:51 to 2:37 — a 40% jump that is not rest.
+//
+// ⚠️ The last set is the highest set_number PRESENT in the rows, not the template's set count: the
+// rows are the only thing a History read has, and an exercise cut short at two sets ends on set 2.
+function betweenSetRests(sets) {
+  const rows = (sets || []).filter(s => parseInt(s.rest_seconds) > 0);
+  if (!rows.length) return [];
+  const last = Math.max(...(sets || []).map(s => parseInt(s.set_number)).filter(n => !isNaN(n)));
+  return rows.filter(s => parseInt(s.set_number) !== last).map(s => parseInt(s.rest_seconds));
 }
 
 // The snapshot behind the repeat button, held here because that button is drawn inside an innerHTML
@@ -7229,22 +7250,25 @@ async function completeExerciseInner(exName) {
 // - **A re-tap restarts the period instead of banking it.** swStart() overwrites a timer already
 //   running for the same exercise without going through swStop(), and that's the point: an interval
 //   that spans the set you just logged isn't a rest for any set.
-// - **`save: false`** (14 Aug 2026). The original version let this timer PATCH itself onto the last
-//   typed set when it stopped, which put the walk-to-the-next-machine into `rest_seconds` and wrecked
-//   every average built on it. It counts and beeps; it does not record. See swStop().
+// - **`auto: true`** — was `save: false` until 1 Sept 2026, when Del asked for the last set's rest
+//   back ("we have been missing out on last set rest period"). It records now; what keeps the
+//   14 Aug damage away is betweenSetRests(), which leaves the last set out of every AVERAGE rather
+//   than leaving the number out of the database. The flag still marks the rest as this app's rather
+//   than his, which is the one thing abandonRestAfterFailedSave() must be able to tell apart.
 function startRestAfter(exName) {
   if (!exName) return;
-  swStart(exName, { save: false });
+  swStart(exName, { auto: true });
 }
 
 // The save failed after the rest had already started, so take it back — the retry is the job now,
 // not the rest. Two guards, and both are needed: the timer must still be the one this Mark Done
 // started (a tap on another exercise's watch in the meantime is his, not ours), and it must still be
-// a `save: false` timer, because a rest he started by hand is one he chose to measure and this has
-// no business stopping it.
+// an AUTO timer, because a rest he started by hand is one he chose to measure and this has no
+// business stopping it. ⚠️ That second guard read `swSaveOnStop` until 1 Sept 2026, when every rest
+// started recording and the flag it was leaning on stopped meaning "ours".
 function abandonRestAfterFailedSave(exName) {
-  if (!swRunning || swActiveExercise !== exName || swSaveOnStop) return;
-  swStop();
+  if (!swRunning || swActiveExercise !== exName || !swRestAuto) return;
+  swStop({ bank: false });   // the rest never happened — do not write the seconds the save took
 }
 
 function selectEditVariation(exName, variation, btn) {
@@ -8894,13 +8918,14 @@ function computeExerciseProgress(workouts, setsByWorkout) {
       const key = `${s.exercise}::${s.variation || ''}`;
       if (!perEx[key]) perEx[key] = {
         exercise: s.exercise, variation: s.variation || null,
-        best: null, bestReps: null, rests: [], setCount: 0, supersetGroup: null
+        best: null, bestReps: null, restRows: [], setCount: 0, supersetGroup: null
       };
       const e = perEx[key];
       e.setCount++;
       if (s.superset_group) e.supersetGroup = s.superset_group;
-      const rest = parseInt(s.rest_seconds);
-      if (!isNaN(rest) && rest > 0) e.rests.push(rest);
+      // The rows, not the numbers: which set a rest sits on decides whether it counts towards the
+      // average, and that can only be judged once the whole exercise is in. See betweenSetRests().
+      e.restRows.push({ set_number: s.set_number, rest_seconds: s.rest_seconds });
       const wt = parseFloat(s.weight);
       const reps = parseInt(s.reps) || 0;
       if (!isNaN(wt) && wt > 0) {
@@ -8987,7 +9012,7 @@ function computeExerciseProgress(workouts, setsByWorkout) {
       out[`${entry.workoutId}|${key}`] = {
         exercise: entry.exercise, variation: entry.variation, supersetGroup: entry.supersetGroup,
         best: entry.best, bestReps: entry.bestReps, delta, deltaUnit, isPR, prKind,
-        avgRest: entry.rests.length ? Math.round(entry.rests.reduce((a, b) => a + b, 0) / entry.rests.length) : null,
+        avgRest: (r => r.length ? Math.round(r.reduce((a, b) => a + b, 0) / r.length) : null)(betweenSetRests(entry.restRows)),
         setCount: entry.setCount
       };
     });
@@ -9989,10 +10014,28 @@ let swActiveExercise = null;   // which exercise the watch is attached to
 let swLongPressTimer = null;
 let swLongPressFired = false;
 let swCompletionCued = false; // the end-of-rest cue fires once per rest, not on every tick
-// False when the running timer was auto-started by Mark Done — it counts down the gap before the
-// NEXT exercise, which is not a rest for any set, so swStop() must not write it. See swStop().
-let swSaveOnStop = true;
+// True when the running timer was started by Mark Done rather than by a tap on the watch. It no
+// longer decides whether the rest is written — every rest is (1 Sept 2026) — only who owns it:
+// abandonRestAfterFailedSave() may take back a rest this app started, never one Del started.
+let swRestAuto = false;
 const SW_RING_CIRCUMFERENCE = 75.4; // 2 * π * r where r=12
+
+// ── WHICH SET A REST BELONGS TO IS DECIDED AT THE TAP (C28, 1 Sept 2026) ─────────────────────────
+// It used to be resolved when the rest ENDED, by asking the DOM for the highest set with reps in it.
+// That answer depends entirely on whether the reps were typed before or after the watch was tapped,
+// and asked outright, Del said it is neither: "its mixed…depends on whats happening in the gym,
+// chatting etc…someone may want the machine im on next, so i rush". Types-then-taps put every rest
+// one set late; taps-then-types put it on the right one. Half his history is each.
+//
+// The fix is to stop inferring it a whole rest later. A set is finished within moments of the tap
+// that starts its rest — on either side of it — so the rest belongs to the set typed NEAREST the tap:
+//   • typed just before the tap  → captured in swStart().
+//   • typed just after the tap   → captured by noteSetTyped(), first one wins.
+// Nothing typed near the tap at all leaves the anchor null and swStop() falls back to the old DOM
+// read, which is still the best guess available for a set that was never logged.
+let swRestSetNum = null;      // the set this rest follows, or null until something is typed
+let swLastTyped = null;       // { exercise, setNum, at } — the most recent rep entry, any exercise
+const SET_TAP_WINDOW_MS = 60000;
 
 // ─── STOPWATCH HELPERS ────────────────────────────────────
 
@@ -10782,7 +10825,7 @@ function swRenderWatch(exName) {
 }
 
 // ─── START / STOP / RESET ────────────────────────────────
-function swStart(exName, { save = true } = {}) {
+function swStart(exName, { auto = false } = {}) {
   // Keep the screen alive for the rest so the render tick that finishes the ring is still running
   // when the rest ends. See the wake-lock note for what this does and does not buy.
   swAcquireWakeLock();
@@ -10796,14 +10839,19 @@ function swStart(exName, { save = true } = {}) {
   swActiveExercise = exName;
   swRunning = true;
   swCompletionCued = false;
-  swSaveOnStop = save;
+  swRestAuto = auto;
+  // A set typed moments ago is the set this rest follows. Nothing yet? noteSetTyped() takes the
+  // first one typed after the tap instead. See the C28 note above.
+  swRestSetNum = (swLastTyped && swLastTyped.exercise === exName
+    && Date.now() - swLastTyped.at <= SET_TAP_WINDOW_MS) ? swLastTyped.setNum : null;
 
   // Persist across page navigation — sessionStorage survives Stats→Workout
   sessionStorage.setItem('sw_state', JSON.stringify({
     start: swStartTimestamp,
     target: swTargetSeconds,
     exercise: exName,
-    save: swSaveOnStop
+    auto: swRestAuto,
+    set: swRestSetNum
   }));
 
 
@@ -10826,7 +10874,10 @@ function swTick(exName) {
   ensureRestAlertArmed();
 }
 
-async function swStop() {
+// `bank: false` ends the rest without writing it. One caller — abandonRestAfterFailedSave() — and it
+// exists because every rest records now: taking back a rest three seconds after a failed save would
+// otherwise stamp "0:03" onto the last set as a rest that never happened.
+async function swStop({ bank = true } = {}) {
   if (!swRunning) return;
   const elapsed = swElapsed();
   const exName = swActiveExercise;
@@ -10842,26 +10893,37 @@ async function swStop() {
   swVibrate(10);
   swRenderWatch(exName);   // snap the ring back to idle now — don't wait on the network save below
 
-  // ── A TIMER STARTED BY MARK DONE DOES NOT RECORD A REST (14 Aug 2026) ────────────────────────
-  // Mark Done is tapped when the exercise is finished, so what this timer measures is the walk to
-  // the next machine, not a rest between two sets. swFindLastTypedSetForExercise() would hang it on
-  // the LAST set — a set that has no rest after it by definition — and the number is the wrong shape
-  // entirely: 14 Aug wrote 166s onto Leg Curl set 3 and 380s onto Abductor set 2 (that one spans the
-  // walk to cardio), against genuine between-set rests of 90–110s. Those inflate every avg-rest
-  // figure in History and Stats. It still runs and still beeps — the countdown to the next exercise
-  // is useful — it just isn't a data point. Stopping it by hand doesn't rescue it either; only a
-  // timer you started by tapping the watch is a rest you chose to measure.
-  const saveIt = swSaveOnStop;
-  swSaveOnStop = true;
-  if (!saveIt) return;
-
-  // Save the rest to the last typed set for THIS exercise
-  const target = swFindLastTypedSetForExercise(exName);
-  if (target && elapsed > 0) {
-    await swSaveRest(target.exName, target.setNum, elapsed);
-    swPaintRestLine(target.exName, target.setNum, elapsed);
+  // ── EVERY REST IS RECORDED NOW, INCLUDING THE ONE AFTER THE LAST SET (1 Sept 2026) ───────────
+  // From 14 Aug a Mark Done timer wrote nothing, because it hangs on the last set and what it
+  // measures is the walk to the next machine: 166s onto Leg Curl set 3, 380s onto Abductor set 2,
+  // against genuine between-set rests of 90–110s. The reasoning was right and the remedy was too
+  // blunt — Del, 1 Sept: "we have been missing out on last set rest period".
+  //
+  // His four months, profiled before this changed, say the same thing the 14 Aug note did:
+  // between-set rests average 111s, last-set gaps average 214s. So the gap is real data and it is
+  // NOT the same measurement. It is written now, and kept out of every average instead of out of the
+  // database — see betweenSetRests(), which is what both avg-rest figures are built on.
+  const anchor = swRestSetNum !== null ? { exName, setNum: swRestSetNum }
+                                       : swFindLastTypedSetForExercise(exName);
+  swRestSetNum = null;
+  if (bank && anchor && elapsed > 0) {
+    await swSaveRest(anchor.exName, anchor.setNum, elapsed);
+    swPaintRestLine(anchor.exName, anchor.setNum, elapsed);
     swFlashWatch(exName);
     saveDraft(selectedSession?.id);   // persist rest to localStorage so it survives reload
+  }
+}
+
+// Every rep entry, on any exercise, from the delegated listener below. Two jobs: remember the set for
+// the next tap on the watch, and — if a rest is already running unanchored — claim it for this set.
+function noteSetTyped(exName, setNum) {
+  if (!exName || !(setNum > 0)) return;
+  swLastTyped = { exercise: exName, setNum, at: Date.now() };
+  // First one wins: the set typed just after the tap is the one that was just finished. A later
+  // correction to some other row must not move a rest that already knows where it belongs.
+  if (swRunning && swActiveExercise === exName && swRestSetNum === null
+      && swStartTimestamp && Date.now() - swStartTimestamp <= SET_TAP_WINDOW_MS) {
+    swRestSetNum = setNum;
   }
 }
 
@@ -10885,7 +10947,8 @@ function swHandOverWatch(toExName) {
     start: swStartTimestamp,
     target: swTargetSeconds,
     exercise: toExName,
-    save: swSaveOnStop
+    auto: swRestAuto,
+    set: swRestSetNum
   }));
   clearInterval(swInterval);
   swInterval = setInterval(() => swTick(toExName), 1000);
@@ -10901,6 +10964,7 @@ function swReset() {
   swRunning = false;
   swStartTimestamp = null;
   swActiveExercise = null;
+  swRestSetNum = null;
   sessionStorage.removeItem('sw_state');
   swReleaseWakeLock();
   cancelRestAlert();
@@ -10913,7 +10977,14 @@ function swReset() {
 // stop AND when loading the logger (so past rests are visible on reload).
 function swPaintRestLine(exName, setNum, seconds) {
   const el = document.getElementById(`rest-${exName}-${setNum}`);
-  if (el) el.textContent = `↳ Rest ${swFormat(seconds)}`;
+  if (!el) return;
+  // The gap after the FINAL set is the walk to the next machine, not a rest between two sets — 214s
+  // against 111s across Del's four months. It is recorded and shown from 1 Sept 2026, but no average
+  // is built on it (betweenSetRests), so it must not read as a rest either.
+  const ex = selectedSession?.exercises.find(e => e.name === exName);
+  el.textContent = (ex && setNum >= ex.sets)
+    ? `↳ ${swFormat(seconds)} to next exercise`
+    : `↳ Rest ${swFormat(seconds)}`;
 }
 
 // ─── SAVE REST TO DB (or buffer if workout not created yet) ──
@@ -10984,6 +11055,18 @@ document.addEventListener('pointerdown', e => {
   swLongPressFired = false;
   swLongPressTimer = setTimeout(() => { swLongPressFired = true; swReset(); }, 450);
 });
+
+// Delegated rather than another oninput= on the markup: the rep inputs are built in three places
+// (the logger, an added row, the superset re-render) and a fourth would eventually miss this. Reps
+// only — a weight gets typed on the way INTO a set, so it says nothing about one being finished.
+// The id carries the exercise name, which contains hyphens of its own, so the set number is taken
+// from the end: `r-<name>-<n>`.
+document.addEventListener('input', e => {
+  const id = e.target && e.target.id;
+  if (!id || !id.startsWith('r-') || !e.target.value) return;
+  const m = /^r-(.+)-(\d+)$/.exec(id);
+  if (m) noteSetTyped(m[1], parseInt(m[2], 10));
+});
 document.addEventListener('pointerup', () => clearTimeout(swLongPressTimer));
 document.addEventListener('pointercancel', () => clearTimeout(swLongPressTimer));
 
@@ -11000,8 +11083,13 @@ function swRestoreFromStorage() {
     swTargetSeconds = s.target || 60;
     swActiveExercise = s.exercise;
     swRunning = true;
-    // `!== false` so a state written by an older build (no `save` key) keeps saving, as it did then.
-    swSaveOnStop = s.save !== false;
+    // A state written by an older build carries `save: false` for what is now `auto: true` — the two
+    // keys mean the same rest, so read either. Without this, a rest running across the update lands
+    // back as a hand-started one and abandonRestAfterFailedSave() could no longer take it back.
+    swRestAuto = s.auto === true || s.save === false;
+    // The anchor survives the trip as well: a rest that knew its set before a hop to Stats must not
+    // come back guessing from the DOM. `?? null` keeps an older state's missing key as "unanchored".
+    swRestSetNum = (s.set ?? null);
     swCompletionCued = (Date.now() - s.start) / 1000 >= s.target;
     if (!swCompletionCued) swAcquireWakeLock();
     swRenderWatch(s.exercise);

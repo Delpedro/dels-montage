@@ -192,7 +192,7 @@ async function main() {
     const d = fakeDom();
     let fetched = 0;
     const s = load({
-      functions: ['buildWeekStrip', 'shortSessionLabel', 'dateStr', 'weekIndex'],
+      functions: ['buildWeekStrip', 'dateStr', 'weekIndex'],
       deps: {
         document: d.document, esc: v => String(v),
         sessionDisplayName: t => ({ 'upper-a': 'Upper A' }[t] || t),
@@ -207,7 +207,10 @@ async function main() {
     eq(fetched, 0, 'rows in hand means no second request for the same week');
     eq(d.get('home-week-strip').children.length, 7, 'seven days are painted');
     ok(d.get('home-week-strip').children[0].classList.contains('done'), "and Monday's session shows on it");
-    ok(d.get('home-week-strip').children[0].innerHTML.includes('UA'), 'labelled with the session, not a dot');
+    // C18, 1 Sept 2026: the session name came off the strip. `done` is the whole signal now — it is
+    // what turns the tile and its dot green — and every day keeps its dot.
+    ok(d.get('home-week-strip').children[0].innerHTML.includes('wd-dot'), 'a trained day keeps its dot');
+    ok(!d.get('home-week-strip').children[0].innerHTML.includes('UA'), 'and carries no abbreviated session name');
 
     // The other caller still works: no rows, so it goes and gets them.
     await s.buildWeekStrip('home-week-strip');

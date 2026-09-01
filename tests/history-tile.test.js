@@ -34,7 +34,7 @@ function deep(actual, expected, label) {
 
 const app = load({
   functions: ['computeExerciseProgress', 'deltaCell', 'historyExerciseOrder',
-              'snapSupersetsIntoOrder', 'isTimed', 'timedTarget', 'catalogueKey'],
+              'snapSupersetsIntoOrder', 'isTimed', 'timedTarget', 'catalogueKey', 'betweenSetRests'],
   decls: ['CATALOGUE_BY_KEY', 'TIMED_EXERCISES'],
 });
 

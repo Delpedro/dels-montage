@@ -27,7 +27,7 @@ console.log('auto-start rest on Mark Done');
 // slicer doesn't take, so they're supplied as bindings instead. Assignments inside the real swStart()
 // land on these and the accessor reads the same bindings — a rename in the source would leave the
 // state frozen here and fail every assertion below, which is the protection that matters.
-const calls = { stop: 0, vibrate: [], render: [], cleared: [], locked: 0, scheduled: [] };
+const calls = { stop: 0, stopArgs: [], vibrate: [], render: [], cleared: [], locked: 0, scheduled: [] };
 const store = {};
 let nextInterval = 1;
 
@@ -39,10 +39,13 @@ const app = load({
     swStartTimestamp: null,
     swTargetSeconds: 60,
     swCompletionCued: false,
-    swSaveOnStop: true,
+    swRestAuto: false,
+    swRestSetNum: null,
+    swLastTyped: null,
+    SET_TAP_WINDOW_MS: 60000,
     swInterval: null,
     selectedSession: null,
-    swStop: () => { calls.stop++; },
+    swStop: (opts) => { calls.stop++; calls.stopArgs.push(opts || {}); },
     swAcquireWakeLock: () => { calls.locked++; },
     scheduleRestAlert: (name, secs) => calls.scheduled.push([name, secs]),
     swVibrate: v => calls.vibrate.push(v),
@@ -56,12 +59,14 @@ const app = load({
     clearInterval: id => calls.cleared.push(id),
   },
   accessors: {
-    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionCued, swSaveOnStop, swInterval })',
+    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionCued, swRestAuto, swRestSetNum, swInterval })',
     reset: `(session) => {
       swRunning = false; swActiveExercise = null; swStartTimestamp = null;
-      swTargetSeconds = 60; swCompletionCued = false; swSaveOnStop = true; swInterval = null;
+      swTargetSeconds = 60; swCompletionCued = false; swRestAuto = false; swInterval = null;
+      swRestSetNum = null; swLastTyped = null;
       selectedSession = session;
     }`,
+    typed: '(exercise, setNum, agoMs) => { swLastTyped = { exercise, setNum, at: Date.now() - (agoMs || 0) }; }',
   },
 });
 
@@ -76,7 +81,7 @@ const SESSION = {
 
 function fresh() {
   app.reset(SESSION);
-  calls.stop = 0; calls.vibrate = []; calls.render = []; calls.cleared = [];
+  calls.stop = 0; calls.stopArgs = []; calls.vibrate = []; calls.render = []; calls.cleared = [];
   calls.locked = 0; calls.scheduled = [];
   Object.keys(store).forEach(k => delete store[k]);
 }
@@ -105,23 +110,56 @@ function fresh() {
   eq(calls.scheduled[0][0], 'Bench Press', 'and it names the exercise being rested from');
   eq(calls.scheduled[0][1], 180, "and it is booked for the target the timer actually took");
 
-  // The 14 Aug correction. Mark Done is tapped when the exercise is over, so this timer measures the
-  // walk to the next machine — swStop() would have hung it on the last set as a "rest" (166s onto Leg
-  // Curl set 3, 380s onto Abductor set 2, against genuine between-set rests of 90–110s) and dragged
-  // every avg-rest figure in the app with it.
-  eq(s.swSaveOnStop, false, 'an auto-started rest is display-only — it must never be written to a set');
-  eq(JSON.parse(store.sw_state).save, false,
-    'and the flag is persisted too, so resuming after a trip to Stats does not turn it back into a saved rest');
+  // ⚠️ REVERSED ON 1 SEPT 2026 AND THE FLAG CHANGED MEANING WITH IT. From 14 Aug this rest wrote
+  // nothing, because it hangs on the last set and what it measures is the walk to the next machine
+  // (166s onto Leg Curl set 3, 380s onto Abductor set 2, against genuine between-set rests of
+  // 90–110s). Del asked for that gap back — "we have been missing out on last set rest period" — so
+  // it records now, and betweenSetRests() keeps it out of every AVERAGE instead. What the flag still
+  // marks is WHOSE rest it is: this one is the app's, so a failed save may take it back.
+  eq(s.swRestAuto, true, 'a rest started by Mark Done is marked as the app\'s, not his');
+  eq(JSON.parse(store.sw_state).auto, true,
+    'and the flag is persisted, so a trip to Stats does not turn it into a hand-started rest');
 }
 
-// ── 1b. a timer the user started by hand still records ────────────────────
-// The distinction the whole fix rests on: tapping the watch is a deliberate "time this rest", and that
-// one still writes. Only the automatic one is silent.
+// ── 1b. a timer the user started by hand is his ───────────────────────────
+// The distinction the whole thing rests on: a hand tap is a rest he chose to start, and nothing in
+// the app may end it on his behalf.
 {
   fresh();
   app.swStart('Bench Press');
-  eq(app.state().swSaveOnStop, true, 'swStart defaults to saving — a hand-tapped rest is still a rest');
-  eq(JSON.parse(store.sw_state).save, true, 'and says so in the persisted state');
+  eq(app.state().swRestAuto, false, 'swStart defaults to a hand-started rest');
+  eq(JSON.parse(store.sw_state).auto, false, 'and says so in the persisted state');
+}
+
+// ── 1c. which set the rest belongs to is decided at the tap (C28) ─────────
+// Resolved at the STOP until 1 Sept 2026, by asking the DOM for the highest set with reps in it —
+// which answers correctly only if the reps were typed after the tap. Del, asked outright: "its
+// mixed…depends on whats happening in the gym, chatting etc…someone may want the machine im on
+// next, so i rush". So the set is captured when the rest starts instead.
+{
+  fresh();
+  app.typed('Bench Press', 2, 3000);        // typed the reps, then reached for the watch
+  app.swStart('Bench Press');
+  eq(app.state().swRestSetNum, 2, 'a set typed moments before the tap is the set this rest follows');
+  eq(JSON.parse(store.sw_state).set, 2, 'and it is persisted with the rest');
+
+  // Tapped first. Nothing is claimed yet — noteSetTyped() fills it in when the reps arrive.
+  fresh();
+  app.swStart('Bench Press');
+  eq(app.state().swRestSetNum, null, 'a tap with nothing typed yet starts unanchored');
+
+  // Typed a long time ago: that was the set before this one, and guessing it here would be worse
+  // than the fallback swStop() already has.
+  fresh();
+  app.typed('Bench Press', 1, 5 * 60 * 1000);
+  app.swStart('Bench Press');
+  eq(app.state().swRestSetNum, null, 'a set typed five minutes ago is not what this rest follows');
+
+  // Another exercise's row. The watch is per-exercise and so is the anchor.
+  fresh();
+  app.typed('Incline Curl', 3, 2000);
+  app.swStart('Bench Press');
+  eq(app.state().swRestSetNum, null, "a set typed on a different exercise never anchors this one");
 }
 
 // ── 2. an exercise with no rest in the template still gets a countdown ─────
@@ -228,9 +266,13 @@ function fresh() {
   // The ordinary failure: the save 503'd, the rest this Mark Done started is taken back.
   fresh();
   app.startRestAfter('Bench Press');
-  eq(app.state().swSaveOnStop, false, 'the auto-started rest is a save:false timer');
+  eq(app.state().swRestAuto, true, 'the auto-started rest is marked as the app\'s');
   app.abandonRestAfterFailedSave('Bench Press');
   eq(calls.stop, 1, 'a failed save stops the rest it started — the retry is the job, not the rest');
+  // Every rest records since 1 Sept, so this one has to say explicitly that it does not: otherwise
+  // the three seconds the failed save took would be stamped onto the last set as a rest.
+  eq(calls.stopArgs[0] && calls.stopArgs[0].bank, false,
+    'and it is stopped WITHOUT banking — a rest that never happened writes nothing');
 
   // He tapped another exercise's watch while the save was in flight. That timer is his.
   fresh();
@@ -244,7 +286,7 @@ function fresh() {
   // stopping it here would write the walk-to-the-machine onto a set — the 14 Aug bug, from a new door.
   fresh();
   app.swStart('Bench Press');
-  eq(app.state().swSaveOnStop, true, 'a hand-started rest is a save:true timer');
+  eq(app.state().swRestAuto, false, 'a hand-started rest is his');
   app.abandonRestAfterFailedSave('Bench Press');
   eq(calls.stop, 0, 'a rest he started by hand is never stopped by a failed save');
 }
@@ -263,14 +305,18 @@ function fresh() {
   const reps = {};
 
   const tap = load({
-    functions: ['swTapWatch', 'swStart', 'swStop', 'swElapsed', 'swFindLastTypedSetForExercise', 'swParseRest', 'startRestAfter'],
+    functions: ['swTapWatch', 'swStart', 'swStop', 'swElapsed', 'swFindLastTypedSetForExercise',
+                'swParseRest', 'startRestAfter', 'noteSetTyped'],
     deps: {
       swRunning: false,
       swActiveExercise: null,
       swStartTimestamp: null,
       swTargetSeconds: 60,
       swCompletionCued: false,
-      swSaveOnStop: true,
+      swRestAuto: false,
+      swRestSetNum: null,
+      swLastTyped: null,
+      SET_TAP_WINDOW_MS: 60000,
       swInterval: null,
       swLongPressFired: false,
       selectedSession: SESSION,
@@ -290,11 +336,12 @@ function fresh() {
       clearInterval: () => {},
     },
     accessors: {
-      state: '() => ({ swRunning, swActiveExercise, swSaveOnStop, swStartTimestamp })',
+      state: '() => ({ swRunning, swActiveExercise, swRestAuto, swRestSetNum, swStartTimestamp })',
       rewind: '(ms) => { swStartTimestamp -= ms; }',
       longPress: '() => { swLongPressFired = true; }',
       reset: `() => { swRunning = false; swActiveExercise = null; swStartTimestamp = null;
-        swTargetSeconds = 60; swCompletionCued = false; swSaveOnStop = true; swInterval = null; }`,
+        swTargetSeconds = 60; swCompletionCued = false; swRestAuto = false; swInterval = null;
+        swRestSetNum = null; swLastTyped = null; }`,
     },
   });
 
@@ -341,15 +388,66 @@ function fresh() {
   eq(tapCalls.saved[0], 'Bench Press/2/190', "and the rest it was timing is banked on the way past, not binned");
   eq(tapCalls.scheduled.length, 2, 'one alert for each rest, never two rests at once');
 
-  // A rest Mark Done started is display-only, so it banks nothing — but the tap must still leave a
-  // clock running, which before this fix it did not.
+  // A rest Mark Done started still has to leave a clock running when it is tapped, which before
+  // 1 Sept it did not — and since that morning it banks as well, onto the last set.
   freshTap();
+  reps['r-Bench Press-3'] = '8';
   tap.startRestAfter('Bench Press');
   tap.rewind(190000);
   tap.swTapWatch('Bench Press');
   eq(tap.state().swRunning, true, 'the tap after a Mark Done rest has run out starts a fresh one');
-  eq(tap.state().swSaveOnStop, true, 'and that one is his, so it records');
-  eq(tapCalls.saved.length, 0, 'the auto-started period itself is still never written to a set');
+  eq(tap.state().swRestAuto, false, 'and that one is his, not the app\'s');
+  eq(tapCalls.saved[0], 'Bench Press/3/190', "the gap after the last set is recorded now, on the last set");
+
+  // ── C28: THE SET THE REST LANDS ON, THROUGH THE REAL swStop() ──────────────────────────────────
+  // The discriminating case, and the reason this could not be fixed by reading the DOM harder: the
+  // reps for the NEXT set can already be in the boxes by the time a rest ends. Del rushes when
+  // someone wants his machine.
+  freshTap();
+  Object.keys(reps).forEach(k => delete reps[k]);
+  reps['r-Bench Press-1'] = '10';
+  reps['r-Bench Press-2'] = '9';
+  tap.noteSetTyped('Bench Press', 2);        // he typed set 2 …
+  tap.swTapWatch('Bench Press');             // … then tapped the watch
+  eq(tap.state().swRestSetNum, 2, 'the rest is anchored to set 2 at the tap');
+  reps['r-Bench Press-3'] = '8';             // set 3 done and typed while the rest was still running
+  tap.noteSetTyped('Bench Press', 3);
+  eq(tap.state().swRestSetNum, 2, 'and a later row being typed does not move it');
+  tap.rewind(100000);
+  tap.swTapWatch('Incline Curl');
+  eq(tapCalls.saved[0], 'Bench Press/2/100',
+    'the rest lands on set 2 — the DOM read it replaced would have banked it onto set 3');
+
+  // The other order, which the old code got right by luck: tap first, type during the rest.
+  freshTap();
+  Object.keys(reps).forEach(k => delete reps[k]);
+  tap.swTapWatch('Bench Press');
+  eq(tap.state().swRestSetNum, null, 'nothing typed yet, so nothing is claimed at the tap');
+  reps['r-Bench Press-1'] = '10';
+  tap.noteSetTyped('Bench Press', 1);
+  eq(tap.state().swRestSetNum, 1, 'the first set typed after the tap claims the rest');
+  tap.rewind(100000);
+  tap.swTapWatch('Incline Curl');
+  eq(tapCalls.saved[0], 'Bench Press/1/100', 'and that is the set it is banked on');
+
+  // Neither: the set was never logged. The old DOM read is still the best guess available, so it is
+  // kept as the fallback rather than dropping the rest on the floor.
+  freshTap();
+  Object.keys(reps).forEach(k => delete reps[k]);
+  reps['r-Bench Press-1'] = '10';
+  reps['r-Bench Press-2'] = '9';
+  tap.swTapWatch('Bench Press');
+  tap.rewind(100000);
+  tap.swTapWatch('Incline Curl');
+  eq(tapCalls.saved[0], 'Bench Press/2/100', 'an unanchored rest still falls back to the last typed set');
+
+  // A rest already anchored must not be re-anchored by a keystroke on another exercise's row —
+  // supersets put two blocks' inputs a thumb apart.
+  freshTap();
+  Object.keys(reps).forEach(k => delete reps[k]);
+  tap.swTapWatch('Bench Press');
+  tap.noteSetTyped('Incline Curl', 1);
+  eq(tap.state().swRestSetNum, null, "typing on the other half of a superset does not claim this rest");
 
   // The long-press is the mis-tap escape and fires its own reset — the tap that follows it is the
   // finger coming off the button and must do nothing at all.

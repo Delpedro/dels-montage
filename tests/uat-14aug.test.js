@@ -86,7 +86,7 @@ console.log('PRs cover reps, not just weight');
   // computeExerciseProgress now asks isTimed() whether a null weight means "no load" or "a hold"
   // (C2 — the delta on a timed lift), so its resolution chain comes along.
   const app = load({
-    functions: ['computeExerciseProgress', 'isTimed', 'timedTarget', 'catalogueKey'],
+    functions: ['computeExerciseProgress', 'isTimed', 'timedTarget', 'catalogueKey', 'betweenSetRests'],
     decls: ['CATALOGUE_BY_KEY', 'TIMED_EXERCISES'],
   });
 
@@ -179,18 +179,38 @@ console.log('Last Time card carries rest');
 // ═══════════════════════════════════════════════════════════════════════════
 // "Last time history needs to have rest period in some form."
 {
-  const app = load({ functions: ['lastTimeRestLabel', 'fmtRest'] });
+  const app = load({ functions: ['lastTimeRestLabel', 'fmtRest', 'betweenSetRests'] });
 
   // Del's real 14 Aug RDL: 151s, 156s, 156s.
   eq(app.lastTimeRestLabel([
     { rest_seconds: 151 }, { rest_seconds: 156 }, { rest_seconds: 156 },
   ]), 'rest 2:35 avg', 'averages the rests and rounds to the nearest 5s');
 
-  // The last set has no rest after it and (since 14 Aug) never records one. Averaging over the set
-  // COUNT rather than over the timed sets would drag a 3-set lift down by a third.
+  // The last set has no rest BETWEEN SETS after it. Averaging over the set COUNT rather than over
+  // the timed sets would drag a 3-set lift down by a third.
   eq(app.lastTimeRestLabel([
     { rest_seconds: 90 }, { rest_seconds: 90 }, { rest_seconds: 0 },
   ]), 'rest 1:30 avg', 'a zero-rest final set is excluded rather than averaged in as a zero');
+
+  // ── 1 SEPT 2026: THE LAST SET RECORDS A REST NOW, AND IT STILL MUST NOT COUNT ─────────────────
+  // Del asked for the gap after his last set back, and it is written to the row from 1 Sept. It is
+  // the walk to the next machine, not a rest between two sets — his own four months: 111s between
+  // sets against 214s after the last one. Averaging his in would move this figure by 40%.
+  eq(app.lastTimeRestLabel([
+    { set_number: 1, rest_seconds: 90 },
+    { set_number: 2, rest_seconds: 90 },
+    { set_number: 3, rest_seconds: 380 },
+  ]), 'rest 1:30 avg', "the final set's gap is left out of the average even though it is recorded");
+
+  // The highest set number present, not the template's count — an exercise cut short at two sets
+  // ends on set 2, and its second rest is that day's walk to the next machine.
+  eq(app.lastTimeRestLabel([
+    { set_number: 1, rest_seconds: 100 }, { set_number: 2, rest_seconds: 400 },
+  ]), 'rest 1:40 avg', 'a two-set exercise ends on set 2 and set 2 is the one excluded');
+
+  // Nothing but a last set means there is no between-set rest to report, not a 6:20 average.
+  eq(app.lastTimeRestLabel([{ set_number: 1, rest_seconds: 380 }]), '',
+    'a single set carries only the walk away from it, so there is no rest figure at all');
 
   eq(app.lastTimeRestLabel([{ rest_seconds: 0 }, { rest_seconds: 0 }]), '',
     'an exercise where the watch was never used shows no rest line at all, rather than "0:00"');
