@@ -249,6 +249,119 @@ function fresh() {
   eq(calls.stop, 0, 'a rest he started by hand is never stopped by a failed save');
 }
 
+// ── 8. THE TAP ON THE WATCH (1 Sept 2026) ─────────────────────────────────
+// Del, off Tuesday's UPPER 1: "Incline DB Fly (2/3rd set) clock didn't work". The tap used to be a
+// plain start/stop toggle, and nobody stops a rest in a gym — so the timer from set 1 was still
+// running when set 2 ended, and the tap he meant as "start my rest" stopped the clock and started
+// nothing. He pocketed the phone with no rest running, for every set after the first.
+//
+// These run the REAL swStop() with a recording swSaveRest, so they assert what would reach a set row
+// rather than that a function was called. swSaveRest() is invoked before swStop()'s first await, so
+// the write is visible synchronously.
+{
+  const tapCalls = { saved: [], scheduled: [], cancelled: 0 };
+  const reps = {};
+
+  const tap = load({
+    functions: ['swTapWatch', 'swStart', 'swStop', 'swElapsed', 'swFindLastTypedSetForExercise', 'swParseRest', 'startRestAfter'],
+    deps: {
+      swRunning: false,
+      swActiveExercise: null,
+      swStartTimestamp: null,
+      swTargetSeconds: 60,
+      swCompletionCued: false,
+      swSaveOnStop: true,
+      swInterval: null,
+      swLongPressFired: false,
+      selectedSession: SESSION,
+      document: { getElementById: id => (id in reps ? { value: reps[id] } : null) },
+      swAcquireWakeLock: () => {},
+      swReleaseWakeLock: () => {},
+      scheduleRestAlert: (n, s) => tapCalls.scheduled.push([n, s]),
+      cancelRestAlert: () => { tapCalls.cancelled++; },
+      swVibrate: () => {},
+      swRenderWatch: () => {},
+      swFlashWatch: () => {},
+      swPaintRestLine: () => {},
+      saveDraft: () => {},
+      swSaveRest: (ex, n, secs) => { tapCalls.saved.push(`${ex}/${n}/${secs}`); return Promise.resolve(); },
+      sessionStorage: { setItem: () => {}, removeItem: () => {}, getItem: () => null },
+      setInterval: () => 1,
+      clearInterval: () => {},
+    },
+    accessors: {
+      state: '() => ({ swRunning, swActiveExercise, swSaveOnStop, swStartTimestamp })',
+      rewind: '(ms) => { swStartTimestamp -= ms; }',
+      longPress: '() => { swLongPressFired = true; }',
+      reset: `() => { swRunning = false; swActiveExercise = null; swStartTimestamp = null;
+        swTargetSeconds = 60; swCompletionCued = false; swSaveOnStop = true; swInterval = null; }`,
+    },
+  });
+
+  function freshTap() {
+    tap.reset();
+    tapCalls.saved = []; tapCalls.scheduled = []; tapCalls.cancelled = 0;
+    Object.keys(reps).forEach(k => delete reps[k]);
+    reps['r-Bench Press-1'] = '10';
+    reps['r-Bench Press-2'] = '9';
+  }
+
+  // The reported bug. Rest target is 180s; the watch has been running 190s because he lifted again
+  // instead of stopping it. The tap means "set 2 is done" — it must leave a rest running.
+  freshTap();
+  tap.swTapWatch('Bench Press');
+  tap.rewind(190000);
+  tap.swTapWatch('Bench Press');
+  eq(tap.state().swRunning, true,
+    'a tap once the ring has gone green starts the next rest — it does not kill the clock');
+  eq(tap.state().swActiveExercise, 'Bench Press', 'on the same exercise');
+  ok(tap.state().swStartTimestamp >= Date.now() - 1000, 'and the new period counts from this tap, not from the old start');
+  eq(tapCalls.saved.length, 1, 'the period that just ended is still banked');
+  eq(tapCalls.saved[0], 'Bench Press/2/190', 'onto the last set he typed — the one he has just finished');
+  eq(tapCalls.scheduled.length, 2, 'and the alert is booked for the new rest as well as the old one');
+
+  // The other half of the tap, and the reason it cannot simply always restart: ending a rest EARLY is
+  // how the push gets called off before it buzzes mid-set (C11). While the ring is still counting
+  // down, the tap keeps meaning stop.
+  freshTap();
+  tap.swTapWatch('Bench Press');
+  tap.rewind(45000);                       // 45s into a 180s rest — he is ready early
+  tap.swTapWatch('Bench Press');
+  eq(tap.state().swRunning, false, 'a tap while the rest is still owed stops it, as it always did');
+  eq(tapCalls.saved[0], 'Bench Press/2/45', 'and banks the short rest he actually took');
+  ok(tapCalls.cancelled > 0, 'the push is called off — a rest ended early must not buzz during the next set');
+
+  // Two rests never run together — Del's own answer to the design question, 1 Sept: "two rests should
+  // never run together imho". Starting one on another exercise banks the first and replaces it.
+  freshTap();
+  tap.swTapWatch('Bench Press');
+  tap.rewind(190000);
+  tap.swTapWatch('Incline Curl');
+  eq(tap.state().swActiveExercise, 'Incline Curl', 'the watch moves to the exercise just tapped');
+  eq(tapCalls.saved[0], 'Bench Press/2/190', "and the rest it was timing is banked on the way past, not binned");
+  eq(tapCalls.scheduled.length, 2, 'one alert for each rest, never two rests at once');
+
+  // A rest Mark Done started is display-only, so it banks nothing — but the tap must still leave a
+  // clock running, which before this fix it did not.
+  freshTap();
+  tap.startRestAfter('Bench Press');
+  tap.rewind(190000);
+  tap.swTapWatch('Bench Press');
+  eq(tap.state().swRunning, true, 'the tap after a Mark Done rest has run out starts a fresh one');
+  eq(tap.state().swSaveOnStop, true, 'and that one is his, so it records');
+  eq(tapCalls.saved.length, 0, 'the auto-started period itself is still never written to a set');
+
+  // The long-press is the mis-tap escape and fires its own reset — the tap that follows it is the
+  // finger coming off the button and must do nothing at all.
+  freshTap();
+  tap.swTapWatch('Bench Press');
+  const beforeLongPress = tap.state().swStartTimestamp;
+  tap.longPress();
+  tap.swTapWatch('Bench Press');
+  eq(tap.state().swStartTimestamp, beforeLongPress, 'a tap swallowed by a long-press changes nothing');
+  eq(tapCalls.saved.length, 0, 'and banks nothing');
+}
+
 process.on('exit', () => {
   console.log(`  ${pass} passed, ${fail} failed`);
   if (fail) process.exitCode = 1;

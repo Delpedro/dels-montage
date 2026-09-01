@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-08-31-1645';
+const APP_BUILD = '2026-09-01-1311';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -10942,11 +10942,38 @@ function swFlashWatch(exName) {
 }
 
 // ─── TAP HANDLER (on the watch button itself) ────────────
-// Short tap = start/stop toggle, long press = reset
+// Short tap = start the rest; long press = reset without saving.
+//
+// ── THE TAP IS NOT A PLAIN TOGGLE ANY MORE (1 Sept 2026) ─────────────────────────────────────────
+// Del, off Tuesday's UPPER 1: "Incline DB Fly (2/3rd set) clock didn't work". It worked exactly as
+// written, and that was the bug. Nobody stops a rest in a gym — you tap the watch, pocket the phone,
+// lift again. So the timer from set 1 is STILL RUNNING (green, counting past its target) when he
+// finishes set 2, and the tap he means as "start my rest" was read as the other half of a toggle:
+// the clock stopped, nothing started, and he walked off believing one was running. Every set after
+// the first was resting against a dead watch, which is also where "we have been missing out on
+// [the] rest period" comes from — his own sequences, replayed against this file, produce it exactly.
+//
+// So the tap is disambiguated by the ONE thing that separates the two meanings — whether the rest it
+// would be stopping is still owed:
+//   • ring still counting down (elapsed < target) → he is ready early. Stop and bank it, as before.
+//     That is the case cancelRestAlert() exists for: end it early and the push never buzzes.
+//   • ring already green (elapsed >= target) → that rest is OVER; a clock past its target is one
+//     nobody stopped, not one anybody wants to end. The tap can only mean the NEXT set just ended,
+//     so bank what elapsed and start the next period in the same tap.
+// `elapsed >= target` is the identical test swRenderWatch() paints `done` from, so the rule a user
+// can actually see is "green ring, tap starts the next rest" — no new control, nothing to learn.
+//
+// ⚠️ The stop still banks in both branches. It hangs on the last typed set, which for the green case
+// is the set just finished — do not "tidy" the swStop() out of the restart on the grounds that the
+// interval overran: a rest that stops showing `↳ Rest m:ss` reads to Del as the app losing it again.
 function swTapWatch(exName) {
   if (swLongPressFired) { swLongPressFired = false; return; }
-  if (swRunning && swActiveExercise === exName) swStop();
-  else swStart(exName);
+  if (!(swRunning && swActiveExercise === exName)) { swStart(exName); return; }
+  const restIsOver = swElapsed() >= swTargetSeconds;
+  swStop();
+  // Not awaited on purpose: swStop() clears swRunning before its first await, so swStart() cannot
+  // re-enter it, and the rest genuinely begins at the tap — not when the PATCH comes back.
+  if (restIsOver) swStart(exName);
 }
 
 // Long-press detection lives on the button — attached in buildWorkoutLogger
