@@ -158,13 +158,6 @@ const applyGuard = appSrc.slice(appSrc.indexOf('async function applyUpdate()'));
 ok(applyGuard.indexOf('newBuildIsServable') < applyGuard.indexOf('location.reload()'),
   'the preflight runs BEFORE the reload, which is the only place it is any use');
 
-// ── And the shell must not ship a STATE it has not checked ─────────────────────────────────
-// index.html shipped the literal words "Rest alerts: off" on the button, so every load of every
-// account showed OFF until the app repainted it — which happened after an awaited network fetch.
-// Del reported that flash three times before it was read as markup rather than as a bug in the
-// flag it was drawn from.
-ok(/id="rest-alerts-btn"[^>]*>Rest alerts</.test(htmlSrc),
-  'the rest-alerts button ships no state in its markup — only the app knows the answer');
 const homeFn = appSrc.slice(appSrc.indexOf('async function loadHomePage()'));
 ok(homeFn.indexOf('paintRestAlertsButton()') < homeFn.indexOf('await '),
   'and Home paints it above every await in the function, so no network can delay the label');

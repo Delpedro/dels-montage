@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-01-1342';
+const APP_BUILD = '2026-09-02-1435';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -758,9 +758,6 @@ const SB_LABELS = {
   custom_exercises: 'Exercise',
   exercises: 'Exercise',
   exercise_catalogue: 'Exercise list',
-  push_subscriptions: 'Rest alerts',
-  rest_alerts: 'Rest alert booking',
-  rest_alert_log: 'Alert log',
   app_meta: 'App data',
   quotes: 'Quote',
 };
@@ -980,17 +977,12 @@ let refreshInFlight = null;  // dedupes concurrent refreshes — initApp fires m
 //   dlog_history_filters  B's History opens filtered by A's search and reads as "my history is
 //                         gone" — the one failure mode this app has already caused a panic over.
 //   dlog_stats_range      cosmetic, but wrong.
-//   dlog_rest_alerts      B inherits A's alert preference. ⚠️ NO LONGER WIPED — 28 Aug 2026. It is
-//                         owner-stamped instead; wiping it is what cost Del a whole session. See
-//                         REST_ALERTS_OWNER_STORE.
-//   dlog_rest_token       a live rest token belonging to someone else's session.
 //   workout_draft         half a logged workout, in the wrong account's hands.
 //   sw_state / del_page   in-flight rest timer and last page, both A's.
 //
 // Doing this by renaming every key to `key:<email>` was the other option and is worse: those keys
 // are read on the very first paint, before authSession is loaded, so a per-account key would
-// resolve to `dlog_rest_token:` on boot — which is EXACTLY the null-token bug fixed on 24 Aug that
-// made rest alerts fire out of nowhere. Twenty read paths, each with that hazard.
+// resolve to `dlog_stats_range:` on boot. Twenty read paths, each with that hazard.
 //
 // So the rule lives at the account boundary instead: one function, one call, run at a point where
 // the email is known for certain. It also covers keys nobody has written yet, which the rename
@@ -1000,24 +992,9 @@ const LAST_ACCOUNT_STORE = 'dlog_last_account';
 // Referenced (not copied) so a key can never drift, and read inside the function rather than at
 // module scope so the consts declared further down this file are all initialised by call time.
 // tests/empty-account.test.js asserts this list still covers every device key in app.js.
-// ── WHY dlog_rest_alerts IS NOT IN THIS LIST (28 Aug 2026) ──────────────────────────────
-// It was, and that is the whole of Del's 28 August session: 2h44m of training and not one rest
-// alert. He signed into the test account at 18:34:16 the evening before and back into his own 13
-// seconds later. Two switches, two wipes, and `dlog_rest_alerts` was gone — so restAlertsOn() was
-// false for every rest the next morning and scheduleRestAlert() returned on its first line. No
-// booking, no push, and NOTHING IN THE READOUT EITHER: rest_alert_log has zero rows for that
-// session, because the early return sits above the first log write. The feature did not fail. It
-// was switched off, by us, silently, and nothing on any screen he looked at said so.
-//
-// Wiping was the wrong instrument for a preference that is meant to come back. Everything else in
-// this list is stale state — a backup date, a filter, half a draft — and the account that owns it
-// is not coming back for it. An alert preference is the opposite: it is durable, it is what the
-// user asked for, and the SAME account returning to the SAME phone has to find it intact. So this
-// key states whose it is instead, and restAlertsOn() checks the owner. B still inherits nothing
-// — the owner will not match them — but A gets theirs back on the way in.
 function perDeviceKeys() {
   return [
-    BACKUP_STORE, HISTORY_FILTER_STORE, STATS_RANGE_STORE, REST_TOKEN_STORE, REST_ARM_STORE,
+    BACKUP_STORE, HISTORY_FILTER_STORE, STATS_RANGE_STORE,
     'workout_draft', 'sw_state', 'del_page',
   ];
 }
@@ -1031,10 +1008,6 @@ function claimDeviceForAccount(email) {
     if (previous && previous !== email) {
       perDeviceKeys().forEach(k => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
     }
-    // The stamp on the rest-alert flag is written HERE and nowhere else, because this is the only
-    // point in the app where the outgoing and the incoming account are both known. On a genuine
-    // switch it goes to the account that is LEAVING — see claimRestAlertsFlag(), and C19.
-    claimRestAlertsFlag(previous && previous !== email ? previous : email);
     localStorage.setItem(LAST_ACCOUNT_STORE, email);
   } catch (e) { /* private mode / storage disabled — the app works without any of this */ }
 }
@@ -3646,17 +3619,6 @@ function paintHomeFromCache() {
 async function loadHomePage() {
   document.getElementById('landing-greeting').textContent = getGreeting();
 
-  // ── THE REST-ALERTS LABEL IS PAINTED HERE, ABOVE EVERY AWAIT IN THIS FUNCTION ────────────────
-  // It used to sit below the quote fetch, so the button kept the markup's own text until a network
-  // round trip came back — and the markup shipped the words "Rest alerts: off". Every load of every
-  // account therefore showed OFF first and corrected itself a moment later, which is the flash Del
-  // saw on every re-login and reported three times. The markup carries no state now, and this reads
-  // localStorage and Notification.permission only, so there is nothing to wait for.
-  //
-  // The claim runs first because it is local and synchronous: an unstamped flag has to become this
-  // account's before the label is drawn from it, or the same flash comes back for one launch.
-  claimRestAlertsFlag(restAlertsDeviceAccount());
-  paintRestAlertsButton();
   document.getElementById('landing-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const buildTag = document.getElementById('build-tag');
@@ -3671,14 +3633,6 @@ async function loadHomePage() {
   // its own answer lands, into space the CSS has already reserved for it (see .daily-quote's
   // min-height, .next-up.is-pending, and the week-strip skeleton in index.html).
   renderDailyQuote();
-
-  // Ask the server whether the label painted above is out of date — the only thing that gets an
-  // already-wiped phone alerting again. See reconcileRestAlerts().
-  reconcileRestAlerts();
-
-  // A relaunch mid-rest lands here before it lands in the logger, and the arm record outlives the
-  // web view that wrote it. If a booking was interrupted, this is the earliest it can be repaired.
-  ensureRestAlertArmed();
 
   // renderBackupPrompt() needs no network, so it still appears on gym Wi-Fi that can't reach
   // Supabase — the trip most likely to be far from the PC that runs the other half of the backup.
@@ -5812,9 +5766,8 @@ function refreshSupersetUi() {
 
     // One superset, one stopwatch — same rule, same member as the Mark Done above. You rest after the
     // round, not after each half of it, so two watches on a pair offered the same rest twice and made
-    // you pick one. It has to be the LAST member specifically: startRestAfter() hands the auto-started
-    // rest to whichever exercise finished the group, so parking the watch on the first member would
-    // leave a Mark Done rest counting down on a button that isn't on screen.
+    // you pick one. It has to be the LAST member specifically — that is where you are standing when
+    // the round actually ends, and it is where the single Mark Done button already lives.
     const watchBtn = document.getElementById(`watch-${ex.name}`);
     if (watchBtn) {
       watchBtn.style.display = isLastOfGroup ? '' : 'none';
@@ -7194,21 +7147,8 @@ async function completeExerciseInner(exName) {
     return;
   }
 
-  // ── THE REST STARTS AT THE TAP, NOT WHEN THE NETWORK FINISHES (31 Aug 2026) ────────────────────
-  // Del, off Monday's session: "Marked done didn't start last watch until I returned to the app".
-  // This call used to sit at the BOTTOM of this function, after saveExerciseSets() — which is
-  // GET → DELETE → POST, three round trips, per exercise. So the watch, and with it the alert
-  // booking, waited on the network. Tap Mark Done, put the phone in your pocket, and iOS freezes the
-  // page with the save in flight: nothing starts until you look at the app again, and by then the
-  // rest you were being timed for is over.
-  //
-  // The rest genuinely begins when the set ends, which is when this button is tapped. So it starts
-  // here, before anything can be slow, and is taken back below if the save turns out to have failed
-  // — which preserves the reason it was ever at the bottom: a Mark Done that didn't save leaves you
-  // mid-set with a retry to do, not resting. `pending` is in the same order as `saved`, so the rest
-  // still hangs on the last member of a superset either way.
-  const restFor = pending[pending.length - 1].name;
-  startRestAfter(restFor);
+  // ⚠️ Mark Done does not touch the rest timer. Saving sets and timing a rest are separate jobs;
+  // only a tap on the watch starts or stops a clock.
 
   // Saved one exercise at a time so a failure part-way through still leaves the earlier ones green
   // and written — the retry then only re-does what's actually missing.
@@ -7216,7 +7156,6 @@ async function completeExerciseInner(exName) {
   for (const { name, sets } of pending) {
     const failed = await saveExerciseSets(name, sets);
     if (failed) {
-      abandonRestAfterFailedSave(restFor);
       saved.forEach(markExerciseBlockDone);
       if (saved.length) currentWorkoutHasSets = true;   // some rows did land — the workout isn't empty
       // `lost` means the rollback failed too, so sets saved by an EARLIER Mark Done on this exercise
@@ -7236,39 +7175,6 @@ async function completeExerciseInner(exName) {
   saved.forEach(markExerciseBlockDone);
   showToast(saved.length > 1 ? `Superset saved — ${saved.join(' + ')}` : `${saved[0]} saved!`, 'success');
   lastCompletedExercise = saved[saved.length - 1];
-}
-
-// The rest timer starts itself on Mark Done (14 Aug 2026). Rest begins the moment a set ends, which
-// is exactly when this button gets tapped, so the separate tap on the watch was asking for something
-// the app already knew.
-//
-// Three deliberate details:
-// - **Only on success.** Every failure path in completeExercise() returns before this, because a
-//   Mark Done that didn't save leaves you mid-set with a retry to do, not resting.
-// - **The last member of a superset**, which is where the single Mark Done button lives and where the
-//   round actually ends — not the block whose name was passed in.
-// - **A re-tap restarts the period instead of banking it.** swStart() overwrites a timer already
-//   running for the same exercise without going through swStop(), and that's the point: an interval
-//   that spans the set you just logged isn't a rest for any set.
-// - **`auto: true`** — was `save: false` until 1 Sept 2026, when Del asked for the last set's rest
-//   back ("we have been missing out on last set rest period"). It records now; what keeps the
-//   14 Aug damage away is betweenSetRests(), which leaves the last set out of every AVERAGE rather
-//   than leaving the number out of the database. The flag still marks the rest as this app's rather
-//   than his, which is the one thing abandonRestAfterFailedSave() must be able to tell apart.
-function startRestAfter(exName) {
-  if (!exName) return;
-  swStart(exName, { auto: true });
-}
-
-// The save failed after the rest had already started, so take it back — the retry is the job now,
-// not the rest. Two guards, and both are needed: the timer must still be the one this Mark Done
-// started (a tap on another exercise's watch in the meantime is his, not ours), and it must still be
-// an AUTO timer, because a rest he started by hand is one he chose to measure and this has no
-// business stopping it. ⚠️ That second guard read `swSaveOnStop` until 1 Sept 2026, when every rest
-// started recording and the flag it was leaning on stopped meaning "ours".
-function abandonRestAfterFailedSave(exName) {
-  if (!swRunning || swActiveExercise !== exName || !swRestAuto) return;
-  swStop({ bank: false });   // the rest never happened — do not write the seconds the save took
 }
 
 function selectEditVariation(exName, variation, btn) {
@@ -7315,12 +7221,9 @@ async function resetSessionSelection(toProgrammePicker = false) {
   currentWorkoutHasSets = false;
   selectedSession = null;
   currentWorkoutId = null;
-  // ── A REST YOU WALKED OUT ON DOES NOT GET TO BUZZ (24 Aug 2026) ──────────────────────────────────
-  // swStop() and swReset() were the only two callers of cancelRestAlert(), and neither of them runs
-  // when you simply leave the session with the watch still counting. The booking outlives the
-  // workout, and the phone goes off in the car park. Nothing else here needs the timer, so this ends
-  // it outright rather than only silencing the push.
-  if (swRunning) swReset(); else cancelRestAlert();
+  // Leaving the session with the watch still counting ends it. Nothing here needs the timer, and a
+  // clock left running against a workout that is no longer open has nothing to record onto.
+  if (swRunning) swReset();
   // Backing out of CV + Pump after a failed save abandons that row rather than reusing it next time.
   // It has no notes and no sets, so every counter already hides it and autoCloseStaleWorkouts() tidies it.
   conditioningWorkoutId = null;
@@ -10013,29 +9916,13 @@ let swInterval = null;         // only used to re-render the ring every second
 let swActiveExercise = null;   // which exercise the watch is attached to
 let swLongPressTimer = null;
 let swLongPressFired = false;
-let swCompletionCued = false; // the end-of-rest cue fires once per rest, not on every tick
-// True when the running timer was started by Mark Done rather than by a tap on the watch. It no
-// longer decides whether the rest is written — every rest is (1 Sept 2026) — only who owns it:
-// abandonRestAfterFailedSave() may take back a rest this app started, never one Del started.
-let swRestAuto = false;
 const SW_RING_CIRCUMFERENCE = 75.4; // 2 * π * r where r=12
 
-// ── WHICH SET A REST BELONGS TO IS DECIDED AT THE TAP (C28, 1 Sept 2026) ─────────────────────────
-// It used to be resolved when the rest ENDED, by asking the DOM for the highest set with reps in it.
-// That answer depends entirely on whether the reps were typed before or after the watch was tapped,
-// and asked outright, Del said it is neither: "its mixed…depends on whats happening in the gym,
-// chatting etc…someone may want the machine im on next, so i rush". Types-then-taps put every rest
-// one set late; taps-then-types put it on the right one. Half his history is each.
-//
-// The fix is to stop inferring it a whole rest later. A set is finished within moments of the tap
-// that starts its rest — on either side of it — so the rest belongs to the set typed NEAREST the tap:
-//   • typed just before the tap  → captured in swStart().
-//   • typed just after the tap   → captured by noteSetTyped(), first one wins.
-// Nothing typed near the tap at all leaves the anchor null and swStop() falls back to the old DOM
-// read, which is still the best guess available for a set that was never logged.
-let swRestSetNum = null;      // the set this rest follows, or null until something is typed
-let swLastTyped = null;       // { exercise, setNum, at } — the most recent rep entry, any exercise
-const SET_TAP_WINDOW_MS = 60000;
+// ── THE WATCH IS A PLAIN STOPWATCH ────────────────────────────────────────────────────────────────
+//   • TAP starts. TAP stops and writes the rest. HOLD clears without writing.
+//   • Nothing else in the app starts, stops or re-aims this clock.
+//   • The rest is written onto the highest-numbered set with reps typed in it, read at the stop.
+// ⚠️ Do not add anything to this button.
 
 // ─── STOPWATCH HELPERS ────────────────────────────────────
 
@@ -10046,689 +9933,6 @@ function swFormat(s) {
   return `${m}:${sec}`;
 }
 
-// Phone buzz helper — silently ignored on devices without vibration
-function swVibrate(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
-
-// ─── REST ALERTS — THE HALF THAT REACHES A POCKET (23 Aug 2026) ──────────────────────────────────
-// A Web Push notification, sent by the rest-alert Edge Function, which is called when a rest starts
-// and sleeps out the remaining seconds before pushing. This is the only cue that survives a locked
-// screen: the wake lock below keeps the beep alive while the app is in front, and this covers the
-// case where it isn't.
-//
-// Three things it depends on, none of them optional:
-//   1. D-LOG installed to the Home Screen. iOS gives Safari tabs no push at all, no exception.
-//      Confirmed 23 Aug that Del runs it installed.
-//   2. Permission, granted from a real tap. Asking on load is how you get a permanent "denied".
-//   3. A subscription row per device, which is what the function sends to.
-//
-// The VAPID public key is public by design — it is handed to the push service on every subscribe.
-// The private half is a Supabase function secret and is NOT in this repo, which is public.
-const VAPID_PUBLIC_KEY = 'BPtOJx_GRiD6-hM_a9HnBFMd7vSinxPv_kzfqyu0MRPBCx0vLZWWs7mmwgVRtnhPY5NDRkKQfN_d9nEuoeJgijU';
-const REST_ALERTS_STORE = 'dlog_rest_alerts';
-
-// ── WHOSE PREFERENCE THE FLAG ABOVE IS (28 Aug 2026) ─────────────────────────────────
-// The flag used to be wiped on an account switch, which is how Del walked into the gym on 28 Aug
-// with alerts silently off. It now survives the switch and names its owner instead — see the note
-// on perDeviceKeys().
-//
-// It holds the email, compared against LAST_ACCOUNT_STORE, which is the account this device belongs
-// to right now. Deliberately NOT authSession.email: this is read on the first paint of Settings,
-// before the session is necessarily loaded, and a read that resolves to '' there would report
-// alerts off to someone who has them on. LAST_ACCOUNT_STORE is written by claimDeviceForAccount()
-// at the account boundary and is on disk before any of this runs.
-const REST_ALERTS_OWNER_STORE = 'dlog_rest_alerts_owner';
-
-// The token for the rest currently being counted. The Edge Function re-reads rest_alerts after
-// sleeping and stays silent unless the token still matches, which is what stops a rest you ended
-// early from buzzing you two minutes later in the middle of the next set.
-//
-// ── IT LIVES IN STORAGE, NOT IN A VARIABLE (24 Aug 2026) ─────────────────────────────────────────
-// It was a module-level `let` until Del's 24 Aug session, and that is why alerts "fired out of
-// nowhere". swRestoreFromStorage() rebuilds a running timer from sessionStorage on every navigation
-// — Stats and back, or iOS discarding the webview while the phone is in a pocket — but it cannot
-// rebuild a plain variable, so the token came back null. cancelRestAlert() opens with
-// `if (!token) return`, so after ANY navigation, stopping the watch deleted nothing: the function
-// slept on and the phone buzzed in the middle of the next set.
-//
-// localStorage rather than sessionStorage, because the case with nothing else left to cancel with is
-// the app being killed and relaunched mid-rest — sessionStorage dies with the tab, this doesn't.
-// A token left behind by a rest nobody ever ended is harmless: the next rest's upsert replaces the
-// row, so the orphaned function wakes, sees a token it doesn't recognise, and says nothing.
-const REST_TOKEN_STORE = 'dlog_rest_token';
-
-function restAlertToken() {
-  try { return localStorage.getItem(REST_TOKEN_STORE); } catch (e) { return null; }
-}
-
-function setRestAlertToken(token) {
-  try {
-    if (token) localStorage.setItem(REST_TOKEN_STORE, token);
-    else localStorage.removeItem(REST_TOKEN_STORE);
-  } catch (e) {}
-}
-
-// ── THE ARM RECORD — WHY A REST CAN NO LONGER GO UNBOOKED IN SILENCE (31 Aug 2026) ───────────────
-// Del's Monday-morning session, read out of rest_alert_log afterwards: RDL set 2 has a `cancelled`
-// row and NOTHING ELSE. No `booked`, no `upsert-failed`, no `no-jwt`, no throw. That combination has
-// exactly one cause — the page went away (iOS froze or discarded the web view) while
-// scheduleRestAlert() was still awaiting its upsert. The await never resumed, so the alert was never
-// armed, and nothing in the app ever noticed. Two hours later he had no cue and no explanation.
-//
-// Three fixes have now been made to "the alert sometimes doesn't fire" and every one of them made a
-// SPECIFIC path more reliable. This is the last one, and it is a different shape on purpose: the
-// booking is now a piece of DURABLE STATE with a retry, rather than a fire-and-forget call whose
-// only record was whether it happened to finish.
-//
-//   • written to localStorage SYNCHRONOUSLY, in the tap, before a single await. A page that dies one
-//     line later still leaves the intention behind.
-//   • `armed` flips to 1 only when the Edge Function has actually answered. Until then the rest is
-//     booked in intention and not in fact, and the app knows the difference.
-//   • ensureRestAlertArmed() re-fires an unarmed booking off the 1s watch tick, off every return to
-//     the foreground, and at boot. An interruption of any kind now costs a retry, not the cue.
-//   • it is keyed by the same token the cancel is, so a repair can never re-arm a rest that is over.
-//
-// localStorage, not sessionStorage, for the same reason the token is: the case that needs repairing
-// most is the app being killed and relaunched mid-rest, and sessionStorage dies with the tab.
-const REST_ARM_STORE = 'dlog_rest_arm';
-
-// Retries are cheap; a hammered dead connection is not. Six attempts over a 60s rest is plenty, and
-// an alert due sooner than the floor is not worth a round trip — the function needs its prep window
-// before the deadline, and a booking that lands after it would be skipped anyway.
-const ARM_RETRY_MS = 4000;
-const ARM_MAX_TRIES = 6;
-const ARM_FLOOR_MS = 4000;
-
-function readRestArm() {
-  try {
-    const raw = localStorage.getItem(REST_ARM_STORE);
-    if (!raw) return null;
-    const arm = JSON.parse(raw);
-    return (arm && arm.token && arm.dueAt) ? arm : null;
-  } catch (e) { return null; }
-}
-
-function writeRestArm(arm) {
-  try { localStorage.setItem(REST_ARM_STORE, JSON.stringify(arm)); } catch (e) {}
-}
-
-// Token-scoped. swStart() stops the previous rest and books the next one in the same tick, so an
-// unscoped clear here would throw away the arm record of the rest that had just started — the same
-// class of bug as the unfiltered DELETE fixed on 24 Aug.
-function clearRestArm(token) {
-  try {
-    const arm = readRestArm();
-    if (token && arm && arm.token !== token) return;
-    localStorage.removeItem(REST_ARM_STORE);
-  } catch (e) {}
-}
-
-// Closes any rest alert still sitting on the lock screen. sw.js tags every one 'rest-alert' so that a
-// new one REPLACES the last rather than stacking — and iOS does not honour the tag. Del came out of a
-// two-hour session on 24 Aug with 17 of them piled up, one per rest, not one of which had meant
-// anything since the set after it. So the app closes them itself: when the next rest starts, when a
-// rest is cancelled, and when the app comes back to the front.
-async function clearRestNotifications() {
-  try {
-    if (!('serviceWorker' in navigator)) return;
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg || typeof reg.getNotifications !== 'function') return;
-    const open = await reg.getNotifications({ tag: 'rest-alert' });
-    (open || []).forEach(n => n.close());
-  } catch (e) { /* not supported, or no registration yet — nothing to close either way */ }
-}
-
-function pushSupported() {
-  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-}
-
-// Both halves have to be true. The localStorage flag alone would keep claiming alerts are on after
-// permission was revoked in Settings; permission alone would turn them back on for someone who
-// deliberately switched them off in the app.
-function restAlertsOn() {
-  if (!pushSupported()) return false;
-  try {
-    if (Notification.permission !== 'granted') return false;
-    if (localStorage.getItem(REST_ALERTS_STORE) !== '1') return false;
-    // The flag is no longer wiped when the account changes, so on its own it would hand the second
-    // account the first one's preference. It has to say whose it is.
-    const device = localStorage.getItem(LAST_ACCOUNT_STORE);
-    // ── THERE IS NO "NOBODY OWNS IT" FALLBACK ANY MORE (C19, 28 Aug 2026) ────────────────────────
-    // This line used to read `if (!device) return true` — an unstamped flag was answered with ON
-    // while no account was recorded on the device to compare it against. That is the flip Del
-    // watched happen: the button said ON, he signed in to check something, and the same flag then
-    // read OFF, because the login supplied the account and the stamp was still missing. One key,
-    // two answers, and the login in between. An unstamped flag is now claimed at the account
-    // boundary instead — claimRestAlertsFlag() — so by the time anything can book a rest, the flag
-    // has an owner and this gate has one answer.
-    // Both sides absent is not a match: an unstamped flag on a device with no account recorded
-    // reads null === null, which is how "nobody owns this" turned back into "on" in testing.
-    const owner = localStorage.getItem(REST_ALERTS_OWNER_STORE);
-    return !!owner && owner === device;
-  } catch (e) { return false; }
-}
-
-// The account this device belongs to right now. '' before the first login on a fresh browser.
-function restAlertsDeviceAccount() {
-  try { return localStorage.getItem(LAST_ACCOUNT_STORE) || ''; } catch (e) { return ''; }
-}
-
-// ── AN UNSTAMPED FLAG IS THE BUG THE STAMP ITSELF CREATED (C19, 28 Aug 2026) ─────────────────────
-// The owner stamp shipped on the morning of 28 Aug and nothing ever wrote it for the flag that was
-// ALREADY on disk. Every device that had alerts on before that build carried `dlog_rest_alerts=1`
-// with no owner — and an unstamped flag is not this account's. Del saw it the same afternoon:
-// "Rest alerts: on", sign in to check E17, "Rest alerts: off". Logging in is what did it.
-//
-// So the flag is claimed at the account boundary, where the answer is known for certain:
-//   • the same account signing in again, or the first account this device has ever recorded
-//     → theirs, and that is Del's phone and Del's browser both.
-//   • a genuine switch → stamped to the account that is LEAVING. It is their preference and they
-//     are coming back for it; the arriving account must inherit nothing, which is the whole reason
-//     the stamp exists. Leaving it unstamped would have handed it to whoever signed in next.
-//
-// It never overwrites an existing stamp, and it never touches a flag that is off or absent: '0' is
-// a deliberate switch-off and has to stay one. An empty-string stamp counts as unstamped — that is
-// what enableRestAlerts() wrote on a device with no account recorded yet.
-function claimRestAlertsFlag(account) {
-  if (!account) return;
-  try {
-    if (localStorage.getItem(REST_ALERTS_STORE) !== '1') return;
-    if (localStorage.getItem(REST_ALERTS_OWNER_STORE)) return;
-    localStorage.setItem(REST_ALERTS_OWNER_STORE, account);
-  } catch (e) { /* storage disabled — the gate below answers no, and Settings still works */ }
-}
-
-// The applicationServerKey has to be raw bytes, and VAPID keys travel as base64url.
-function urlB64ToUint8Array(base64) {
-  const padded = (base64 + '='.repeat((4 - base64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(padded);
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-  return out;
-}
-
-function b64FromBuffer(buf) {
-  return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)));
-}
-
-// Must be called from inside a tap — see note 2 above.
-async function enableRestAlerts() {
-  if (!pushSupported()) {
-    showToast('This phone has no notification support', 'error');
-    return false;
-  }
-  let permission;
-  try { permission = await Notification.requestPermission(); } catch (e) { permission = 'denied'; }
-  if (permission !== 'granted') {
-    // iOS only shows the system prompt once ever. After a refusal the only way back is Settings, so
-    // say that rather than letting a second tap look broken.
-    // ── AND NAME THE RIGHT SETTINGS (28 Aug 2026) ────────────────────────────────────────────────
-    // Del tapped this on the PC and was told to go to iPhone Settings. Right on the phone, nonsense
-    // on a laptop, and it reads as the app being broken rather than as the browser having said no.
-    // iOS is the only platform with the one-prompt-ever rule, so it is the only one that earns the
-    // specific instruction; everywhere else the block is per-site and lives in the browser.
-    // ── navigator.standalone, NOT the user agent (28 Aug 2026) ───────────────────────────────────
-    // This was a UA sniff for about an hour, and Del runs D-LOG on the PC inside DevTools device
-    // emulation — which spoofs the user agent to an iPhone. So the same browser sent him to iPhone
-    // Settings on one account and to his browser settings on the other, purely by whether the
-    // toolbar happened to be open, and it looked like the app behaving differently per account.
-    // navigator.standalone is Safari-only, true only in an installed iOS PWA, and DevTools does not
-    // fake it — which is exactly the case that needs the iOS wording, since iOS is the only platform
-    // that asks once ever and hides the way back in system Settings. An iPhone that is NOT installed
-    // never reaches this line: pushSupported() is false without PushManager.
-    const iosPWA = navigator.standalone === true;
-    showToast(iosPWA ? 'Notifications are off — turn them on in iPhone Settings › D-LOG'
-                     : 'Notifications are blocked for D-LOG — allow them in your browser settings', 'error');
-    return false;
-  }
-
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) {
-      sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
-    }
-    const row = {
-      endpoint: sub.endpoint,
-      p256dh: b64FromBuffer(sub.getKey('p256dh')),
-      auth: b64FromBuffer(sub.getKey('auth')),
-      user_agent: navigator.userAgent.slice(0, 300),
-    };
-    // ── ONE ROW PER PERSON PER DEVICE, AND NO SHARED CONFLICT TARGET (C20, 28 Aug 2026) ──────────
-    // This was one upsert on `?on_conflict=endpoint`, and it is why Charlie could not switch rest
-    // alerts on at all on Del's phone: "Couldn't save the subscription (403)". The endpoint belongs
-    // to the INSTALL, not to the account — the same phone hands the same URL to whoever is signed in
-    // — so the upsert resolved to ON CONFLICT DO UPDATE against a row owned by Del, and
-    // push_subscriptions_update_own (`auth.uid() = user_id`) refused it. PostgREST answers 403, and
-    // there was no way round it from the app: the row blocking them is a row RLS also hides.
-    //
-    // The primary key is (user_id, endpoint) now — migration 20260828160000, proven in a rolled-back
-    // transaction with Charlie's claims set — so there is a row each and nothing to conflict on.
-    //
-    // Delete-then-insert rather than an upsert, deliberately. Both statements are RLS-scoped to the
-    // caller's own row, so neither can reach anyone else's however the keys change later, and there
-    // is no conflict target to keep in step with the constraint. The DELETE clears this account's
-    // own stale keys for this device — a re-subscribe rotates p256dh and auth — and matches nothing
-    // on a first subscribe, which is not a failure and is not reported as one.
-    await sb(`push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}`, 'DELETE', null, { quiet: true });
-    // user_id defaults to auth.uid(), same as profiles — the client never says whose row this is.
-    const res = await sb('push_subscriptions', 'POST', row, { quiet: true });
-    if (!res.ok) {
-      showToast(`Couldn't save the subscription (${res.status})`, 'error');
-      return false;
-    }
-    localStorage.setItem(REST_ALERTS_STORE, '1');
-    localStorage.setItem(REST_ALERTS_OWNER_STORE, restAlertsDeviceAccount());
-    paintRestAlertsButton();
-    return true;
-  } catch (e) {
-    console.error('enableRestAlerts', e);
-    showToast("Couldn't turn rest alerts on", 'error');
-    return false;
-  }
-}
-
-// ── PUTTING BACK WHAT THE WIPE ALREADY TOOK (28 Aug 2026) ───────────────────────────
-// The owner stamp stops the next wipe. It does nothing for the phone in Del's pocket, whose flag is
-// ALREADY gone — without this, the fix ships and his alerts stay off until he happens to open
-// Settings and notice. He would find out the same way he found out this morning: after the session.
-//
-// So ask the server, which never lost the answer. push_subscriptions is per user AND per device
-// endpoint, RLS-scoped, and disableRestAlerts() deletes the row — so a row for THIS browser's
-// current subscription, readable by THIS account, means precisely: this person turned alerts on,
-// on this phone, and has not turned them off. That is the flag, recovered from the only copy of it
-// that an account switch cannot touch.
-//
-// It cannot turn alerts on for someone who switched them off (their row is deleted, and the '0'
-// below is checked anyway), and it cannot hand them to the wrong account (RLS returns nothing for a
-// row that is not theirs). Un-awaited, quiet, and it never toasts: one dead request in a gym car
-// park must not put an error on Home.
-async function reconcileRestAlerts() {
-  try {
-    if (!pushSupported() || Notification.permission !== 'granted') return;
-    if (restAlertsOn()) return;                       // already on for this account — nothing to do
-    const device = restAlertsDeviceAccount();
-    if (!device) return;                              // nobody to attribute the preference to yet
-    // Switched off ON PURPOSE by whoever is signed in now. Leave it off.
-    if (localStorage.getItem(REST_ALERTS_STORE) === '0' &&
-        localStorage.getItem(REST_ALERTS_OWNER_STORE) === device) return;
-    // ── THE LOCAL HALF, AND THE ONLY HALF A BROWSER WITHOUT PUSH EVER GETS (C19, 28 Aug 2026) ────
-    // claimRestAlertsFlag() runs at the account boundary, so it needs a login to fire — and the
-    // device this bug is sitting on may not log in again for weeks; its session just refreshes.
-    // This is the same claim, made at boot instead: an unstamped flag on a device whose recorded
-    // account is the one signed in now belongs to that account. Nothing else can have written it,
-    // because a switch stamps the outgoing account on the way past.
-    //
-    // Home claims above its own first paint, so on that path this is already a no-op and the repaint
-    // below never fires — which is the point: nothing visible ever flips. It stays here because the
-    // claim has to happen whether or not the rescue underneath can run. That matters — the desktop
-    // browser has no push_subscriptions row at all, so the rescue returns at `if (!sub)` and would
-    // leave the flag orphaned.
-    claimRestAlertsFlag(device);
-    if (restAlertsOn()) { paintRestAlertsButton(); return; }
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg || !reg.pushManager) return;
-    const sub = await reg.pushManager.getSubscription();
-    if (!sub) return;                                 // no subscription on this device at all
-    const rows = await sb(
-      `push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}&select=endpoint`,
-      'GET', null, { quiet: true });
-    if (!Array.isArray(rows) || !rows.length) return; // someone else's row, or a read that failed
-    localStorage.setItem(REST_ALERTS_STORE, '1');
-    localStorage.setItem(REST_ALERTS_OWNER_STORE, device);
-    paintRestAlertsButton();
-  } catch (e) { /* the button still reads honestly, and Test alert still works */ }
-}
-
-async function disableRestAlerts() {
-  try {
-    localStorage.setItem(REST_ALERTS_STORE, '0');
-    localStorage.removeItem(REST_ALERTS_OWNER_STORE);
-  } catch (e) {}
-  paintRestAlertsButton();
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (sub) {
-      await sb(`push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}`, 'DELETE', null, { quiet: true });
-      await sub.unsubscribe();
-    }
-  } catch (e) { /* the flag is off either way, which is what the user asked for */ }
-}
-
-async function toggleRestAlerts() {
-  if (restAlertsOn()) {
-    await disableRestAlerts();
-    showToast('Rest alerts off');
-    return;
-  }
-  const ok = await enableRestAlerts();
-  if (ok) showToast('Rest alerts on — try Test alert', 'success');
-}
-
-function paintRestAlertsButton() {
-  const btn = document.getElementById('rest-alerts-btn');
-  if (!btn) return;
-  if (!pushSupported()) {
-    btn.textContent = 'Rest alerts — not supported';
-    btn.disabled = true;
-    return;
-  }
-  // ── BLOCKED IS NOT "OFF" (28 Aug 2026) ───────────────────────────────────────────────────────
-  // "Rest alerts: off" reads as a switch that is down, so Del tapped it on the PC, was told to go to
-  // iPhone Settings, and reasonably concluded the app was broken. Chrome had notifications blocked
-  // for the site: nothing the app can do turns them on, and the button has to say that rather than
-  // offering a switch it cannot throw. Still tappable — the tap is what explains where to go.
-  if (Notification.permission === 'denied') { btn.textContent = 'Rest alerts: blocked'; return; }
-  btn.textContent = restAlertsOn() ? 'Rest alerts: on' : 'Rest alerts: off';
-}
-
-// Books the notification for a rest that has just started. Fire-and-forget on purpose: a rest must
-// start the instant the watch is tapped, and in a gym basement both calls below simply fail. The
-// beep and the wake lock are unaffected by that — this is an addition to the cue, never the cue.
-// ── THE READOUT (25 Aug 2026) ────────────────────────────────────────────────────────────────────
-// Booking a rest alert can fail in four places and every one of them is silent: sb() turns a dead
-// gym connection into a not-ok Response, validAccessToken() hands back null when a refresh cannot
-// reach GoTrue, and the dispatch below is fire-and-forget by design. So a rest that never booked and
-// a rest that booked and was cancelled correctly look identical afterwards — which is why two fixes
-// have now been made to a miss that is still happening.
-//
-// This writes what happened to rest_alert_log, where the Edge Function writes its half too. Absence
-// is a reading: no client row means the write itself could not get out, which is the network answer.
-// Fire-and-forget and never awaited — the readout must never delay the start of a rest.
-//
-// TEMPORARY. Goes, with the table, once the miss is explained.
-function logRestPhase(phase, token, exercise, detail) {
-  try {
-    sb('rest_alert_log', 'POST', {
-      phase,
-      token: (token || '').slice(0, 80),
-      exercise: exercise ? String(exercise).slice(0, 80) : null,
-      detail: detail ? String(detail).slice(0, 300) : null,
-    }, { quiet: true }).catch(() => {});
-  } catch (e) {}
-}
-
-// ── A REST THAT CANNOT ALERT HAS TO SAY SO, AT THE FIRST SET (28 Aug 2026) ───────────────
-// The owner stamp and the heal together fix the way alerts got switched off on 28 Aug. Neither of
-// them fixes the part that actually cost Del the session, which is that he could not tell. Alerts
-// off looks exactly like alerts on until a rest ends, and a rest ending in silence looks exactly
-// like a rest that has not ended yet — so the answer arrives two hours later, at home, once.
-// Permission revoked in iPhone Settings gets there by a different road and lands in the same place.
-//
-// One line, on the first rest of the run, naming where the switch is. Once per app run and not once
-// per rest: 24 of these in a session is its own bug, and the first one is the only one he needs.
-let restAlertsOffWarned = false;
-
-function warnRestAlertsOff() {
-  if (restAlertsOffWarned || !pushSupported()) return;   // nothing to turn on — don't nag about it
-  restAlertsOffWarned = true;
-  showToast('Rest alerts are off — Settings › Rest alerts', 'error');
-}
-
-async function scheduleRestAlert(exName, seconds) {
-  if (!(seconds >= 1)) return;
-  if (!restAlertsOn()) {
-    warnRestAlertsOff();
-    // ── ABSENCE USED TO MEAN FOUR DIFFERENT THINGS (31 Aug 2026) ─────────────────────────────────
-    // This return sat above every log write, so "alerts were switched off" and "the booking died on
-    // the network" and "the rest was cancelled correctly" all left the same trace afterwards: none.
-    // That flaw is what made the 28 Aug readout unreadable. One row, and the gap closes.
-    logRestPhase('alerts-off', '', exName, 'nothing booked — the switch is off for this account');
-    return;
-  }
-  // ── THE DEADLINE IS STAMPED HERE, AT THE TAP (24 Aug 2026) ─────────────────────────────────────
-  // The function used to be handed a DURATION and started counting it out when it began running, so
-  // the upsert below, the token check, the dispatch, the Deno cold start and — on a 180s rest — a
-  // second cold start for the chain hop were all added on top of the rest itself. That is the 4–6s
-  // late Del measured in the gym on 24 Aug. An absolute deadline absorbs all of it: however slow the
-  // round trip was, the function still counts to the same instant.
-  const dueAt = Date.now() + seconds * 1000;
-  const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  setRestAlertToken(token);
-  // Durable before anything can go wrong — see the arm record. Everything below this line is allowed
-  // to be interrupted now, because ensureRestAlertArmed() will finish the job.
-  writeRestArm({ token, dueAt, exercise: exName || '', seconds, armed: 0, tries: 0, lastTry: 0 });
-  scheduleLocalRestCue(token, dueAt, exName);
-  clearRestNotifications();   // the last rest's alert is stale the moment this one starts
-  return dispatchRestAlert();
-}
-
-// The network half of arming a rest, split out of scheduleRestAlert() so the watchdog can run it
-// again. Idempotent by construction: same token, same deadline, an upsert on the user's one row, and
-// an Edge Function that re-reads the token just before it sends. Calling this five times for one
-// rest costs five invocations and still produces exactly one cue.
-async function dispatchRestAlert() {
-  const arm = readRestArm();
-  if (!arm || arm.armed) return;
-  if (!restAlertsOn()) return;
-  if (arm.token !== restAlertToken()) { clearRestArm(arm.token); return; }   // the rest is over
-  if (arm.dueAt - Date.now() < ARM_FLOOR_MS) return;
-  if (arm.tries >= ARM_MAX_TRIES) return;
-  if (arm.tries && Date.now() - arm.lastTry < ARM_RETRY_MS) return;
-
-  const attempt = arm.tries + 1;
-  writeRestArm({ ...arm, tries: attempt, lastTry: Date.now() });
-  const { token, dueAt, exercise: exName, seconds } = arm;
-
-  try {
-    const row = {
-      token,
-      due_at: new Date(dueAt).toISOString(),
-      exercise: exName || null,
-      updated_at: new Date().toISOString(),
-    };
-    // keepalive on both requests: the page being frozen a millisecond after the tap is the failure
-    // this whole rewrite is for, and a keepalive request outlives the document that started it.
-    const res = await sb('rest_alerts?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true, keepalive: true });
-    if (!res.ok) { logRestPhase('upsert-failed', token, exName, `status ${res.status} · try ${attempt}`); return; }
-    const jwt = await validAccessToken();
-    if (!jwt) { logRestPhase('no-jwt', token, exName, `try ${attempt}`); return; }
-    logRestPhase(attempt === 1 ? 'booked' : 'rebooked', token, exName, `${seconds}s rest · try ${attempt}`);
-    // `seconds` still travels alongside `dueAt` so a function deployed before this change keeps
-    // working; the new one prefers the deadline and ignores it.
-    //
-    // ── THE REPLY IS WHAT ARMS IT, AND THAT IS THE POINT ─────────────────────────────────────────
-    // This used to be fire-and-forget, so a dispatch that died in transit left a rest that looked
-    // booked and would never fire. The function answers immediately (it does its waiting in
-    // waitUntil, not on this connection), so the reply is a cheap, honest confirmation that the
-    // wait is running somewhere that no longer depends on this phone.
-    const res2 = await netFetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
-      method: 'POST',
-      keepalive: true,
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seconds, dueAt, token, exercise: exName || '' }),
-    });
-    if (!res2.ok) { logRestPhase('dispatch-failed', token, exName, `status ${res2.status} · try ${attempt}`); return; }
-    const live = readRestArm();
-    if (live && live.token === token) writeRestArm({ ...live, armed: 1 });
-  } catch (e) {
-    // No signal. The watch, the ring and the local cue below all still stand, and the next tick
-    // retries this — a gym basement is a delay now, not a lost alert.
-    logRestPhase('dispatch-failed', token, exName, `${String(e && e.message || e)} · try ${attempt}`);
-  }
-}
-
-// ── THE WATCHDOG (31 Aug 2026) ───────────────────────────────────────────────────────────────────
-// Runs off the 1s watch tick, every return to the foreground, and boot. Costs one localStorage read
-// when there is nothing to do, which is almost always. This is the line that turns "the booking was
-// interrupted" from a lost cue into a retry, and it is the reason this bug should not come back in
-// a new disguise: it does not care WHY the arming did not finish.
-function ensureRestAlertArmed() {
-  const arm = readRestArm();
-  if (!arm || arm.armed) return;
-  if (arm.token !== restAlertToken()) { clearRestArm(arm.token); return; }
-  // A reload or a discarded web view takes the page's timers with it, so the no-signal fallback has
-  // to be re-armed here too — it is the only cue left for a rest the network cannot book at all.
-  if (!swLocalCueTimer) scheduleLocalRestCue(arm.token, arm.dueAt, arm.exercise);
-  if (arm.dueAt - Date.now() < ARM_FLOOR_MS) return;
-  dispatchRestAlert();
-}
-
-// ── THE CUE THAT NEEDS NO SIGNAL AT ALL (31 Aug 2026) ────────────────────────────────────────────
-// The push is the only cue that reaches a pocketed phone, and it needs a server. Del trains in a
-// basement. So: a plain timer in the page that shows the SAME notification through the service
-// worker registration when the rest is up — no network, no Edge Function, no push service.
-//
-// It is deliberately the fallback and not the primary. It fires only when the push was never armed,
-// so it cannot double up on a booking that worked — being buzzed twice is its own bug report
-// (28 Aug), and the arm record is what finally lets the two be told apart.
-const LOCAL_CUE_STALE_MS = 20000;
-let swLocalCueTimer = null;
-
-function scheduleLocalRestCue(token, dueAt, exName) {
-  clearTimeout(swLocalCueTimer);
-  swLocalCueTimer = null;
-  const delay = dueAt - Date.now();
-  if (!(delay > 0)) return;
-  swLocalCueTimer = setTimeout(() => showLocalRestCue(token, dueAt, exName), delay);
-}
-
-async function showLocalRestCue(token, dueAt, exName) {
-  swLocalCueTimer = null;
-  try {
-    if (restAlertToken() !== token) return;              // the rest was stopped or restarted
-    if (!restAlertsOn()) return;
-    const arm = readRestArm();
-    if (!arm || arm.token !== token || arm.armed) return;  // the push is booked — let it do its job
-    // A suspended page runs no timers, and iOS fires the overdue ones the moment it resumes. A cue
-    // half a session late is worse than no cue — sw.js refuses a stale push for the same reason.
-    if (Date.now() > dueAt + LOCAL_CUE_STALE_MS) return;
-    // On screen, the ring going green IS the cue. This exists for the phone in a pocket.
-    if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
-    if (!('serviceWorker' in navigator)) return;
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg || typeof reg.showNotification !== 'function') return;
-    const already = await reg.getNotifications({ tag: 'rest-alert' });
-    if (already && already.length) return;               // something already buzzed — don't repeat it
-    await reg.showNotification('Rest over', {
-      body: exName ? `${exName} — next set` : 'Next set',
-      tag: 'rest-alert',
-      renotify: true,
-      icon: './icons/icon-192.png',
-      badge: './icons/icon-192.png',
-    });
-    logRestPhase('local-cue', token, exName, 'shown by the app — the push was never armed');
-  } catch (e) { /* no registration, no permission, no cue — the ring still runs */ }
-}
-
-// Called when a rest ends by any route: stopped, reset, or already announced by the in-app beep.
-// Deleting the row is what makes the sleeping function stay quiet.
-async function cancelRestAlert() {
-  // Read the token synchronously, before the first await. swStart() calls swStop() and then books the
-  // next rest in the same tick, so a token read after that point would name the rest that has just
-  // STARTED rather than the one being cancelled.
-  const token = restAlertToken();
-  setRestAlertToken(null);
-  // Both of these are synchronous and both are token-scoped, so they run before swStart() books the
-  // next rest and cannot touch it when they do.
-  clearRestArm(token);
-  clearTimeout(swLocalCueTimer);
-  swLocalCueTimer = null;
-  clearRestNotifications();
-  if (!token || !restAlertsOn()) return;
-  try {
-    // ── SCOPED TO THE TOKEN, NOT TO THE USER (24 Aug 2026) ───────────────────────────────────────
-    // This was `DELETE rest_alerts` with no filter, which deletes whatever row happens to be there —
-    // including a rest booked microseconds earlier by swStart(). The delete and the upsert are two
-    // unordered requests, and when the delete landed second it silently disarmed the rest that had
-    // just started. That is Del's lateral raise first set, 24 Aug: no alert, no error, no pattern.
-    // Filtered by token, the order stops mattering — a stale cancel can only ever delete its own row.
-    await sb(`rest_alerts?token=eq.${encodeURIComponent(token)}`, 'DELETE', null, { quiet: true });
-    logRestPhase('cancelled', token, null, 'rest ended before the alert was due');
-  } catch (e) {}
-}
-
-// The whole point of shipping this on a Sunday: Del can prove the route works from his sofa instead
-// of finding out mid-session. Five seconds is long enough to lock the phone and put it down.
-async function testRestAlert() {
-  const btn = document.getElementById('rest-alerts-test');
-  if (!restAlertsOn()) {
-    const ok = await enableRestAlerts();
-    if (!ok) return;
-  }
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-  const token = `test-${Date.now()}`;
-  const dueAt = Date.now() + 5000;
-  setRestAlertToken(token);
-  clearRestNotifications();
-  try {
-    const row = { token, due_at: new Date(dueAt).toISOString(), exercise: 'Test', updated_at: new Date().toISOString() };
-    const res = await sb('rest_alerts?on_conflict=user_id', 'POST', row, { upsert: true, quiet: true });
-    const jwt = await validAccessToken();
-    if (!res.ok || !jwt) {
-      showToast('Test failed — no connection', 'error');
-    } else {
-      netFetch(`${SUPABASE_URL}/functions/v1/rest-alert`, {
-        method: 'POST',
-        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seconds: 5, dueAt, token, exercise: 'Test' }),
-      }).catch(() => {});
-      showToast('Lock your phone — it should buzz in 5s', 'success');
-    }
-  } catch (e) {
-    showToast('Test failed', 'error');
-  }
-  if (btn) { btn.disabled = false; btn.textContent = 'Test alert'; }
-}
-
-// ─── SCREEN WAKE LOCK — KEEP THE RENDER TICK ALIVE (23 Aug 2026, rewritten 25 Aug) ───────────────
-// Everything the app itself can do when a rest ends — turn the ring green, ask for a haptic —
-// happens on the render tick, and that tick only runs while the page is rendering: screen on, app in
-// front, logger visible. Four months of gym use say that is precisely when it isn't; the phone goes
-// in a pocket. So while a rest is counting, ask iOS not to sleep the screen.
-//
-// The only thing the page takes from the system is the backlight — it never touches the audio
-// session, so Spotify plays straight through. No keys, no permission prompt, no network, works in a
-// basement. The rest-alert notification is the other half and is the only thing that covers the
-// pocket; this covers the bench. There used to be a beep on this tick as well — Del killed it on
-// 25 Aug, and the note above swElapsed() has the story and what must not come back.
-//
-// Held for the REST PERIOD ONLY — dropped the instant the rest completes, and on stop/reset.
-// A lock held for a whole session would drain the battery long after the cue it was taken for.
-let swWakeLock = null;
-
-async function swAcquireWakeLock() {
-  if (!('wakeLock' in navigator) || swWakeLock) return;
-  try {
-    swWakeLock = await navigator.wakeLock.request('screen');
-    // iOS releases the lock itself the moment the page is hidden, and the stale sentinel would then
-    // make the guard above skip a re-acquire forever. Null it here so the handler below can retake.
-    swWakeLock.addEventListener('release', () => { swWakeLock = null; });
-  } catch (e) {
-    // Denied, low-power mode, or a browser without it. Nothing depends on this — the rest still
-    // finishes on wall-clock time and the notification is booked either way. It only improves the
-    // odds the ring is on screen to be seen.
-    swWakeLock = null;
-  }
-}
-
-function swReleaseWakeLock() {
-  if (!swWakeLock) return;
-  try { swWakeLock.release(); } catch (e) { /* already released by the system */ }
-  swWakeLock = null;
-}
-
-// Glancing at the app mid-rest hands back a page whose lock was dropped when it was hidden. Without
-// this the screen sleeps again a few seconds later and the beep is lost exactly as before.
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
-  if (swRunning && !swCompletionCued) swAcquireWakeLock();
-  // Coming back to the front is the one moment guaranteed to happen after a freeze, so it is the
-  // best repair point there is for a booking the freeze interrupted. See ensureRestAlertArmed().
-  ensureRestAlertArmed();
-  // If you are looking at the app you have had the cue. Anything still on the lock screen from an
-  // earlier rest is now just clutter Del has to swipe away one at a time — see clearRestNotifications().
-  clearRestNotifications();
-});
-
-// A resumed iOS PWA can come back through pageshow rather than visibilitychange, and a rest that
-// outlived a discarded web view is repaired from the arm record alone — the watch may be gone with
-// the sessionStorage that held it, and the alert is still worth saving.
-window.addEventListener('pageshow', () => ensureRestAlertArmed());
-
 // Parse "180s" / "90s" / "2min" into a number of seconds, default 60
 function swParseRest(restStr) {
   if (!restStr) return 60;
@@ -10736,27 +9940,10 @@ function swParseRest(restStr) {
   return m ? parseInt(m[1]) : 60;
 }
 
-// ─── THERE IS NO SOUND IN D-LOG (25 Aug 2026) ────────────────────────────────────────────────────
-// Del killed the completion beep — "do we still got old code and the beep beep?!" — and this is the
-// answer to that question, not an oversight. Two 880Hz tones used to fire off the render tick when a
-// rest hit its target, with a Web Audio context unlocked inside the tap that started the timer.
-// Context, unlock, oscillators and call site are all gone. Silence is the design.
-//
-// What cues the end of a rest now: the rest-alert notification, which lands on Del's Apple Watch
-// (scheduleRestAlert() here, push handler in sw.js). It was already firing alongside the beep, so
-// this leaves the half that actually worked — a wrist tap beats a phone beep in a loud gym with
-// Spotify playing, and beats it outright once the phone is in a pocket. In-app, the ring goes green
-// and swVibrate() asks for a haptic; iOS Safari ignores vibrate, so on Del's phone the wrist is it.
-//
-// TWO THINGS MUST NOT COME BACK.
-// 1. A long silent WAV to land audio on wall-clock time. It worked, for a day, on 21 Aug, and Del
-//    binned it after one session: a page playing audio holds the iOS audio session for the length of
-//    the file, so Spotify stopped for the WHOLE rest rather than for the beep. iOS picks duck-or-
-//    pause and a web page can ask for neither, nor claim the session late. He stopped starting rests
-//    at all rather than put up with it, and a timer nobody starts records nothing.
-// 2. The beep itself. If a sound is ever wanted here again it comes off the notification channel,
-//    which chimes with the screen locked and hands the audio session straight back — never out of
-//    the page.
+// ─── NO CUE BUT THE RING ─────────────────────────────────────────────────────────────────────────
+// The ring turns green when the timer passes the target. That is the only end-of-rest cue in the
+// app. There is no sound, no vibration, no notification, no push, no wake lock, and no permission
+// prompt anywhere in this file. Removed and not to be re-added.
 
 // ─── STOPWATCH STATE ──────────────────────────────────────
 // Computes elapsed seconds from swStartTimestamp — wall-clock based,
@@ -10800,22 +9987,8 @@ function swRenderWatch(exName) {
     btn.classList.toggle('done', pct >= 1);
     // Replace the icon with the live time text
     inner.innerHTML = `<span class="ex-watch-time">${swFormat(secs)}</span>`;
-
-    // The in-app end-of-rest cue: the ring goes green and a haptic is asked for. There is no sound
-    // any more — the note above swElapsed() is why, and why one must not be added back in here.
-    if (pct >= 1 && !swCompletionCued) {
-      swCompletionCued = true;
-      swVibrate([80, 60, 80]);
-      // The cue has landed — the screen has no further job to do, so give the battery back.
-      swReleaseWakeLock();
-      // ── THIS DOES NOT CALL OFF THE NOTIFICATION (23 Aug 2026, still true 25 Aug) ───────────────
-      // It used to, for half a morning, on the reasoning that being told twice is worse than being
-      // told once. That was wrong for this phone. The notification lands on Del's Apple Watch, and
-      // reaching this branch only proves the app was in front with the screen on — cancelling here
-      // meant the wrist tap essentially never arrived. Now that the beep is gone, cancelling would
-      // throw away the only cue there is.
-      // Stopping a rest early still cancels — see swStop(). That is the case the token exists for.
-    }
+    // The green ring IS the cue, and the only one. No push, no notification, no haptic, no sound —
+    // see the note above swElapsed().
   } else {
     btn.classList.remove('done');
     fill.style.strokeDashoffset = SW_RING_CIRCUMFERENCE;
@@ -10825,11 +9998,7 @@ function swRenderWatch(exName) {
 }
 
 // ─── START / STOP / RESET ────────────────────────────────
-function swStart(exName, { auto = false } = {}) {
-  // Keep the screen alive for the rest so the render tick that finishes the ring is still running
-  // when the rest ends. See the wake-lock note for what this does and does not buy.
-  swAcquireWakeLock();
-
+function swStart(exName) {
   // If a different exercise was running, stop it first (no orphan timers)
   if (swRunning && swActiveExercise && swActiveExercise !== exName) swStop();
 
@@ -10838,46 +10007,25 @@ function swStart(exName, { auto = false } = {}) {
   swStartTimestamp = Date.now();
   swActiveExercise = exName;
   swRunning = true;
-  swCompletionCued = false;
-  swRestAuto = auto;
-  // A set typed moments ago is the set this rest follows. Nothing yet? noteSetTyped() takes the
-  // first one typed after the tap instead. See the C28 note above.
-  swRestSetNum = (swLastTyped && swLastTyped.exercise === exName
-    && Date.now() - swLastTyped.at <= SET_TAP_WINDOW_MS) ? swLastTyped.setNum : null;
 
   // Persist across page navigation — sessionStorage survives Stats→Workout
   sessionStorage.setItem('sw_state', JSON.stringify({
     start: swStartTimestamp,
     target: swTargetSeconds,
-    exercise: exName,
-    auto: swRestAuto,
-    set: swRestSetNum
+    exercise: exName
   }));
 
-
-  // Book the notification for this rest. Fire-and-forget — see scheduleRestAlert().
-  scheduleRestAlert(exName, swTargetSeconds);
-
-  swVibrate(10);
   swRenderWatch(exName);
 
   // Interval only drives re-renders; the maths is based on Date.now() so
   // even if this interval stutters or pauses, the time shown is still correct
   clearInterval(swInterval);
-  swInterval = setInterval(() => swTick(exName), 1000);
+  swInterval = setInterval(() => swRenderWatch(exName), 1000);
 }
 
-// One tick, two jobs: paint the watch, and make sure the alert for this rest actually got booked.
-// The second is a localStorage read and nothing else on every tick where there is nothing wrong.
-function swTick(exName) {
-  swRenderWatch(exName);
-  ensureRestAlertArmed();
-}
-
-// `bank: false` ends the rest without writing it. One caller — abandonRestAfterFailedSave() — and it
-// exists because every rest records now: taking back a rest three seconds after a failed save would
-// otherwise stamp "0:03" onto the last set as a rest that never happened.
-async function swStop({ bank = true } = {}) {
+// Stops the rest and writes it. Every stop writes; the long press (swReset) is the way to end one
+// without writing.
+async function swStop() {
   if (!swRunning) return;
   const elapsed = swElapsed();
   const exName = swActiveExercise;
@@ -10888,42 +10036,15 @@ async function swStop({ bank = true } = {}) {
   swStartTimestamp = null;
   swActiveExercise = null;
   sessionStorage.removeItem('sw_state');
-  swReleaseWakeLock();
-  cancelRestAlert();
-  swVibrate(10);
   swRenderWatch(exName);   // snap the ring back to idle now — don't wait on the network save below
 
-  // ── EVERY REST IS RECORDED NOW, INCLUDING THE ONE AFTER THE LAST SET (1 Sept 2026) ───────────
-  // From 14 Aug a Mark Done timer wrote nothing, because it hangs on the last set and what it
-  // measures is the walk to the next machine: 166s onto Leg Curl set 3, 380s onto Abductor set 2,
-  // against genuine between-set rests of 90–110s. The reasoning was right and the remedy was too
-  // blunt — Del, 1 Sept: "we have been missing out on last set rest period".
-  //
-  // His four months, profiled before this changed, say the same thing the 14 Aug note did:
-  // between-set rests average 111s, last-set gaps average 214s. So the gap is real data and it is
-  // NOT the same measurement. It is written now, and kept out of every average instead of out of the
-  // database — see betweenSetRests(), which is what both avg-rest figures are built on.
-  const anchor = swRestSetNum !== null ? { exName, setNum: swRestSetNum }
-                                       : swFindLastTypedSetForExercise(exName);
-  swRestSetNum = null;
-  if (bank && anchor && elapsed > 0) {
+  // Every period the watch times is written, including the one after the last set.
+  const anchor = swFindLastTypedSetForExercise(exName);
+  if (anchor && elapsed > 0) {
     await swSaveRest(anchor.exName, anchor.setNum, elapsed);
     swPaintRestLine(anchor.exName, anchor.setNum, elapsed);
     swFlashWatch(exName);
     saveDraft(selectedSession?.id);   // persist rest to localStorage so it survives reload
-  }
-}
-
-// Every rep entry, on any exercise, from the delegated listener below. Two jobs: remember the set for
-// the next tap on the watch, and — if a rest is already running unanchored — claim it for this set.
-function noteSetTyped(exName, setNum) {
-  if (!exName || !(setNum > 0)) return;
-  swLastTyped = { exercise: exName, setNum, at: Date.now() };
-  // First one wins: the set typed just after the tap is the one that was just finished. A later
-  // correction to some other row must not move a rest that already knows where it belongs.
-  if (swRunning && swActiveExercise === exName && swRestSetNum === null
-      && swStartTimestamp && Date.now() - swStartTimestamp <= SET_TAP_WINDOW_MS) {
-    swRestSetNum = setNum;
   }
 }
 
@@ -10942,16 +10063,13 @@ function swHandOverWatch(toExName) {
   swTargetSeconds = swParseRest(ex?.rest);
   // Re-derived, not carried over: the new target can be shorter than the elapsed time (already past
   // it, don't beep again) or longer than it (not there yet, so the beep is still to come).
-  swCompletionCued = swElapsed() >= swTargetSeconds;
   sessionStorage.setItem('sw_state', JSON.stringify({
     start: swStartTimestamp,
     target: swTargetSeconds,
-    exercise: toExName,
-    auto: swRestAuto,
-    set: swRestSetNum
+    exercise: toExName
   }));
   clearInterval(swInterval);
-  swInterval = setInterval(() => swTick(toExName), 1000);
+  swInterval = setInterval(() => swRenderWatch(toExName), 1000);
   swRenderWatch(from);      // back to idle — its ring would otherwise stay frozen mid-sweep
   swRenderWatch(toExName);
 }
@@ -10964,27 +10082,18 @@ function swReset() {
   swRunning = false;
   swStartTimestamp = null;
   swActiveExercise = null;
-  swRestSetNum = null;
   sessionStorage.removeItem('sw_state');
-  swReleaseWakeLock();
-  cancelRestAlert();
-  swVibrate([20, 40, 20]);
   if (exName) swRenderWatch(exName);
 }
 
 // ─── REST LINE PAINTING ──────────────────────────────────
 // Paints "↳ Rest 2:45" under the set row. Called both after a live
 // stop AND when loading the logger (so past rests are visible on reload).
+// Every period the watch times reads "Rest m:ss", the last set included.
 function swPaintRestLine(exName, setNum, seconds) {
   const el = document.getElementById(`rest-${exName}-${setNum}`);
   if (!el) return;
-  // The gap after the FINAL set is the walk to the next machine, not a rest between two sets — 214s
-  // against 111s across Del's four months. It is recorded and shown from 1 Sept 2026, but no average
-  // is built on it (betweenSetRests), so it must not read as a rest either.
-  const ex = selectedSession?.exercises.find(e => e.name === exName);
-  el.textContent = (ex && setNum >= ex.sets)
-    ? `↳ ${swFormat(seconds)} to next exercise`
-    : `↳ Rest ${swFormat(seconds)}`;
+  el.textContent = `↳ Rest ${swFormat(seconds)}`;
 }
 
 // ─── SAVE REST TO DB (or buffer if workout not created yet) ──
@@ -11013,38 +10122,13 @@ function swFlashWatch(exName) {
 }
 
 // ─── TAP HANDLER (on the watch button itself) ────────────
-// Short tap = start the rest; long press = reset without saving.
-//
-// ── THE TAP IS NOT A PLAIN TOGGLE ANY MORE (1 Sept 2026) ─────────────────────────────────────────
-// Del, off Tuesday's UPPER 1: "Incline DB Fly (2/3rd set) clock didn't work". It worked exactly as
-// written, and that was the bug. Nobody stops a rest in a gym — you tap the watch, pocket the phone,
-// lift again. So the timer from set 1 is STILL RUNNING (green, counting past its target) when he
-// finishes set 2, and the tap he means as "start my rest" was read as the other half of a toggle:
-// the clock stopped, nothing started, and he walked off believing one was running. Every set after
-// the first was resting against a dead watch, which is also where "we have been missing out on
-// [the] rest period" comes from — his own sequences, replayed against this file, produce it exactly.
-//
-// So the tap is disambiguated by the ONE thing that separates the two meanings — whether the rest it
-// would be stopping is still owed:
-//   • ring still counting down (elapsed < target) → he is ready early. Stop and bank it, as before.
-//     That is the case cancelRestAlert() exists for: end it early and the push never buzzes.
-//   • ring already green (elapsed >= target) → that rest is OVER; a clock past its target is one
-//     nobody stopped, not one anybody wants to end. The tap can only mean the NEXT set just ended,
-//     so bank what elapsed and start the next period in the same tap.
-// `elapsed >= target` is the identical test swRenderWatch() paints `done` from, so the rule a user
-// can actually see is "green ring, tap starts the next rest" — no new control, nothing to learn.
-//
-// ⚠️ The stop still banks in both branches. It hangs on the last typed set, which for the green case
-// is the set just finished — do not "tidy" the swStop() out of the restart on the grounds that the
-// interval overran: a rest that stops showing `↳ Rest m:ss` reads to Del as the app losing it again.
+// Tap = start. Tap again = stop and write. Long press = clear without writing. A tap on another
+// exercise's watch moves the clock there, writing the old period on the way past — only one clock
+// ever runs.
 function swTapWatch(exName) {
   if (swLongPressFired) { swLongPressFired = false; return; }
-  if (!(swRunning && swActiveExercise === exName)) { swStart(exName); return; }
-  const restIsOver = swElapsed() >= swTargetSeconds;
-  swStop();
-  // Not awaited on purpose: swStop() clears swRunning before its first await, so swStart() cannot
-  // re-enter it, and the rest genuinely begins at the tap — not when the PATCH comes back.
-  if (restIsOver) swStart(exName);
+  if (swRunning && swActiveExercise === exName) swStop();
+  else swStart(exName);
 }
 
 // Long-press detection lives on the button — attached in buildWorkoutLogger
@@ -11056,17 +10140,6 @@ document.addEventListener('pointerdown', e => {
   swLongPressTimer = setTimeout(() => { swLongPressFired = true; swReset(); }, 450);
 });
 
-// Delegated rather than another oninput= on the markup: the rep inputs are built in three places
-// (the logger, an added row, the superset re-render) and a fourth would eventually miss this. Reps
-// only — a weight gets typed on the way INTO a set, so it says nothing about one being finished.
-// The id carries the exercise name, which contains hyphens of its own, so the set number is taken
-// from the end: `r-<name>-<n>`.
-document.addEventListener('input', e => {
-  const id = e.target && e.target.id;
-  if (!id || !id.startsWith('r-') || !e.target.value) return;
-  const m = /^r-(.+)-(\d+)$/.exec(id);
-  if (m) noteSetTyped(m[1], parseInt(m[2], 10));
-});
 document.addEventListener('pointerup', () => clearTimeout(swLongPressTimer));
 document.addEventListener('pointercancel', () => clearTimeout(swLongPressTimer));
 
@@ -11083,20 +10156,8 @@ function swRestoreFromStorage() {
     swTargetSeconds = s.target || 60;
     swActiveExercise = s.exercise;
     swRunning = true;
-    // A state written by an older build carries `save: false` for what is now `auto: true` — the two
-    // keys mean the same rest, so read either. Without this, a rest running across the update lands
-    // back as a hand-started one and abandonRestAfterFailedSave() could no longer take it back.
-    swRestAuto = s.auto === true || s.save === false;
-    // The anchor survives the trip as well: a rest that knew its set before a hop to Stats must not
-    // come back guessing from the DOM. `?? null` keeps an older state's missing key as "unanchored".
-    swRestSetNum = (s.set ?? null);
-    swCompletionCued = (Date.now() - s.start) / 1000 >= s.target;
-    if (!swCompletionCued) swAcquireWakeLock();
     swRenderWatch(s.exercise);
     clearInterval(swInterval);
-    swInterval = setInterval(() => swTick(s.exercise), 1000);
-    // Navigating back into the logger mid-rest is a resume like any other — if the booking for this
-    // rest never landed, repair it now rather than a second later on the first tick.
-    ensureRestAlertArmed();
+    swInterval = setInterval(() => swRenderWatch(s.exercise), 1000);
   } catch (e) { sessionStorage.removeItem('sw_state'); }
 }

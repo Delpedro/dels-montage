@@ -296,7 +296,7 @@ console.log('sb() offline + failed-read');
   const tables = new Set([...src.matchAll(/\bsb\(\s*[`'"]([a-z_]+)/g)].map(m => m[1]));
   const unlabelled = [...tables].filter(t => !(t in labels));
   eq(unlabelled.length, 0, `every table sb() is called with has a label — missing: ${unlabelled.join(', ')}`);
-  ok(tables.size >= 15, `the table scrape still finds the call sites (found ${tables.size})`);
+  ok(tables.size >= 14, `the table scrape still finds the call sites (found ${tables.size})`);
 }
 
 console.log(`  ${pass} passed, ${fail} failed`);

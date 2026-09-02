@@ -26,7 +26,7 @@
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-// Same shape as rest-alert's helper. CORS is spelled out rather than assumed: this is called from
+// CORS is spelled out rather than assumed: this is called from
 // delpedro.github.io with an Authorization header, which is a preflighted cross-origin request, and
 // a missing header here would fail as an opaque network error in the app rather than as a status.
 const CORS = {

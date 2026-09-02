@@ -61,9 +61,6 @@ const app = load({
     swActiveExercise: null,
     swStartTimestamp: null,
     swTargetSeconds: 60,
-    swCompletionCued: false,
-    swRestAuto: false,
-    swRestSetNum: null,
     swInterval: null,
     swRenderWatch: n => calls.rendered.push(n),
     closeSupersetPickers: () => { calls.closedPickers++; },
@@ -77,7 +74,7 @@ const app = load({
     clearInterval: id => calls.cleared.push(id),
   },
   accessors: {
-    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swCompletionCued, swRestAuto, swInterval })',
+    state: '() => ({ swRunning, swActiveExercise, swStartTimestamp, swTargetSeconds, swInterval })',
     setup: `(session, groups, watch) => {
       selectedSession = session;
       supersetGroups = groups;
@@ -85,8 +82,6 @@ const app = load({
       swActiveExercise = watch ? watch.exercise : null;
       swStartTimestamp = watch ? watch.start : null;
       swTargetSeconds = watch ? watch.target : 60;
-      swCompletionCued = watch ? !!watch.cued : false;
-      swRestAuto = watch ? watch.auto === true : false;
       swInterval = watch ? 7 : null;
     }`,
   },
@@ -130,8 +125,8 @@ eq(dom['watch-Cable Flys'].style.display, 'none', 'paired: the first member lose
 eq(dom['watch-Rear Delts'].style.display, '', 'paired: the last member keeps its watch');
 eq(dom['watch-Incline Chest Press'].style.display, '', 'paired: an unrelated block is untouched');
 
-// The watch and the Mark Done must live on the SAME member — startRestAfter() hands the auto-started
-// rest to whoever finished the group, so a split would leave the ring counting on a hidden button.
+// The watch and the Mark Done must live on the SAME member — that is where you are standing when the
+// round ends, and a split would put the ring on one block and the button that ends it on another.
 eq(dom['done-btn-Cable Flys'].style.display, 'none', 'the hidden watch and the hidden Mark Done are the same block');
 eq(dom['done-btn-Rear Delts'].style.display, '', 'the visible watch and the visible Mark Done are the same block');
 eq(dom['done-btn-Rear Delts'].textContent, 'Mark Superset Done', 'the surviving button names the superset');
@@ -171,20 +166,9 @@ eq(calls.cleared.length, 1, 'the old 1s re-render interval is cleared, not left 
 eq(JSON.parse(store.sw_state).exercise, 'Rear Delts', 'sw_state follows, so a trip to Stats and back restores the right block');
 eq(JSON.parse(store.sw_state).start, NOW - 30000, 'sw_state keeps the original start');
 
-// 30s elapsed against a 60s target: the end-of-rest cue is still to come.
-eq(app.state().swCompletionCued, false, 'not yet past the new target — the cue is still owed');
-
-// Same hand-over, but the new target is SHORTER than the time already elapsed. Carrying the old
-// flag over would fire a second cue for one rest.
-render([['Cable Flys', 'Rear Delts']], { exercise: 'Cable Flys', start: NOW - 120000, target: 180, cued: false });
-eq(app.state().swCompletionCued, true, 'already past the new target — no second cue for one rest');
-
-// A Mark Done rest must survive the move still marked as the app's. If it came out the other side
-// looking hand-started, abandonRestAfterFailedSave() could no longer take it back after a failed
-// save — and until 1 Sept 2026 the same flag also decided whether the rest was written at all.
-render([['Cable Flys', 'Rear Delts']], { exercise: 'Cable Flys', start: NOW - 5000, target: 90, auto: true });
-eq(app.state().swRestAuto, true, 'an auto-started timer stays auto-started across the hand-over');
-eq(JSON.parse(store.sw_state).auto, true, 'and sw_state says so too');
+// The state that crosses is the clock and nothing else.
+eq(Object.keys(JSON.parse(store.sw_state)).sort().join(','), 'exercise,start,target',
+  'the handed-over state carries the clock and nothing else');
 
 // A timer already on the surviving member is left completely alone.
 render([['Cable Flys', 'Rear Delts']], { exercise: 'Rear Delts', start: NOW - 5000, target: 60 });

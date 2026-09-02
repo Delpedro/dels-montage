@@ -167,13 +167,8 @@ function eq(actual, expected, label) {
 
   const local = {}, session = {};
   const app = load({
-    // claimRestAlertsFlag() is pulled in because claimDeviceForAccount() calls it — the account
-    // boundary is where an unstamped rest-alert flag gets an owner (C19). Its own behaviour is
-    // asserted in tests/rest-alerts.test.js section 4; here it just has to exist, or every
-    // assertion below passes for the wrong reason on a ReferenceError the try block swallows.
-    functions: ['claimDeviceForAccount', 'perDeviceKeys', 'claimRestAlertsFlag'],
-    decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE',
-            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE', 'REST_ARM_STORE'],
+    functions: ['claimDeviceForAccount', 'perDeviceKeys'],
+    decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE'],
     deps: { localStorage: store(local), sessionStorage: store(session) },
   });
 
@@ -181,8 +176,6 @@ function eq(actual, expected, label) {
     local['dlog_last_backup'] = '2026-08-24';
     local['dlog_history_filters'] = '{"q":"squat"}';
     local['dlog_stats_range'] = '7d';
-    local['dlog_rest_alerts'] = 'on';
-    local['dlog_rest_token'] = 'tok-abc';
     local['workout_draft'] = '{"sets":1}';
     session['sw_state'] = '{"running":true}';
     session['del_page'] = 'stats';
@@ -213,15 +206,6 @@ function eq(actual, expected, label) {
   eq(local['dlog_history_filters'], undefined,
     'and their History does not open filtered by someone else\'s search, reading as "my history is gone"');
   eq(local['dlog_stats_range'], undefined, 'stats range is theirs');
-  // ⚠️ NOT undefined, and that is deliberate as of 28 Aug 2026. This key used to be wiped here, and
-  // the wipe is what left Del training for 2h44m on 28 Aug with alerts silently off after a test
-  // account had signed in and out the evening before. The isolation this line was protecting now
-  // lives in restAlertsOn(), which checks the owner stamp against dlog_last_account — so the second
-  // account still gets nothing, and the first gets theirs back on the way in. Proven in
-  // tests/rest-alerts.test.js, section 3.
-  eq(local['dlog_rest_alerts'], 'on',
-    'the rest-alert preference SURVIVES the switch — it is owner-stamped, not wiped');
-  eq(local['dlog_rest_token'], undefined, "and they do not inherit a live rest token from someone else's session");
   eq(local['workout_draft'], undefined, 'half a logged workout does not change hands');
   eq(session['sw_state'], undefined, 'nor does a running rest timer');
   eq(session['del_page'], undefined, 'nor the page the other person was last on');
@@ -229,10 +213,8 @@ function eq(actual, expected, label) {
 
   // ── Storage disabled entirely (private mode). The app has to work; it just forgets things. ──
   const blown = load({
-    // Same extraction as above — claimDeviceForAccount() calls claimRestAlertsFlag().
-    functions: ['claimDeviceForAccount', 'perDeviceKeys', 'claimRestAlertsFlag'],
-    decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE',
-            'REST_ALERTS_STORE', 'REST_ALERTS_OWNER_STORE', 'REST_TOKEN_STORE', 'REST_ARM_STORE'],
+    functions: ['claimDeviceForAccount', 'perDeviceKeys'],
+    decls: ['LAST_ACCOUNT_STORE', 'BACKUP_STORE', 'HISTORY_FILTER_STORE', 'STATS_RANGE_STORE'],
     deps: {
       localStorage: { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); }, removeItem() {} },
       sessionStorage: { removeItem() {} },
@@ -255,13 +237,6 @@ function eq(actual, expected, label) {
     // an account switch on purpose — the second account wants it too, and it is the fallback that
     // stops a bad connection from reproducing the empty picker on someone's first session.
     'dlog_exercise_catalogue',
-    // The rest-alert preference and the stamp that says whose it is. Both survive an account switch
-    // on purpose — see restAlertsOn(), and the note on perDeviceKeys(). They are the one pair in
-    // this file where wiping was the bug rather than the fix: a durable preference that the same
-    // person, on the same phone, has to find still on. The leak this list guards against is closed
-    // by the owner check instead, which is asserted in tests/rest-alerts.test.js section 3.
-    'dlog_rest_alerts',
-    'dlog_rest_alerts_owner',
   ]);
   const found = new Set([
     ...(src.match(/'dlog_[a-z_]+'/g) || []).map(s => s.slice(1, -1)),

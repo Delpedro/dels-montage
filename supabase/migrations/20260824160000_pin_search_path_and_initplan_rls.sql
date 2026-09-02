@@ -68,27 +68,5 @@ alter policy "owner access" on public.session_templates using (user_id = (select
 alter policy "owner access" on public.workout_sets      using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 alter policy "owner access" on public.workouts          using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
--- push_subscriptions and rest_alerts came in with the rest-alert edge function and are split per
--- command rather than one ALL policy, so each one gets only the clause it actually has: a SELECT or
--- DELETE policy has no WITH CHECK, an INSERT policy has no USING, and naming the missing one is an
--- error rather than a no-op.
---
--- They are also the only two tables whose policies are granted `to public` instead of
--- `to authenticated`, so `TO authenticated` is folded into the same statement. **This is tidying,
--- not a hole**: `public` in a policy includes `anon`, but `anon` was revoked from every table in
--- `20260813180000_revoke_default_privileges_from_anon.sql` and holds no grant on either of these
--- (checked, not assumed), so an anonymous caller is refused at the permission layer before a policy
--- is ever evaluated. Being consistent means the next person reading these does not have to re-derive
--- that, and it stops the grant layer being the only thing standing there.
-alter policy push_subscriptions_select_own on public.push_subscriptions to authenticated using ((select auth.uid()) = user_id);
-alter policy push_subscriptions_insert_own on public.push_subscriptions to authenticated with check ((select auth.uid()) = user_id);
-alter policy push_subscriptions_update_own on public.push_subscriptions to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
-alter policy push_subscriptions_delete_own on public.push_subscriptions to authenticated using ((select auth.uid()) = user_id);
-
-alter policy rest_alerts_select_own on public.rest_alerts to authenticated using ((select auth.uid()) = user_id);
-alter policy rest_alerts_insert_own on public.rest_alerts to authenticated with check ((select auth.uid()) = user_id);
-alter policy rest_alerts_update_own on public.rest_alerts to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
-alter policy rest_alerts_delete_own on public.rest_alerts to authenticated using ((select auth.uid()) = user_id);
-
 -- `quotes` is untouched: its policy is `for select to authenticated using (true)`, shared app content
 -- with no auth.uid() in it, and the linter does not flag it.

@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- ?v= is the build stamp, rewritten by `node tools/bump-build.js` before every push. A new build
        is a new URL, so no HTTP cache anywhere can hand back the previous version's CSS/JS. -->
-  <link rel="stylesheet" href="css/style.css?v=2026-09-01-1342">
+  <link rel="stylesheet" href="css/style.css?v=2026-09-02-1435">
 
   <!-- ── D-LOG MUST NEVER RENDER UNSTYLED (28 Aug 2026) ────────────────────────────────────────
        Del opened the app one minute after a push on 28 Aug and got a page of raw serif text. The
@@ -362,10 +362,6 @@
              height entered in inches, is permanent: onboarded_at gates the form and nothing else
              writes the profiles row. -->
         <button type="button" class="account-link" onclick="openOnboarding(true)">Your details</button>
-        <!-- The only rest cue that survives a locked screen. Off until tapped, because iOS shows the
-             permission prompt once ever and a refusal can only be undone in Settings. -->
-        <button type="button" class="account-link" id="rest-alerts-btn" onclick="toggleRestAlerts()">Rest alerts</button>
-        <button type="button" class="account-link" id="rest-alerts-test" onclick="testRestAlert()">Test alert</button>
         <!-- Ships with the signup screen, not after it: an app that lets you make an account has to
              let you delete it from inside the app or Apple rejects it. Deliberately last on the row
              and one along from Export my data, which is the only copy anyone will ever get. -->
@@ -979,6 +975,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=2026-09-01-1342"></script>
+<script src="js/app.js?v=2026-09-02-1435"></script>
 </body>
 </html>
