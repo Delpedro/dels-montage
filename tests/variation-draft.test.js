@@ -125,7 +125,8 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
     // bwSyncAll is extracted rather than stubbed: restoreDraft calls it, and a stub would hide a
     // real ReferenceError there — which is exactly what the first run of this change produced.
     functions: ['prevSetsForVariation', 'applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft', 'bwSyncAll',
-                'getSessionById', 'overloadRowsFor', 'overloadPanelHtml', 'bestSetKey'],
+                'getSessionById', 'overloadRowsFor', 'overloadPanelHtml', 'bestSetKey', 'sameLoadCheck',
+                'olWeightLabel'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets', 'bestSets', 'openOverloadFor', 'pendingRest',
             'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder', 'sessionOrderToday',
             // saveDraft now stamps the draft with the live template (C13/C14) and reads it from here.

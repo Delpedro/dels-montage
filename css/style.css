@@ -1387,13 +1387,19 @@ html.ob-active #app { display: none; }
 
 /* Same three columns as .set-row above, deliberately — the eye does not move between the panel and
    the boxes it is standing in for. */
-.ol-grid { display: grid; grid-template-columns: 18px 1fr 1fr; align-items: center; }
+/* P2: the first column is the LOAD, not the set number — the real set rows' numbers show through
+   in the 12% gap the panel leaves on the left, so printing them again was a duplicate and the
+   weight costs no width. 42px holds '47.5' and 'Band'. */
+.ol-grid { display: grid; grid-template-columns: 42px 1fr 1fr; align-items: center; }
 .ol-grid > * { padding: 3px 0; text-align: center; }
 .ol-cap {
   font-family: 'DM Mono', monospace; font-size: 8.5px; letter-spacing: 0.13em;
   text-transform: uppercase; color: var(--muted);
 }
 .ol-cap-beat { color: var(--sc); }
+.ol-kg { font-family: 'DM Mono', monospace; font-size: 12.5px; color: var(--muted2); font-variant-numeric: tabular-nums; }
+/* Last time at a load the Kg column is not naming — reads '70×13', so it never has to be inferred. */
+.ol-last-load { font-size: 12.5px; }
 .ol-set { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
 .ol-n { font-family: 'DM Mono', monospace; font-size: 15px; font-variant-numeric: tabular-nums; }
 .ol-last { color: var(--muted); }

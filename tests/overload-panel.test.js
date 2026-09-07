@@ -49,8 +49,8 @@ function harness({ rows = ICP_ROWS, typed = {} } = {}) {
   Object.entries(typed).forEach(([id, value]) => { els[id] = { value }; });
 
   const api = load({
-    functions: ['fetchSetHistoryFor', 'fetchPreviousSetsFor', 'bestSetKey', 'prevSetsForVariation',
-                'overloadRowsFor', 'overloadPanelHtml'],
+    functions: ['fetchSetHistoryFor', 'fetchPreviousSetsFor', 'bestSetKey', 'sameLoadCheck', 'olWeightLabel',
+                'prevSetsForVariation', 'overloadRowsFor', 'overloadPanelHtml'],
     decls: ['previousSets', 'bestSets', 'currentWorkoutId', 'selectedVariations', 'PREV_SETS_LOOKBACK_DAYS'],
     deps: {
       document: { getElementById: id => els[id] || null },
@@ -205,7 +205,13 @@ console.log('the overload panel');
     ok(!/ol-last[^"]*ol-hero/.test(html), 'never the LAST column');
     ok(html.includes('>Last<') && html.includes('>Beat<'), 'both columns are labelled');
     ok(!html.includes('>Best<'), 'the right column says BEAT, not BEST — it is a target, not a trophy');
-    eq((html.match(/ol-set/g) || []).length, 3, 'one set number per programmed set');
+    // ⚠️ P2: the first column is the LOAD, and the panel prints NO set numbers — the real set rows'
+    // numbers show through the 12% gap it leaves on the left, so its own were a duplicate.
+    eq((html.match(/ol-kg/g) || []).length, 3, 'one weight per programmed set');
+    ok(!html.includes('ol-set'), 'and no set numbers of its own — the rows underneath already show them');
+    ok(html.includes('>Kg<'), 'the column is labelled');
+    eq((html.match(/>70</g) || []).length, 3, 'PostgREST\'s "70.0" prints as 70, on all three rows');
+    ok(!html.includes('70.0'), 'never with the trailing zero the database hands back');
 
     // ⚠️ NO FOOTER ON AN ORDINARY LIFT (7 Sept 2026, cut L1). The panel used to print
     // "reps · Smith" along the bottom. Once it docked to the set rows instead of the whole tile,
@@ -221,8 +227,55 @@ console.log('the overload panel');
   const h = harness();
   h.seed({}, {}, {});
   const html = h.overloadPanelHtml({ name: 'Single Arm PushDown', sets: 2 });
-  eq((html.match(/—/g) || []).length, 4, 'two sets, two columns, four em dashes');
+  eq((html.match(/—/g) || []).length, 6, 'two sets, three columns, six em dashes — the weight is missing too');
   ok(!/>0</.test(html), 'and never a zero');
+}
+
+// ── the weight column (P2, 7 Sept 2026) ────────────────────────────────────
+// The panel shipped with reps and no load: "13" where the old badge said "52.5×13". Del: "where the
+// fuck is the weight? am i to guess?" Missed because every mockup from round three on used a lift
+// whose sessions were all at one weight, and the sheet carried it in a CAPTION rather than the panel.
+{
+  const h = harness();
+  h.fetchSetHistoryFor(['Incline Chest Press']).then(res => {
+    thens++;
+    h.seed(res.prev, res.best, { 'Incline Chest Press': 'Smith' });
+    const rows = h.overloadRowsFor({ name: 'Incline Chest Press', sets: 3, variations: ['Smith', 'Machine'] });
+    eq(Number(rows[0].weight), 70, 'the row carries the load its figures were done at');
+    eq(rows[0].lastWeight, null, 'and LAST needs no load of its own while the two agree');
+  });
+}
+// ⭐ THE MISMATCH CASE. Type a weight he HAS history at but did not use last time, and the Kg column
+// is naming a load LAST's reps were not done at. LAST then carries its own — "70×7" against a Kg
+// column reading 60 — or the panel would attribute reps to a weight he never did them with.
+{
+  const h = harness({ typed: { 'w-Incline Chest Press-1': '60' } });
+  h.fetchSetHistoryFor(['Incline Chest Press']).then(res => {
+    thens++;
+    h.seed(res.prev, res.best, { 'Incline Chest Press': 'Smith' });
+    const ex = { name: 'Incline Chest Press', sets: 3, variations: ['Smith', 'Machine'] };
+    const rows = h.overloadRowsFor(ex);
+    eq(Number(rows[0].weight), 60, 'the Kg column follows the box he just typed in');
+    eq(Number(rows[0].lastWeight), 70, 'and LAST is flagged as belonging to a different load');
+    eq(rows[0].beat, 6, 'BEAT is the 60kg ceiling, not the 70kg one');
+    eq(rows[0].level, false, 'and nothing goes green across two different loads');
+    eq(rows[1].lastWeight, null, 'sets he did not retype are unaffected');
+
+    const html = h.overloadPanelHtml(ex);
+    ok(html.includes('70×7'), 'the panel spells last time out as 70×7 rather than a bare 7');
+  });
+}
+// Bodyweight and band work have no kilos, and say what the tile's own weight column says.
+{
+  const h = harness();
+  h.seed({}, {}, {});
+  eq(h.olWeightLabel({ bodyweight: true }, null, null), 'BW', 'a bodyweight lift reads BW');
+  eq(h.olWeightLabel({ band: true }, null, 'Black'), 'Black', 'a band exercise names the band');
+  eq(h.olWeightLabel({ band: true }, null, null), 'Band', 'and falls back to Band with none picked');
+  eq(h.olWeightLabel({}, null, null), '—', 'a loaded lift with no history shows a dash, not BW');
+  eq(h.olWeightLabel({}, '47.5', null), '47.5', 'a half-plate weight keeps its half');
+  const html = h.overloadPanelHtml({ name: 'Pallof Press', sets: 2, band: true, variations: ['Red', 'Black'] });
+  ok(html.includes('>Band<'), 'and the column head says Band, not Kg, on a band exercise');
 }
 
 // ── N3: the sets he is already level on ────────────────────────────────────
@@ -302,7 +355,7 @@ console.log('the overload panel');
 }
 
 setTimeout(() => {
-  eq(thens, 8, 'every async block actually ran — a rejected promise must fail loudly, not silently skip its assertions');
+  eq(thens, 10, 'every async block actually ran — a rejected promise must fail loudly, not silently skip its assertions');
   console.log('  ' + pass + ' passed, ' + fail + ' failed');
   if (fail) process.exit(1);
 }, 80);

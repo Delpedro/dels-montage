@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-07-1630';
+const APP_BUILD = '2026-09-07-1751';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6033,26 +6033,55 @@ function overloadRowsFor(ex) {
     // ⚠️ ONLY WHEN BOTH FIGURES DESCRIBE THE SAME LOAD. `beat` is looked up at the weight in the
     // box; `last` is whatever he did last time. Type 75 on a 70kg lift and the two are answers to
     // different questions — matching them would paint a comparison that was never made.
-    const sameLoad = last != null && bestSetKey(v, i, weight) === bestSetKey(v, i, last.weight);
+    const sameLoad = sameLoadCheck(v, i, weight, last);
     const level = sameLoad && beat != null && last.reps != null && last.reps >= beat;
 
-    rows.push({ set: i, last: last ? last.reps : null, beat, level });
+    rows.push({
+      set: i,
+      weight,
+      last: last ? last.reps : null,
+      // Last time's own load, but ONLY when it differs from the one this row is about. The Kg
+      // column states the load BEAT is measured at — what is in the box, or last time's until he
+      // types. When those two are the same thing (nearly always) one column covers both figures.
+      // When they are not, LAST is reps at a weight the column is not naming, so it carries its
+      // own: "70×13" against a Kg column reading 60. Without this the panel would attribute reps
+      // to a load he never did them at, which is the bug the whole column exists to fix.
+      lastWeight: sameLoadCheck(v, i, weight, last) ? null : (last ? last.weight : null),
+      beat,
+      level,
+    });
   }
   return rows;
 }
 
+// ⚠️ THE FIRST COLUMN IS THE WEIGHT, NOT THE SET NUMBER — cut P2, 7 Sept 2026.
+// The panel shipped with reps and no load at all: it said "13" where the old badge said "52.5×13",
+// so there was nothing on screen to say what the 13 was done with. Del: "where the fuck is the
+// weight? am i to guess?" It was missed because every mockup from round three on used a lift whose
+// sessions were all at one weight, and the sheet carried that weight in its CAPTION rather than in
+// the panel — then L1 deleted the footer as furniture and the load went with it.
+//
+// The set number goes rather than the panel getting a fourth column: the panel starts 12% in from
+// the band's left edge, and the real set rows' numbers show through in that gap. Printing its own
+// was a duplicate of something already on screen, so the weight costs no width.
 function overloadPanelHtml(ex) {
   const rows = overloadRowsFor(ex);
-  const cells = rows.map(r => `
-      <span class="ol-set">${r.set}</span>
-      <span class="ol-n ol-last">${r.last == null ? '—' : r.last}</span>
-      <span class="ol-n ${r.level ? 'ol-eq' : 'ol-beat'}${r.set === 1 ? ' ol-hero' : ''}">${r.beat == null ? '—' : r.beat}</span>`).join('');
+  const variation = ex.variations ? (selectedVariations[ex.name] || null) : null;
+  const cells = rows.map(r => {
+    const kg = olWeightLabel(ex, r.weight, variation);
+    const lastTxt = r.last == null ? '—'
+      : (r.lastWeight != null ? `${olWeightLabel(ex, r.lastWeight, variation)}×${r.last}` : r.last);
+    return `
+      <span class="ol-kg">${esc(kg)}</span>
+      <span class="ol-n ol-last${r.lastWeight != null ? ' ol-last-load' : ''}">${esc(String(lastTxt))}</span>
+      <span class="ol-n ${r.level ? 'ol-eq' : 'ol-beat'}${r.set === 1 ? ' ol-hero' : ''}">${r.beat == null ? '—' : r.beat}</span>`;
+  }).join('');
   // No footer on an ordinary lift: the variation toggle and the rep-target tag are both still on
   // screen above the panel now, so repeating them inside it is furniture. A timed hold is the one
   // case where the figures are seconds and nothing else on the tile says so.
   const foot = isTimed(ex) ? `<div class="ol-foot">seconds</div>` : '';
   return `<div class="ol-grid">
-      <span></span><span class="ol-cap">Last</span><span class="ol-cap ol-cap-beat">Beat</span>
+      <span class="ol-cap">${ex.band ? 'Band' : 'Kg'}</span><span class="ol-cap">Last</span><span class="ol-cap ol-cap-beat">Beat</span>
       ${cells}
     </div>${foot}`;
 }
@@ -6217,6 +6246,25 @@ async function fetchSetHistoryFor(exNames) {
 function bestSetKey(variation, setNumber, weight) {
   const w = (weight === null || weight === undefined || weight === '') ? '' : Number(weight);
   return `${variation || ''}|${setNumber}|${w}`;
+}
+
+// Are the row's two figures talking about the same load? Reused by the level marker and by the Kg
+// column, so they can never disagree about it — the whole point of the column is that it names the
+// load both numbers are measured at.
+function sameLoadCheck(variation, setNumber, weight, last) {
+  return last != null && bestSetKey(variation, setNumber, weight) === bestSetKey(variation, setNumber, last.weight);
+}
+
+// What the Kg column prints. "47.5" stays 47.5 and PostgREST's "70.0" becomes 70 — Number() does
+// the trimming, which is the same normalisation bestSetKey() uses, so the column can never show a
+// weight the lookup filed differently. A band exercise's load IS its band and a bodyweight lift has
+// none, matching what the tile's own weight column says on those rows.
+function olWeightLabel(ex, weight, variation) {
+  if (ex.band) return variation || 'Band';
+  if (weight === null || weight === undefined || weight === '') {
+    return (ex.bodyweight || isOptionalWeight(ex)) ? 'BW' : '—';
+  }
+  return String(Number(weight));
 }
 
 // "Last time you did this session" full snapshot — fixed sessions only (CV+Pump never reaches
