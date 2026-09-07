@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-07-1751';
+const APP_BUILD = '2026-09-07-1817';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -6020,7 +6020,18 @@ function overloadRowsFor(ex) {
     const weight = (typed !== undefined && typed !== null && typed !== '') ? typed
                  : (last ? last.weight : null);
     const v = last?.variation ?? variation;
-    const beat = (weight === null && !ex.bodyweight && !isOptionalWeight(ex) && !ex.band)
+    // ⚠️ `isTimed(ex)` IS IN THIS GUARD BECAUSE OF DEL'S SIDE PLANK, 7 Sept 2026 (C29).
+    // The condition means "a loaded lift with no weight recorded has nothing to compare against" —
+    // fair for a barbell lift, and wrong for a plank, which has no weight and never will. It blanked
+    // the target on every timed hold: BEAT read "—" while seven sets of 60 seconds sat in the
+    // database. His words: "why dont I have to beat 60 seconds?" — he should, and now he does.
+    // 🔎 It fires on Side Plank and not on Farmers Walk because Farmers Walk is optional-weight,
+    // which already let it through. AND the deeper reason it was reachable at all:
+    // `session_exercises.bodyweight` is FALSE for Side Plank in both Lower sessions while
+    // `exercise_catalogue` says TRUE, and the logger reads the template row. isTimed() goes to the
+    // catalogue by name, so it is not fooled — but that flag mismatch is still out there and
+    // anything else keying off ex.bodyweight is being told a plank is a weighted lift.
+    const beat = (weight === null && !ex.bodyweight && !isOptionalWeight(ex) && !ex.band && !isTimed(ex))
       ? null
       : best[bestSetKey(v, i, weight)] ?? null;
 
@@ -6067,23 +6078,37 @@ function overloadRowsFor(ex) {
 function overloadPanelHtml(ex) {
   const rows = overloadRowsFor(ex);
   const variation = ex.variations ? (selectedVariations[ex.name] || null) : null;
+  // ⚠️ THE UNIT RIDES ON THE NUMBER, NOT IN A FOOTER (7 Sept 2026, C29). The panel used to print
+  // "SECONDS" along the bottom of a timed hold, which Del called dreadful next to an ordinary lift:
+  // an extra line of chrome, sitting below the figures it described, on the one exercise type that
+  // could least afford it. "60s" says the same thing in one character, on the number, which is the
+  // app's own convention everywhere else.
+  const unit = isTimed(ex) ? 's' : '';
+
+  // ⚠️ AND THE LOAD COLUMN IS DROPPED WHEN IT WOULD CARRY NOTHING. A Side Plank has no weight and
+  // never will, so its Kg column was three rows of "—" — Del's "swap out KG for seconds". But a
+  // Farmers Walk IS timed and IS loaded (52 kg for 77 seconds), so the column cannot simply become
+  // a seconds label either. The rule that satisfies both: show the column when any row has a real
+  // number in it. A band exercise always keeps it — the band name is the load.
+  const showLoad = ex.band || rows.some(r => r.weight !== null && r.weight !== undefined && r.weight !== '');
+
   const cells = rows.map(r => {
-    const kg = olWeightLabel(ex, r.weight, variation);
     const lastTxt = r.last == null ? '—'
-      : (r.lastWeight != null ? `${olWeightLabel(ex, r.lastWeight, variation)}×${r.last}` : r.last);
-    return `
-      <span class="ol-kg">${esc(kg)}</span>
+      : (r.lastWeight != null ? `${olWeightLabel(ex, r.lastWeight, variation)}×${r.last}${unit}` : `${r.last}${unit}`);
+    const loadCell = showLoad ? `<span class="ol-kg">${esc(olWeightLabel(ex, r.weight, variation))}</span>` : '';
+    // No hero on an empty target: an em dash at 30px Bebas paints a black bar, which is most of
+    // what made the Side Plank panel look broken rather than merely empty.
+    const hero = (r.set === 1 && r.beat != null) ? ' ol-hero' : '';
+    return `${loadCell}
       <span class="ol-n ol-last${r.lastWeight != null ? ' ol-last-load' : ''}">${esc(String(lastTxt))}</span>
-      <span class="ol-n ${r.level ? 'ol-eq' : 'ol-beat'}${r.set === 1 ? ' ol-hero' : ''}">${r.beat == null ? '—' : r.beat}</span>`;
+      <span class="ol-n ${r.level ? 'ol-eq' : 'ol-beat'}${hero}">${r.beat == null ? '—' : esc(String(r.beat) + unit)}</span>`;
   }).join('');
-  // No footer on an ordinary lift: the variation toggle and the rep-target tag are both still on
-  // screen above the panel now, so repeating them inside it is furniture. A timed hold is the one
-  // case where the figures are seconds and nothing else on the tile says so.
-  const foot = isTimed(ex) ? `<div class="ol-foot">seconds</div>` : '';
-  return `<div class="ol-grid">
-      <span class="ol-cap">${ex.band ? 'Band' : 'Kg'}</span><span class="ol-cap">Last</span><span class="ol-cap ol-cap-beat">Beat</span>
+
+  const loadCap = showLoad ? `<span class="ol-cap">${ex.band ? 'Band' : 'Kg'}</span>` : '';
+  return `<div class="ol-grid${showLoad ? '' : ' ol-grid-2'}">
+      ${loadCap}<span class="ol-cap">Last</span><span class="ol-cap ol-cap-beat">Beat</span>
       ${cells}
-    </div>${foot}`;
+    </div>`;
 }
 
 // Opens one, closes the rest. Nothing is measured and nothing is propped: the panel fills the rows

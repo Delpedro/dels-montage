@@ -43,7 +43,7 @@ const ICP_ROWS = [
   { exercise: 'Incline Chest Press', set_number: 3, weight: '70.0', reps: 5, variation: 'Smith', workout_id: 'w-sep01', workouts: { date: '2026-09-01' } },
 ];
 
-function harness({ rows = ICP_ROWS, typed = {} } = {}) {
+function harness({ rows = ICP_ROWS, typed = {}, timed = false, optionalWeight = false } = {}) {
   const calls = [];
   const els = {};
   Object.entries(typed).forEach(([id, value]) => { els[id] = { value }; });
@@ -56,8 +56,8 @@ function harness({ rows = ICP_ROWS, typed = {} } = {}) {
       document: { getElementById: id => els[id] || null },
       sb: (url) => { calls.push(url); return Promise.resolve(rows); },
       dateStr: d => d.toISOString().slice(0, 10),
-      isTimed: () => false,
-      isOptionalWeight: () => false,
+      isTimed: () => timed,
+      isOptionalWeight: () => optionalWeight,
       esc: v => String(v),
     },
     accessors: {
@@ -227,8 +227,73 @@ console.log('the overload panel');
   const h = harness();
   h.seed({}, {}, {});
   const html = h.overloadPanelHtml({ name: 'Single Arm PushDown', sets: 2 });
-  eq((html.match(/—/g) || []).length, 6, 'two sets, three columns, six em dashes — the weight is missing too');
+  // The load column drops when not one row has a number in it, so this is two columns, not three.
+  eq((html.match(/—/g) || []).length, 4, 'two sets, two columns, four em dashes');
+  ok(html.includes('ol-grid-2'), 'and the grid says so rather than leaving an empty column');
   ok(!/>0</.test(html), 'and never a zero');
+}
+
+// ── C29: TIMED HOLDS ───────────────────────────────────────────────────────
+// Del's Side Plank shipped reading "KG | LAST | BEAT" → "— | 60 | —", with the word SECONDS in a
+// footer underneath. Three faults in one panel, and the one he spotted was the important one:
+// "why dont I have to beat 60 seconds?" He should — seven sets of 60s are in the database.
+const PLANK_ROWS = [
+  { exercise: 'Side Plank', set_number: 1, weight: null, reps: 60, variation: null, workout_id: 'w-a', workouts: { date: '2026-08-20' } },
+  { exercise: 'Side Plank', set_number: 2, weight: null, reps: 50, variation: null, workout_id: 'w-a', workouts: { date: '2026-08-20' } },
+  { exercise: 'Side Plank', set_number: 1, weight: null, reps: 60, variation: null, workout_id: 'w-b', workouts: { date: '2026-09-02' } },
+  { exercise: 'Side Plank', set_number: 2, weight: null, reps: 60, variation: null, workout_id: 'w-b', workouts: { date: '2026-09-02' } },
+];
+{
+  // ⚠️ bodyweight:false ON PURPOSE. session_exercises says exactly that for Side Plank in both Lower
+  // sessions while exercise_catalogue says true, and the logger reads the template row. That is what
+  // made the guard reachable; isTimed() goes to the catalogue by name, so it is not fooled.
+  const h = harness({ rows: PLANK_ROWS, timed: true });
+  h.fetchSetHistoryFor(['Side Plank']).then(res => {
+    thens++;
+    h.seed(res.prev, res.best, {});
+    const ex = { name: 'Side Plank', sets: 2, bodyweight: false };
+    const rows = h.overloadRowsFor(ex);
+
+    eq(rows[0].beat, 60, 'a timed hold HAS a target — 60 seconds, not null');
+    eq(rows[0].last, 60, 'and last time is last time');
+    eq(rows[0].level, true, 'he is level with it, so it is marked');
+    eq(rows[1].beat, 60, 'set 2 too — 60 beats the 50 from the older session');
+
+    const html = h.overloadPanelHtml(ex);
+    ok(!html.includes('ol-foot'), 'NO seconds footer — the unit rides on the number now');
+    ok(html.includes('60s'), 'which reads 60s');
+    ok(html.includes('ol-grid-2') && !html.includes('ol-kg'),
+       'and a plank has no load column at all, rather than a column of dashes');
+    ok(!html.includes('>Kg<'), 'so nothing is headed Kg on an exercise that has no kilos');
+  });
+}
+// ⭐ THE CASE THAT STOPS "swap KG for seconds" BEING THE FIX: Farmers Walk is timed AND loaded —
+// 52 kg for 77 seconds. The column has to stay and only the unit moves onto the figures.
+{
+  const CARRY = [
+    { exercise: 'Farmers Walk', set_number: 1, weight: '52.0', reps: 77, variation: null, workout_id: 'w-a', workouts: { date: '2026-09-02' } },
+    { exercise: 'Farmers Walk', set_number: 1, weight: '52.0', reps: 87, variation: null, workout_id: 'w-b', workouts: { date: '2026-08-26' } },
+  ];
+  const h = harness({ rows: CARRY, timed: true, optionalWeight: true });
+  h.fetchSetHistoryFor(['Farmers Walk']).then(res => {
+    thens++;
+    h.seed(res.prev, res.best, {});
+    const ex = { name: 'Farmers Walk', sets: 1 };
+    const html = h.overloadPanelHtml(ex);
+    ok(html.includes('>Kg<'), 'a loaded carry KEEPS its weight column');
+    ok(!html.includes('ol-grid-2'), 'three columns, not two');
+    ok(html.includes('>52<'), 'showing the 52 kg it was carried at');
+    ok(html.includes('77s') && html.includes('87s'), 'with seconds on both figures');
+    ok(!html.includes('ol-foot'), 'and still no footer');
+  });
+}
+// An empty target must not take the hero size — an em dash at 30px Bebas paints a black bar, which
+// is most of what made the Side Plank panel look broken rather than merely empty.
+{
+  const h = harness();
+  h.seed({}, {}, {});
+  const html = h.overloadPanelHtml({ name: 'Single Arm PushDown', sets: 2 });
+  ok(!html.includes('ol-hero'), 'no hero treatment when set 1 has nothing to beat');
 }
 
 // ── the weight column (P2, 7 Sept 2026) ────────────────────────────────────
@@ -355,7 +420,7 @@ console.log('the overload panel');
 }
 
 setTimeout(() => {
-  eq(thens, 10, 'every async block actually ran — a rejected promise must fail loudly, not silently skip its assertions');
+  eq(thens, 12, 'every async block actually ran — a rejected promise must fail loudly, not silently skip its assertions');
   console.log('  ' + pass + ' passed, ' + fail + ' failed');
   if (fail) process.exit(1);
 }, 80);

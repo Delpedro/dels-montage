@@ -1391,6 +1391,10 @@ html.ob-active #app { display: none; }
    in the 12% gap the panel leaves on the left, so printing them again was a duplicate and the
    weight costs no width. 42px holds '47.5' and 'Band'. */
 .ol-grid { display: grid; grid-template-columns: 42px 1fr 1fr; align-items: center; }
+/* Two columns when the load column would carry nothing but dashes — a Side Plank has no weight and
+   never will. See overloadPanelHtml(): a Farmers Walk is timed AND loaded, so the column stays
+   there and only the unit moves onto the figures. */
+.ol-grid-2 { grid-template-columns: 1fr 1fr; }
 .ol-grid > * { padding: 3px 0; text-align: center; }
 .ol-cap {
   font-family: 'DM Mono', monospace; font-size: 8.5px; letter-spacing: 0.13em;
