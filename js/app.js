@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-02-1435';
+const APP_BUILD = '2026-09-07-1308';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -2093,6 +2093,7 @@ async function deleteAccount() {
     yes: 'Delete my account',
     no: 'Cancel',
     maxlength: 10,
+    emptyMsg: 'Type DELETE to confirm',   // the only one where the word is not a name
   });
   if (!typed) return;
   if (typed.trim().toUpperCase() !== 'DELETE') {
@@ -5043,7 +5044,7 @@ function ensureConfirmField() {
   return field;
 }
 
-function askPrompt({ title, body = '', label = 'Name', value = '', placeholder = '', yes = 'Save', no = 'Cancel', maxlength = 60 }) {
+function askPrompt({ title, body = '', label = 'Name', value = '', placeholder = '', yes = 'Save', no = 'Cancel', maxlength = 60, emptyMsg = 'Type a name first' }) {
   // Same reasoning as askConfirm: a second question asked while one is open would strand the first
   // promise forever, and an await that never settles is a frozen screen. Cancel is always safe.
   if (confirmResolve) { const stale = confirmResolve; confirmResolve = null; stale(null); }
@@ -5085,7 +5086,15 @@ function askPrompt({ title, body = '', label = 'Name', value = '', placeholder =
     confirmResolve = null;
     if (done) done(answer);
   };
-  const submit = () => settle(input.value.trim() || null);
+  // An EMPTY box tapping the action is not an answer, and it used to look exactly like Cancel: the
+  // dialog closed, the promise resolved null, and every caller's `if (!name) return;` swallowed it
+  // without a word. Del hit that on 7 Sept — "it didn't allow me create the new exercise on the
+  // first try" — and had no way to tell a refusal from a mis-tap. It now says so and stays open.
+  const submit = () => {
+    const typed = input.value.trim();
+    if (!typed) { showToast(emptyMsg, 'error'); focusField(); return; }
+    settle(typed);
+  };
   // Assigned, not addEventListener — re-opening can never leave two handlers resolving two promises.
   yesBtn.onclick = submit;
   noBtn.onclick = () => settle(null);
@@ -5095,9 +5104,27 @@ function askPrompt({ title, body = '', label = 'Name', value = '', placeholder =
   input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
 
   modal.style.display = 'block';
-  input.focus();   // after display: focusing a hidden input is a no-op
-  input.select();
-  return new Promise(resolve => { confirmResolve = resolve; });
+  const promise = new Promise(resolve => { confirmResolve = resolve; });
+  focusField();
+  return promise;
+
+  // ⚠️ THE FOCUS HAPPENS ON THE NEXT FRAME, NOT THIS ONE, AND THAT IS THE WHOLE FIX.
+  // iOS works out where to paint the caret from the input's layout box at the instant focus() runs.
+  // Called in the same tick the modal flips from display:none to display:block, that box has not
+  // been laid out yet, so the caret is painted against a stale rectangle and lands roughly a line
+  // BELOW the field — which is exactly what Del photographed on 7 Sept 2026. requestAnimationFrame
+  // runs after style and layout, so by then the box is real.
+  // select() is now conditional: on an empty field it selects nothing and only gives iOS a second
+  // selection rectangle to get wrong. It exists for renameTemplateVariation(), which pre-fills.
+  function focusField() {
+    const mine = confirmResolve;
+    const run = () => {
+      if (confirmResolve !== mine) return;   // answered before the frame landed — don't steal focus
+      input.focus();
+      if (input.value) input.select();
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else run();
+  }
 }
 
 // Today's workouts rows that were never completed. Split out of beginWorkoutSession() so a caller

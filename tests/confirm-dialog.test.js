@@ -44,12 +44,22 @@ function harness() {
     'confirm-yes': mk(), 'confirm-no': mk(),
     'confirm-field': mk(), 'confirm-field-label': mk(), 'confirm-input': mk(),
   };
+  // Toasts and frames are recorded, not swallowed. Both are now load-bearing: an empty box tapping
+  // the action has to SAY so (7 Sept 2026), and the focus has to happen on the next frame rather
+  // than in the tick the modal became visible — the caret bug this file could not have caught.
+  const toasts = [];
+  const frames = [];
   const app = load({
     functions: ['askConfirm', 'askPrompt', 'ensureConfirmField'],
     decls: ['confirmResolve'],
-    deps: { document: { getElementById: (id) => els[id] }, showToast: () => {} },
+    deps: {
+      document: { getElementById: (id) => els[id] },
+      showToast: (msg, kind) => toasts.push({ msg, kind }),
+      requestAnimationFrame: (fn) => { frames.push(fn); },
+    },
   });
-  return { app, els };
+  const paint = () => { const q = frames.splice(0); q.forEach(fn => fn()); };
+  return { app, els, toasts, frames, paint };
 }
 
 console.log('the app asks its own questions now');
@@ -163,7 +173,7 @@ console.log('the app asks its own questions now');
 // It shares askConfirm's promise slot, so it inherits the same risk this whole file exists for —
 // settle exactly once, or a caller awaits forever behind a screen that looks frozen.
 {
-  const { app, els } = harness();
+  const { app, els, paint } = harness();
   const p = app.askPrompt({ title: 'New exercise', label: 'Exercise name', yes: 'Add it' });
   eq(els['confirm-modal'].style.display, 'block', 'opening it shows the shared modal');
   eq(els['confirm-field'].style.display, 'block', 'and reveals the field');
@@ -171,6 +181,7 @@ console.log('the app asks its own questions now');
   eq(els['confirm-field-label'].textContent, 'Exercise name',
      'the field is LABELLED, not placeheld — a placeholder vanishes exactly when you start typing');
   eq(els['confirm-yes'].textContent, 'Add it', 'the action says what it does');
+  paint();
   ok(els['confirm-input'].focused, 'the field takes focus, so the keyboard is already up');
   ok(!els['confirm-yes'].classList.has('confirm-yes-danger'),
      'never the destructive red face — this dialog creates something');
@@ -191,7 +202,6 @@ console.log('the app asks its own questions now');
   const cases = [
     ['cancel', (els) => els['confirm-no'].onclick()],
     ['the backdrop', (els) => els['confirm-modal'].onclick({ target: els['confirm-modal'] })],
-    ['an empty field', (els) => { els['confirm-input'].value = '   '; els['confirm-yes'].onclick(); }],
   ];
   for (const [label, act] of cases) {
     const { app, els } = harness();
@@ -199,6 +209,96 @@ console.log('the app asks its own questions now');
     act(els);
     p.then(v => eq(v, null, `${label} resolves null`));
   }
+}
+
+// ── 7 SEPT 2026 — AN EMPTY BOX TAPPING THE ACTION IS NOT AN ANSWER ──────────
+// ⚠️ THIS CASE USED TO LIVE IN THE LIST ABOVE, ASSERTING THAT IT RESOLVED null — and it was the
+// single most useless assertion in the file. It ran inside a `p.then()`, so the day the behaviour
+// changed the assertion would simply never execute and the suite would still print "0 failed".
+// It is written here as a NEGATIVE — the promise must NOT settle — precisely because that is the
+// half a `.then()` can never check.
+//
+// Why it changed: closing on an empty field was indistinguishable from Cancel. Del tapped "Add it"
+// on 7 Sept and the dialog vanished with no exercise and no message — "it didn't allow me create
+// the new exercise on the first try". Silent refusal is the bug; null was never the problem.
+{
+  const { app, els, toasts, paint } = harness();
+  let settled = false;
+  app.askPrompt({ title: 'New exercise', label: 'Exercise name' }).then(() => { settled = true; });
+  paint();
+  els['confirm-input'].focused = false;   // so re-focusing is observable, not left over from opening
+
+  els['confirm-input'].value = '   ';
+  els['confirm-yes'].onclick();
+
+  setTimeout(() => {
+    ok(!settled, 'tapping the action with an empty box does NOT settle the promise');
+    eq(els['confirm-modal'].style.display, 'block', 'the dialog stays open instead of vanishing');
+    eq(els['confirm-field'].style.display, 'block', 'with the field still on screen to type into');
+    eq(toasts.length, 1, 'and it says something rather than failing silently');
+    eq(toasts[0].msg, 'Type a name first', 'in words that name what is missing');
+    eq(toasts[0].kind, 'error', 'as a refusal, not a confirmation');
+    paint();
+    ok(els['confirm-input'].focused, 'the keyboard comes back so the next tap is a keystroke');
+  }, 20);
+}
+
+// A real name typed after the refusal still works — the dialog is not left in a wedged state.
+{
+  const { app, els, paint } = harness();
+  const p = app.askPrompt({ title: 'New exercise' });
+  paint();
+  els['confirm-input'].value = '';
+  els['confirm-yes'].onclick();          // refused
+  els['confirm-input'].value = 'Single Arm PushDown';
+  els['confirm-yes'].onclick();          // accepted
+  p.then(v => eq(v, 'Single Arm PushDown', 'and the retry in the same dialog resolves normally'));
+}
+
+// ── 7 SEPT 2026 — THE CARET BUG: FOCUS ON THE NEXT FRAME, NOT THIS ONE ──────
+// iOS paints the caret from the input's layout box AT THE MOMENT focus() runs. Called in the same
+// tick the modal goes display:none → block, that box has not been laid out, so the caret was drawn
+// about a line-height below the field. Del photographed it: the cursor sitting under the box while
+// the text went in above it.
+//
+// The assertion is the ORDER, which is the only thing that was ever wrong — the field must not be
+// focused while the frame is still pending, and must be focused once it lands.
+{
+  const { app, els, frames, paint } = harness();
+  app.askPrompt({ title: 'New exercise' });
+  eq(els['confirm-modal'].style.display, 'block', 'the modal is visible immediately');
+  ok(!els['confirm-input'].focused, 'but the field is NOT focused in the same tick as the display flip');
+  eq(frames.length, 1, 'exactly one frame is queued — not one per re-open');
+  paint();
+  ok(els['confirm-input'].focused, 'and the frame is what focuses it, after layout');
+}
+
+// select() is for the pre-filled case only. On an empty field it selects nothing and only hands iOS
+// a second selection rectangle to get wrong, which is the same class of bug as the caret.
+{
+  const { app, els, paint } = harness();
+  let selected = 0;
+  els['confirm-input'].select = () => { selected++; };
+  app.askPrompt({ title: 'New exercise' });
+  paint();
+  eq(selected, 0, 'an empty field is focused but never select()ed');
+}
+{
+  const { app, els, paint } = harness();
+  let selected = 0;
+  els['confirm-input'].select = () => { selected++; };
+  app.askPrompt({ title: 'Rename Old Mach', value: 'Old Mach' });
+  paint();
+  eq(selected, 1, 'a pre-filled one still selects, so the old name types straight over');
+}
+
+// A dialog answered before its frame lands must not then steal focus back onto a closed box.
+{
+  const { app, els, paint } = harness();
+  app.askPrompt({ title: 'New exercise' });
+  els['confirm-no'].onclick();           // cancelled inside the same tick
+  paint();
+  ok(!els['confirm-input'].focused, 'a dialog closed before the frame arrives does not grab focus');
 }
 
 // ── A tap that lands INSIDE the box is not a dismissal ──────────────────────
