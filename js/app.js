@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-07-1411';
+const APP_BUILD = '2026-09-07-1558';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5960,9 +5960,22 @@ function renderExerciseBlock(ex, session) {
     html += `</div>`;
   }
 
+  // ⚠️ THE SET ROWS ARE WRAPPED, AND THE WRAPPER IS THE OVERLOAD PANEL'S CONTAINING BLOCK.
+  // That is cut L1, and it is the whole fix for the first build of this panel: an `inset: 0` panel
+  // against the BLOCK inherited the block's height, which is name row + pills + variation toggle +
+  // every set row + Mark Done + Superset. On Del's Seated Calf Raise that is ~470px of panel around
+  // ~160px of numbers, and he photographed the result. Against the rows band the height is
+  // structural — one panel row per set row — so a two-set lift gets a short panel and a five-set
+  // lift a tall one, and neither can be padded or clipped to suit the other.
+  html += `<div class="rows-band" id="rows-${esc(ex.name)}">`;
   for (let i = 1; i <= ex.sets; i++) {
     html += renderSetRow(ex, i, session.id, defaultVar);
   }
+  // Painted empty; filled on open, so a session of eleven exercises does not build eleven panels
+  // nobody opened. The tab sits inside the band too, centred against what it opens.
+  html += `<div class="overload-panel" id="ol-${esc(ex.name)}" aria-hidden="true"></div>`;
+  html += `<button type="button" class="overload-tab" id="ol-tab-${esc(ex.name)}" onclick="toggleOverload('${jsAttr(ex.name)}')" aria-label="Overload for ${esc(ex.name)}"><span class="overload-chev">‹</span></button>`;
+  html += `</div>`;
 
   // The + / − pair used to live down here as two full-width outline buttons, the same weight as
   // Mark Done — four stacked bars under three cramped inputs. Del's first gym note on 24 Aug was
@@ -5971,13 +5984,6 @@ function renderExerciseBlock(ex, session) {
   // tail is one row shorter. Availability is unchanged — every session, not just Open Workout.
   html += `<button class="btn btn-outline btn-full" id="done-btn-${esc(ex.name)}" onclick="completeExercise('${jsAttr(ex.name)}')" style="margin-top:8px;">Mark Done</button>`;
   html += renderSupersetControl(ex);
-
-  // The overload panel and the tab that pulls it. Both live INSIDE the block — the panel is that
-  // block's own second face, not a screen of its own, which is what makes it need no title, no
-  // close button and no scrim over the session. Painted empty; filled on open, so a session of
-  // eleven exercises does not build eleven panels nobody opened.
-  html += `<div class="overload-panel" id="ol-${esc(ex.name)}" aria-hidden="true"></div>`;
-  html += `<button type="button" class="overload-tab" id="ol-tab-${esc(ex.name)}" onclick="toggleOverload('${jsAttr(ex.name)}')" aria-label="Overload for ${esc(ex.name)}"><span class="overload-chev">‹</span></button>`;
   html += `</div>`;
   return html;
 }
@@ -6013,32 +6019,48 @@ function overloadRowsFor(ex) {
     const typed = document.getElementById(`w-${ex.name}-${i}`)?.value;
     const weight = (typed !== undefined && typed !== null && typed !== '') ? typed
                  : (last ? last.weight : null);
+    const v = last?.variation ?? variation;
     const beat = (weight === null && !ex.bodyweight && !isOptionalWeight(ex) && !ex.band)
       ? null
-      : best[bestSetKey(last?.variation ?? variation, i, weight)] ?? null;
-    rows.push({ set: i, last: last ? last.reps : null, beat });
+      : best[bestSetKey(v, i, weight)] ?? null;
+
+    // ── N3: the sets he is already level on ──────────────────────────────────────────────────
+    // His Seated Calf Raise reads 13/13, 11/11, 11/11 — two identical columns, which look like the
+    // panel has nothing to say. It is saying he is sitting on his ceiling on every set, and that is
+    // worth stating rather than printing twice. Marked PER SET, not per panel, so a lift where he
+    // matched two and dropped one names the set with a rep left in it.
+    //
+    // ⚠️ ONLY WHEN BOTH FIGURES DESCRIBE THE SAME LOAD. `beat` is looked up at the weight in the
+    // box; `last` is whatever he did last time. Type 75 on a 70kg lift and the two are answers to
+    // different questions — matching them would paint a comparison that was never made.
+    const sameLoad = last != null && bestSetKey(v, i, weight) === bestSetKey(v, i, last.weight);
+    const level = sameLoad && beat != null && last.reps != null && last.reps >= beat;
+
+    rows.push({ set: i, last: last ? last.reps : null, beat, level });
   }
   return rows;
 }
 
 function overloadPanelHtml(ex) {
   const rows = overloadRowsFor(ex);
-  const unit = isTimed(ex) ? 'secs' : 'reps';
   const cells = rows.map(r => `
       <span class="ol-set">${r.set}</span>
       <span class="ol-n ol-last">${r.last == null ? '—' : r.last}</span>
-      <span class="ol-n ol-beat${r.set === 1 ? ' ol-hero' : ''}">${r.beat == null ? '—' : r.beat}</span>`).join('');
+      <span class="ol-n ${r.level ? 'ol-eq' : 'ol-beat'}${r.set === 1 ? ' ol-hero' : ''}">${r.beat == null ? '—' : r.beat}</span>`).join('');
+  // No footer on an ordinary lift: the variation toggle and the rep-target tag are both still on
+  // screen above the panel now, so repeating them inside it is furniture. A timed hold is the one
+  // case where the figures are seconds and nothing else on the tile says so.
+  const foot = isTimed(ex) ? `<div class="ol-foot">seconds</div>` : '';
   return `<div class="ol-grid">
       <span></span><span class="ol-cap">Last</span><span class="ol-cap ol-cap-beat">Beat</span>
       ${cells}
-    </div>
-    <div class="ol-foot">${esc(unit)}${ex.variations && selectedVariations[ex.name] ? ` · ${esc(selectedVariations[ex.name])}` : ''}</div>`;
+    </div>${foot}`;
 }
 
-// Opens one, closes the rest. The block is propped to the panel's own height for as long as it is
-// open — a two-set lift gets a short panel and a five-set lift a tall one, and neither is padded or
-// clipped to suit the other. The prop is removed on close so the block goes back to exactly the
-// height it had.
+// Opens one, closes the rest. Nothing is measured and nothing is propped: the panel fills the rows
+// band, and the rows band is already exactly as tall as the sets it holds. The first build read
+// scrollHeight and set a min-height on the block to make it fit — machinery that only existed
+// because the panel had been given the wrong container in the first place.
 function toggleOverload(exName) {
   const wasOpen = openOverloadFor === exName;
   if (openOverloadFor) closeOverload();
@@ -6052,14 +6074,6 @@ function toggleOverload(exName) {
   panel.innerHTML = overloadPanelHtml(ex);
   panel.setAttribute('aria-hidden', 'false');
   block.classList.add('overload-open');
-  // Measured after the class lands, so the panel is laid out at its real width before its height is
-  // read. Same lesson as askPrompt's caret: measuring a box in the tick it becomes visible measures
-  // nothing.
-  requestAnimationFrame(() => {
-    if (openOverloadFor !== exName) return;
-    const needed = panel.scrollHeight + 24;
-    if (needed > block.offsetHeight) block.style.minHeight = `${needed}px`;
-  });
   openOverloadFor = exName;
 }
 
@@ -6068,8 +6082,7 @@ function closeOverload() {
   openOverloadFor = null;
   if (!exName) return;
   document.getElementById(`ol-${exName}`)?.setAttribute('aria-hidden', 'true');
-  const block = document.getElementById(`block-${exName}`);
-  if (block) { block.classList.remove('overload-open'); block.style.minHeight = ''; }
+  document.getElementById(`block-${exName}`)?.classList.remove('overload-open');
 }
 
 // How far back a "last time" lookup reaches. It bounds the single query below — without a bound it
@@ -6896,14 +6909,19 @@ function addOpenSetRow(exName) {
   const ex = selectedSession?.exercises.find(e => e.name === exName);
   if (!ex) return;
   ex.sets += 1;
-  // Anchor is Mark Done since 24 Aug — the set-row-controls div the new row used to be inserted
-  // before is gone with the stepper move, and Mark Done is the first thing after the last set row.
-  const anchor = document.getElementById(`done-btn-${exName}`);
+  // ⚠️ THE ANCHOR IS THE OVERLOAD PANEL, NOT MARK DONE (7 Sept 2026). It was Mark Done from 24 Aug,
+  // which put the new row after the .rows-band the panel now covers — so an added set would sit
+  // outside the panel's container and the panel would stop matching the sets it describes. The
+  // panel is the last-but-one child of the band, so inserting before it keeps rows in order and
+  // keeps the band exactly as tall as the sets in it.
+  const anchor = document.getElementById(`ol-${exName}`);
   if (anchor) {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = renderSetRow(ex, ex.sets, selectedSession.id, selectedVariations[exName]);
     while (wrapper.firstChild) anchor.parentNode.insertBefore(wrapper.firstChild, anchor);
   }
+  // The panel is showing a set count that just changed.
+  if (openOverloadFor === exName) anchor.innerHTML = overloadPanelHtml(ex);
   syncSetsStepper(exName, ex.sets);
   saveDraft(selectedSession.id);
 }
@@ -6917,6 +6935,8 @@ function removeOpenSetRow(exName) {
   document.getElementById(`w-${exName}-${i}`)?.closest('.set-row')?.remove();
   document.getElementById(`rest-${exName}-${i}`)?.remove();
   ex.sets -= 1;
+  const panel = document.getElementById(`ol-${exName}`);
+  if (openOverloadFor === exName && panel) panel.innerHTML = overloadPanelHtml(ex);
   syncSetsStepper(exName, ex.sets);
   saveDraft(selectedSession.id);
 }

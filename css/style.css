@@ -1344,14 +1344,15 @@ html.ob-active #app { display: none; }
                day and violet on a lower one without a line of JS.
      --muted   the LAST column. No verdict: it is what happened, not a good or bad thing.
    Terracotta on the numbers would have said "tap me" three times over a figure you cannot tap. */
+.rows-band { position: relative; }
 .overload-panel {
   position: absolute; inset: 0 0 0 12%; z-index: 2;
   background: var(--bg3); border-left: 2px solid var(--accent);
-  border-radius: 10px;
+  border-radius: 8px;
   box-shadow: -12px 0 20px color-mix(in srgb, var(--text) 9%, transparent);
-  padding: 0.875rem 30px 0.875rem 0.875rem;
+  padding: 0 26px 0 4px;
   display: flex; flex-direction: column; justify-content: center;
-  /* Parks off the block's right edge. .exercise-block carries overflow:hidden so this never widens
+  /* Parks off the band's right edge. .exercise-block carries overflow:hidden so this never widens
      the page — a panel that could push the body sideways would be a horizontal scroll on every
      exercise of every session. */
   transform: translateX(calc(100% + 30px));
@@ -1364,7 +1365,9 @@ html.ob-active #app { display: none; }
    block, which is the reason the panel needs no ✕ of its own and no scrim behind it. Tapping the
    exercise name does the same thing (cut A1); this is the one you can see. */
 .overload-tab {
-  position: absolute; right: 0; top: 52px; z-index: 3;
+  /* Centred against the rows band, so the control sits level with what it opens rather than
+     floating somewhere up the tile. */
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 3;
   width: 16px; height: 58px; padding: 0;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); border-right: none;
@@ -1379,7 +1382,7 @@ html.ob-active #app { display: none; }
 /* Same three columns as .set-row above, deliberately — the eye does not move between the panel and
    the boxes it is standing in for. */
 .ol-grid { display: grid; grid-template-columns: 18px 1fr 1fr; align-items: center; }
-.ol-grid > * { padding: 5px 0; text-align: center; }
+.ol-grid > * { padding: 3px 0; text-align: center; }
 .ol-cap {
   font-family: 'DM Mono', monospace; font-size: 8.5px; letter-spacing: 0.13em;
   text-transform: uppercase; color: var(--muted);
@@ -1389,6 +1392,12 @@ html.ob-active #app { display: none; }
 .ol-n { font-family: 'DM Mono', monospace; font-size: 15px; font-variant-numeric: tabular-nums; }
 .ol-last { color: var(--muted); }
 .ol-beat { color: var(--sc); }
+/* N3 — the sets he has ALREADY MATCHED. Green is "on target" everywhere else in D-LOG and it means
+   the same thing here: this figure is not out there any more, he is level with it. Marked per set,
+   so a lift where he matched two and dropped one names the set with a rep still in it. Del's Seated
+   Calf Raise goes green on all three, which is the correct thing for the app to be telling him and
+   is what the two identical columns were failing to say. */
+.ol-eq { color: var(--green); }
 /* Set 1 decides whether the session moved, so it takes the size. It is not a second element sitting
    above the grid — it IS the grid's own set-1 figure, which is why the panel stays one object. */
 .ol-hero { font-family: 'Bebas Neue', sans-serif; font-size: 30px; line-height: 0.8; letter-spacing: 0.5px; }

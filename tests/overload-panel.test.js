@@ -201,11 +201,18 @@ console.log('the overload panel');
     const html = h.overloadPanelHtml({ name: 'Incline Chest Press', sets: 3, variations: ['Smith', 'Machine'] });
 
     eq((html.match(/ol-hero/g) || []).length, 1, 'exactly ONE hero figure, never two');
-    ok(/ol-beat ol-hero/.test(html), 'and it is the BEAT figure on set 1, not the LAST one');
+    ok(/(ol-beat|ol-eq) ol-hero/.test(html), 'and it is the target figure on set 1, not the LAST one');
+    ok(!/ol-last[^"]*ol-hero/.test(html), 'never the LAST column');
     ok(html.includes('>Last<') && html.includes('>Beat<'), 'both columns are labelled');
     ok(!html.includes('>Best<'), 'the right column says BEAT, not BEST — it is a target, not a trophy');
-    ok(html.includes('Smith'), 'the panel names the variation it is describing');
     eq((html.match(/ol-set/g) || []).length, 3, 'one set number per programmed set');
+
+    // ⚠️ NO FOOTER ON AN ORDINARY LIFT (7 Sept 2026, cut L1). The panel used to print
+    // "reps · Smith" along the bottom. Once it docked to the set rows instead of the whole tile,
+    // the variation toggle and the rep-target tag were both left visible above it — so the footer
+    // became the panel repeating two things already on screen.
+    ok(!html.includes('ol-foot'), 'no footer: the variation and the rep target are still on the tile above');
+    ok(!html.includes('Smith'), 'so the panel does not name the variation a visible button already names');
   });
 }
 // A missing figure is an em dash, not a blank cell and not a zero. Zero is a number he could have
@@ -216,6 +223,52 @@ console.log('the overload panel');
   const html = h.overloadPanelHtml({ name: 'Single Arm PushDown', sets: 2 });
   eq((html.match(/—/g) || []).length, 4, 'two sets, two columns, four em dashes');
   ok(!/>0</.test(html), 'and never a zero');
+}
+
+// ── N3: the sets he is already level on ────────────────────────────────────
+// Del's Seated Calf Raise read 13/13, 11/11, 11/11 — two identical columns that look like a bug.
+// They are not: he is sitting on his ceiling on every set. Green says so. Marked per set, so a
+// mixed lift names the set with a rep still in it.
+{
+  const h = harness();
+  h.fetchSetHistoryFor(['Incline Chest Press']).then(res => {
+    thens++;
+    h.seed(res.prev, res.best, { 'Incline Chest Press': 'Smith' });
+    const rows = h.overloadRowsFor({ name: 'Incline Chest Press', sets: 3, variations: ['Smith', 'Machine'] });
+
+    // Set 1: last 7, best at 70kg is 7 — he is level.
+    eq(rows[0].level, true, 'set 1 matched his ceiling last time, so it is marked');
+    // Sets 2 and 3: last 6 and 5 against ceilings of 8 and 7 — still out there.
+    eq(rows[1].level, false, 'set 2 is 2 reps short of his best, so it is not');
+    eq(rows[2].level, false, 'and neither is set 3');
+
+    const html = h.overloadPanelHtml({ name: 'Incline Chest Press', sets: 3, variations: ['Smith', 'Machine'] });
+    eq((html.match(/ol-eq/g) || []).length, 1, 'exactly one figure goes green — the set he matched');
+    eq((html.match(/ol-beat(?! )/g) || []).length + (html.match(/ol-beat ol-hero/g) || []).length, 2,
+       'and the two still out there stay on the target colour');
+  });
+}
+// ⚠️ THE GUARD THAT MATTERS: green only when both figures describe the SAME LOAD. Type a weight he
+// has never used and `beat` is answering a different question from `last` — matching them would
+// paint a comparison that was never made.
+{
+  const h = harness({ typed: { 'w-Incline Chest Press-1': '75' } });
+  h.fetchSetHistoryFor(['Incline Chest Press']).then(res => {
+    thens++;
+    h.seed(res.prev, res.best, { 'Incline Chest Press': 'Smith' });
+    const rows = h.overloadRowsFor({ name: 'Incline Chest Press', sets: 3, variations: ['Smith', 'Machine'] });
+    eq(rows[0].beat, null, 'no history at 75kg');
+    eq(rows[0].level, false, 'and NOT marked level, even though last time he matched his 70kg best');
+  });
+}
+// An exercise with no history is not "level with nothing".
+{
+  const h = harness();
+  h.seed({}, {}, {});
+  const rows = h.overloadRowsFor({ name: 'Single Arm PushDown', sets: 2 });
+  eq(rows[0].level, false, 'two em dashes are not a match');
+  const html = h.overloadPanelHtml({ name: 'Single Arm PushDown', sets: 2 });
+  ok(!html.includes('ol-eq'), 'and nothing goes green on a lift that has never been done');
 }
 
 // ── source guards ──────────────────────────────────────────────────────────
@@ -249,7 +302,7 @@ console.log('the overload panel');
 }
 
 setTimeout(() => {
-  eq(thens, 6, 'every async block actually ran — a rejected promise must fail loudly, not silently skip its assertions');
+  eq(thens, 8, 'every async block actually ran — a rejected promise must fail loudly, not silently skip its assertions');
   console.log('  ' + pass + ' passed, ' + fail + ' failed');
   if (fail) process.exit(1);
 }, 80);

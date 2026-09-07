@@ -42,6 +42,10 @@ function harness({ sessionId, exercise = 'Lateral Raise', sets = 4 }) {
 
   const els = {};
   els[`done-btn-${exercise}`] = { parentNode: { insertBefore: () => {} } };
+  // The append anchor moved from Mark Done to the overload panel on 7 Sept 2026: the new row has to
+  // land INSIDE .rows-band, which is the panel's containing block, or the panel stops covering the
+  // sets it describes. innerHTML is settable because a repaint of an open panel writes to it.
+  els[`ol-${exercise}`] = { innerHTML: '', parentNode: { insertBefore: () => {} } };
   els[`sets-pill-${exercise}`] = { textContent: `${sets} sets` };
   els[`sets-step-${exercise}`] = { classList: { toggle: (_c, on) => { atMin = on; } } };
   const rowEl = i => ({ closest: () => ({ remove: () => removedIds.push(`row-${i}`) }) });
@@ -78,7 +82,7 @@ function harness({ sessionId, exercise = 'Lateral Raise', sets = 4 }) {
     functions: ['esc', 'jsAttr', 'prevSetsForVariation', 'renderSetRow', 'setsStepperHtml',
                 'repTargetLabel', 'syncSetsStepper', 'renderExerciseBlock', 'addOpenSetRow',
                 'removeOpenSetRow'],
-    decls: ['selectedSession', 'selectedVariations', 'previousSets'],
+    decls: ['selectedSession', 'selectedVariations', 'previousSets', 'openOverloadFor'],
     deps,
     accessors: {
       // Stands in for buildWorkoutLogger, which sets these before any row is rendered.
