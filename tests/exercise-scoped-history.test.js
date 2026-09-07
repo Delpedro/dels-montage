@@ -89,8 +89,8 @@ function delsData() {
 // passing against an empty result — the worst way for a test to die.
 function app(sb) {
   return load({
-    functions: ['loadPreviousSetsForSession', 'fetchPreviousSetsFor', 'prevSetsForVariation'],
-    decls: ['previousSets', 'currentWorkoutId'],
+    functions: ['loadPreviousSetsForSession', 'fetchSetHistoryFor', 'fetchPreviousSetsFor', 'bestSetKey', 'prevSetsForVariation'],
+    decls: ['previousSets', 'bestSets', 'currentWorkoutId'],
     deps: { sb, PREV_SETS_LOOKBACK_DAYS: 100000, dateStr: d => d.toISOString().slice(0, 10) },
     accessors: {
       prevSets: '() => previousSets',

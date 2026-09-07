@@ -91,7 +91,7 @@ async function main() {
 
     ok(html.includes('Smith Incline Press'), 'the template s exercises appear');
     ok(html.includes('Lat Pulldown'), 'all of them, not just the first');
-    eq((html.match(/class="set-row"/g) || []).length, 7,
+    eq((html.match(/class="set-row has-prev"/g) || []).length, 7,
       'and one row per programmed set — 4 + 3, so there is somewhere to type every set of the session');
     ok(html.includes('id="er-Smith Incline Press-4"'), 'the fourth set of a 4-set lift is reachable');
     ok(!html.includes('No sets were logged'), 'the empty-state line is not shown when there is a template');
@@ -181,7 +181,7 @@ async function main() {
     ok(html.includes('Machine Chest Press'), 'the form is built from what was logged');
     ok(!html.includes('Smith Incline Press'), 'the live template does NOT get to add exercises to a workout that has sets');
     ok(!html.includes('Lat Pulldown'), 'not one of them');
-    eq((html.match(/class="set-row"/g) || []).length, 2,
+    eq((html.match(/class="set-row has-prev"/g) || []).length, 2,
       'and the set count is what was done, not what the template now says');
   }
 

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-07-1308';
+const APP_BUILD = '2026-09-07-1411';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -655,6 +655,12 @@ let selectedEnergy = 0;
 let selectedSession = null;
 let selectedProgramme = null;
 let previousSets = {};
+// The ceiling half of the same fetch — { exerciseName: { "<variation>|<set>|<weight>": reps } }.
+// Read only by the overload panel; see fetchSetHistoryFor() for why the weight is in the key.
+let bestSets = {};
+// Which exercise's overload panel is open, or null. One at a time: each open panel props its own
+// block to a taller height, and two of those on screen is a list that jumps about as you scroll.
+let openOverloadFor = null;
 let selectedVariations = {};
 // Names removed via the ✕ button on a fixed session's live logger (one-off, today-only swap —
 // never written back to the template). Reset whenever a new session is selected.
@@ -5828,10 +5834,16 @@ async function persistSupersetGroups() {
 }
 
 // ─── WORKOUT LOGGER ───────────────────────────────────────
-// Builds one set row (weight/reps inputs + previous-set badge + rest line). Shared by
-// renderExerciseBlock's initial render and addOpenSetRow's dynamic append, so both stay in sync.
-function renderSetRow(ex, i, prevSet, sessionId, defaultVar) {
-  const prevHint = setValueLabel(ex, prevSet);
+// Builds one set row (weight/reps inputs + rest line). Shared by renderExerciseBlock's initial
+// render and addOpenSetRow's dynamic append, so both stay in sync.
+//
+// ⚠️ THE FOURTH COLUMN IS GONE (7 Sept 2026). Every row used to end in a 62px `.prev-badge`
+// reading "70×7" — last time's numbers, repeated on every set of every exercise of every session,
+// readable and un-actable-on. Del: "the last reps done are no longer there, giving more screen
+// infrastructure". Both inputs are about a third wider for it, which is the whole point: they are
+// tapped with a thumb, in a gym, between sets. The same numbers now live in the overload panel,
+// alongside the best you have ever done at that weight — which the badge could never show.
+function renderSetRow(ex, i, sessionId, defaultVar) {
   const repPlaceholder = isTimed(ex) ? 'secs' : (ex.name === 'Walking Lunge' ? 'steps' : 'reps');
 
   let weightCol = '';
@@ -5850,7 +5862,6 @@ function renderSetRow(ex, i, prevSet, sessionId, defaultVar) {
       <div class="set-num">${i}</div>
       ${weightCol}
       <input type="number" class="set-input" id="r-${esc(ex.name)}-${i}" placeholder="${esc(repPlaceholder)}" inputmode="numeric" oninput="saveDraft('${jsAttr(sessionId)}')" />
-      <div class="prev-badge" id="badge-${esc(ex.name)}-${i}">${esc(prevHint)}</div>
     </div>
     <div class="rest-line" id="rest-${esc(ex.name)}-${i}"></div>`;
     // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
@@ -5915,7 +5926,7 @@ function renderExerciseBlock(ex, session) {
   let html = `<div class="exercise-block ${sessionColourClass(session)}" id="block-${esc(ex.name)}" data-rest-target="${swParseRest(ex.rest)}">
       <div class="ex-top">
         <div class="ex-name-row">
-          <div class="ex-name-display">${esc(ex.name)}</div>
+          <div class="ex-name-display" role="button" tabindex="0" onclick="toggleOverload('${jsAttr(ex.name)}')" aria-label="Overload for ${esc(ex.name)}">${esc(ex.name)}</div>
           <button class="ex-remove-btn" id="remove-${esc(ex.name)}" onclick="removeOpenExercise('${jsAttr(ex.name)}')" aria-label="Remove exercise" title="Remove for today">✕</button>
           <button class="ex-watch" id="watch-${esc(ex.name)}" onclick="swTapWatch('${jsAttr(ex.name)}')" aria-label="Rest timer">
             <svg class="ex-watch-ring" viewBox="0 0 30 30">
@@ -5950,7 +5961,7 @@ function renderExerciseBlock(ex, session) {
   }
 
   for (let i = 1; i <= ex.sets; i++) {
-    html += renderSetRow(ex, i, filteredPrev[i-1], session.id, defaultVar);
+    html += renderSetRow(ex, i, session.id, defaultVar);
   }
 
   // The + / − pair used to live down here as two full-width outline buttons, the same weight as
@@ -5960,8 +5971,105 @@ function renderExerciseBlock(ex, session) {
   // tail is one row shorter. Availability is unchanged — every session, not just Open Workout.
   html += `<button class="btn btn-outline btn-full" id="done-btn-${esc(ex.name)}" onclick="completeExercise('${jsAttr(ex.name)}')" style="margin-top:8px;">Mark Done</button>`;
   html += renderSupersetControl(ex);
+
+  // The overload panel and the tab that pulls it. Both live INSIDE the block — the panel is that
+  // block's own second face, not a screen of its own, which is what makes it need no title, no
+  // close button and no scrim over the session. Painted empty; filled on open, so a session of
+  // eleven exercises does not build eleven panels nobody opened.
+  html += `<div class="overload-panel" id="ol-${esc(ex.name)}" aria-hidden="true"></div>`;
+  html += `<button type="button" class="overload-tab" id="ol-tab-${esc(ex.name)}" onclick="toggleOverload('${jsAttr(ex.name)}')" aria-label="Overload for ${esc(ex.name)}"><span class="overload-chev">‹</span></button>`;
   html += `</div>`;
   return html;
+}
+
+// ─── THE OVERLOAD PANEL (7 Sept 2026) ─────────────────────
+// Del, this morning: "a side modal for each exercise tile, that comes in from the side to contain
+// overload information (so the last reps done are no longer there, giving more screen
+// infrastructure) and we aim for best reps on the exercises to date versus the reps done last time".
+//
+// Cut J2 of round four, off a four-round contact sheet. Three rounds were rejected — the first two
+// for being a generic modal on a scrim, the third for density — and the note that fixed it was
+// "they're not clean": every read-only number had been given a border, so a panel of nine bordered
+// cells sat on top of three real input boxes and everything looked pressable. There is not one box
+// in here. Numbers sit on the card, in the same three columns as the inputs below them.
+//
+// ⭐ WHY THE RIGHT COLUMN SAYS "BEAT" AND NOT "BEST". Drawing it turned up that your best reps on a
+// set already ARE the number to beat on that set — the column was a target all along and never said
+// so. So the headline Del wanted needed no extra data, no extra query and no extra row: it is the
+// grid's own set-1 figure, set large.
+function overloadRowsFor(ex) {
+  const prev = previousSets[ex.name] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
+  const variation = ex.variations ? (selectedVariations[ex.name] || null) : null;
+  const filtered = (ex.variations && !ex.band && variation) ? prevSetsForVariation(prev, variation) : prev;
+  const best = bestSets[ex.name] || (ex.aliases || []).reduce((acc, a) => Object.assign(acc, bestSets[a] || {}), {});
+
+  const rows = [];
+  for (let i = 1; i <= ex.sets; i++) {
+    const last = filtered[i - 1] || null;
+    // The load this set is actually being done under: what has been typed today if anything, and
+    // last time's weight until then. Reading the box is what keeps BEAT honest the moment the
+    // weight changes mid-session — put 75 in the box on a 70kg lift and the target correctly
+    // empties, because there is nothing yet to beat at 75.
+    const typed = document.getElementById(`w-${ex.name}-${i}`)?.value;
+    const weight = (typed !== undefined && typed !== null && typed !== '') ? typed
+                 : (last ? last.weight : null);
+    const beat = (weight === null && !ex.bodyweight && !isOptionalWeight(ex) && !ex.band)
+      ? null
+      : best[bestSetKey(last?.variation ?? variation, i, weight)] ?? null;
+    rows.push({ set: i, last: last ? last.reps : null, beat });
+  }
+  return rows;
+}
+
+function overloadPanelHtml(ex) {
+  const rows = overloadRowsFor(ex);
+  const unit = isTimed(ex) ? 'secs' : 'reps';
+  const cells = rows.map(r => `
+      <span class="ol-set">${r.set}</span>
+      <span class="ol-n ol-last">${r.last == null ? '—' : r.last}</span>
+      <span class="ol-n ol-beat${r.set === 1 ? ' ol-hero' : ''}">${r.beat == null ? '—' : r.beat}</span>`).join('');
+  return `<div class="ol-grid">
+      <span></span><span class="ol-cap">Last</span><span class="ol-cap ol-cap-beat">Beat</span>
+      ${cells}
+    </div>
+    <div class="ol-foot">${esc(unit)}${ex.variations && selectedVariations[ex.name] ? ` · ${esc(selectedVariations[ex.name])}` : ''}</div>`;
+}
+
+// Opens one, closes the rest. The block is propped to the panel's own height for as long as it is
+// open — a two-set lift gets a short panel and a five-set lift a tall one, and neither is padded or
+// clipped to suit the other. The prop is removed on close so the block goes back to exactly the
+// height it had.
+function toggleOverload(exName) {
+  const wasOpen = openOverloadFor === exName;
+  if (openOverloadFor) closeOverload();
+  if (wasOpen) return;
+
+  const ex = (selectedSession?.exercises || []).find(e => e.name === exName);
+  const panel = document.getElementById(`ol-${exName}`);
+  const block = document.getElementById(`block-${exName}`);
+  if (!ex || !panel || !block) return;
+
+  panel.innerHTML = overloadPanelHtml(ex);
+  panel.setAttribute('aria-hidden', 'false');
+  block.classList.add('overload-open');
+  // Measured after the class lands, so the panel is laid out at its real width before its height is
+  // read. Same lesson as askPrompt's caret: measuring a box in the tick it becomes visible measures
+  // nothing.
+  requestAnimationFrame(() => {
+    if (openOverloadFor !== exName) return;
+    const needed = panel.scrollHeight + 24;
+    if (needed > block.offsetHeight) block.style.minHeight = `${needed}px`;
+  });
+  openOverloadFor = exName;
+}
+
+function closeOverload() {
+  const exName = openOverloadFor;
+  openOverloadFor = null;
+  if (!exName) return;
+  document.getElementById(`ol-${exName}`)?.setAttribute('aria-hidden', 'true');
+  const block = document.getElementById(`block-${exName}`);
+  if (block) { block.classList.remove('overload-open'); block.style.minHeight = ''; }
 }
 
 // How far back a "last time" lookup reaches. It bounds the single query below — without a bound it
@@ -5999,13 +6107,36 @@ async function loadPreviousSetsForSession(session) {
     if (!names.includes(e.name)) names.push(e.name);
     (e.aliases || []).forEach(a => { if (!names.includes(a)) names.push(a); });
   });
-  previousSets = await fetchPreviousSetsFor(names);
+  const history = await fetchSetHistoryFor(names);
+  previousSets = history.prev;
+  bestSets = history.best;
 }
 
-// The one engine behind every "last time" badge, for fixed sessions and Open Workouts alike.
-// Returns { exerciseName: [{weight, reps, variation}, …] }, set order preserved.
+// Kept as its own name because nine test files and both callers below know it. It is now the `prev`
+// half of fetchSetHistoryFor() — same query, same shape, no second request.
 async function fetchPreviousSetsFor(exNames) {
-  const result = {};
+  return (await fetchSetHistoryFor(exNames)).prev;
+}
+
+// The one engine behind "last time" AND "beat", for fixed sessions and Open Workouts alike.
+//
+// ⭐ ONE QUERY FEEDS BOTH HALVES, and that is why the drawer costs nothing to open. The request
+// already pulled every set of these exercises inside the 180-day window (800 rows for Del's whole
+// history, so in practice: everything). `prev` reads the most recent outing off those rows; `best`
+// reads the ceiling off the same array. A "best ever" panel that fired its own request would be a
+// round trip in a gym, on 5G, between sets.
+//
+// Returns:
+//   prev  { exerciseName: [{weight, reps, variation}, …] }   — set order preserved
+//   best  { exerciseName: { "<variation>|<set>|<weight>": reps } }
+//
+// ⚠️ THE BEST KEY INCLUDES THE WEIGHT, ON PURPOSE. "Your best reps on set 1" is meaningless across
+// weights — 12 reps at 60kg is not a target to beat at 70kg, it is a different exercise wearing the
+// same name. Keying on the weight means the panel can only ever offer a number you set at the load
+// you are actually standing under, and a weight you have never done shows nothing to beat, which is
+// correct: a new weight is a new baseline.
+async function fetchSetHistoryFor(exNames) {
+  const result = { prev: {}, best: {} };
   const names = [...new Set((exNames || []).filter(Boolean))];
   if (!names.length) return result;
 
@@ -6051,9 +6182,28 @@ async function fetchPreviousSetsFor(exNames) {
         .map(s => ({ weight: s.weight, reps: s.reps, variation: s.variation })));
     });
 
-    result[exName] = out;
+    result.prev[exName] = out;
+
+    // The ceiling, off the same rows. Every set this exercise has ever carried, reduced to the most
+    // reps at each (variation, set number, weight) — so the panel can ask "what is the most I have
+    // ever got on set 2 at 70kg" and get an answer without another request.
+    const best = {};
+    exSets.forEach(s => {
+      if (s.reps == null) return;
+      const key = bestSetKey(s.variation, s.set_number, s.weight);
+      if (best[key] == null || s.reps > best[key]) best[key] = s.reps;
+    });
+    result.best[exName] = best;
   });
   return result;
+}
+
+// One key shape, written once, so the reader and the writer can never disagree about it. Weight is
+// put through Number() because PostgREST hands back "70.0" while a typed box hands back "70" — two
+// strings, one load, and keying on the raw text would file them as different weights.
+function bestSetKey(variation, setNumber, weight) {
+  const w = (weight === null || weight === undefined || weight === '') ? '' : Number(weight);
+  return `${variation || ''}|${setNumber}|${w}`;
 }
 
 // "Last time you did this session" full snapshot — fixed sessions only (CV+Pump never reaches
@@ -6705,8 +6855,9 @@ async function addOpenExercise(name) {
   const emptyMsg = document.querySelector('#workout-logger .empty');
   if (emptyMsg) emptyMsg.remove();
 
-  const fetched = await fetchPreviousSetsFor([name, ...(def.aliases || [])]);
-  Object.assign(previousSets, fetched);
+  const fetched = await fetchSetHistoryFor([name, ...(def.aliases || [])]);
+  Object.assign(previousSets, fetched.prev);
+  Object.assign(bestSets, fetched.best);
 
   const wrapper = document.createElement('div');
   wrapper.innerHTML = renderExerciseBlock(def, selectedSession);
@@ -6750,7 +6901,7 @@ function addOpenSetRow(exName) {
   const anchor = document.getElementById(`done-btn-${exName}`);
   if (anchor) {
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = renderSetRow(ex, ex.sets, null, selectedSession.id, selectedVariations[exName]);
+    wrapper.innerHTML = renderSetRow(ex, ex.sets, selectedSession.id, selectedVariations[exName]);
     while (wrapper.firstChild) anchor.parentNode.insertBefore(wrapper.firstChild, anchor);
   }
   syncSetsStepper(exName, ex.sets);
@@ -7022,17 +7173,12 @@ function applyVariation(exName, variation) {
       const wEl = document.getElementById(`w-${exName}-${i}`);
       if (wEl) wEl.textContent = variation;
     }
-  } else {
-    const prev = previousSets[exName] || (ex.aliases || []).flatMap(a => previousSets[a] || []);
-    const filteredPrev = prevSetsForVariation(prev, variation);
-    // The per-set grey badges are the only place last time's numbers are shown. There used to be a
-    // `Previous (…): …` line written to a `prev-${exName}` element here as well — no such element
-    // has ever been rendered, so it was dead code that read like a live path.
-    for (let i = 1; i <= ex.sets; i++) {
-      const badge = document.getElementById(`badge-${exName}-${i}`);
-      const set = filteredPrev[i-1];
-      if (badge) badge.textContent = setValueLabel(ex, set);
-    }
+  } else if (openOverloadFor === exName) {
+    // The overload panel is now the only place last time's numbers are shown, so switching
+    // variation while it is open has to repaint it — otherwise Restricted's numbers sit under a
+    // Standing heading, which is the exact confusion the 14 Aug fallback bug caused.
+    const panel = document.getElementById(`ol-${exName}`);
+    if (panel) panel.innerHTML = overloadPanelHtml(ex);
   }
   return true;
 }
@@ -9794,7 +9940,7 @@ async function openEditWorkout(workoutId, sessionType, notes) {
           weightCol = `<input type="text" class="set-input" id="ew-${esc(ex.name)}-${i}" placeholder="kg" value="${esc(existing?.weight || '')}" />`;
         }
 
-        html += `<div class="set-row">
+        html += `<div class="set-row has-prev">
           <div class="set-num">${i}</div>
           ${weightCol}
           <input type="number" class="set-input" id="er-${esc(ex.name)}-${i}" placeholder="${esc(repPlaceholder)}" value="${esc(existing?.reps || '')}" />

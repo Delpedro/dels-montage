@@ -34,6 +34,7 @@ function makeEl(tagName) {
     tagName,
     value: '',
     textContent: '',
+    innerHTML: '',
     classList: {
       add: c => classes.add(c),
       remove: c => classes.delete(c),
@@ -65,8 +66,9 @@ function renderDom(session, defaults) {
       els[`w-${ex.name}-${i}`] = makeEl(ex.band ? 'DIV' : 'INPUT');
       if (ex.band) els[`w-${ex.name}-${i}`].textContent = defaults[ex.name];
       els[`r-${ex.name}-${i}`] = makeEl('INPUT');
-      els[`badge-${ex.name}-${i}`] = makeEl('DIV');
     }
+    // The overload panel, empty until something opens it — where the per-set grey badges used to be.
+    els[`ol-${ex.name}`] = makeEl('DIV');
   });
   els['workout-notes'] = makeEl('TEXTAREA');
   return els;
@@ -113,6 +115,9 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
     addCardioEntry: () => {},
     swPaintRestLine: (ex, set, secs) => painted.push({ ex, set, secs }),
     CARDIO_ACTIVITIES: {},
+    isTimed: () => false,
+    isOptionalWeight: () => false,
+    esc: v => String(v),
     setValueLabel: (ex, set) => (set ? `${set.weight}×${set.reps}` : ''),
   };
 
@@ -120,8 +125,8 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
     // bwSyncAll is extracted rather than stubbed: restoreDraft calls it, and a stub would hide a
     // real ReferenceError there — which is exactly what the first run of this change produced.
     functions: ['prevSetsForVariation', 'applyVariation', 'selectVariation', 'saveDraft', 'restoreDraft', 'bwSyncAll',
-                'getSessionById'],
-    decls: ['selectedSession', 'selectedVariations', 'previousSets', 'pendingRest',
+                'getSessionById', 'overloadRowsFor', 'overloadPanelHtml', 'bestSetKey'],
+    decls: ['selectedSession', 'selectedVariations', 'previousSets', 'bestSets', 'openOverloadFor', 'pendingRest',
             'removedSessionExercises', 'supersetGroups', 'supersetBaseOrder', 'sessionOrderToday',
             // saveDraft now stamps the draft with the live template (C13/C14) and reads it from here.
             'SESSIONS'],
@@ -132,6 +137,7 @@ function build({ session = SESSION(), defaults = { 'Shoulder Press': 'Machine', 
       // Stands in for renderExerciseBlock(), which sets selectedSession/previousSets and seeds
       // selectedVariations with last session's variation before the draft is ever read.
       render: '(s, prev, defaults) => { selectedSession = s; previousSets = prev; selectedVariations = { ...defaults }; }',
+      setOverloadOpen: '(n) => { openOverloadFor = n; }',
     },
   });
 
@@ -210,14 +216,35 @@ console.log('variation toggle survives a refresh');
   eq(JSON.stringify(after.btnClasses('Pallof Press')), '[false,true]', 'the band toggle highlight follows too');
 }
 
-// ── 5. prev badges follow the variation ────────────────────────────────────
+// ── 5. last time's numbers follow the variation ────────────────────────────
+// ⚠️ THIS SECTION USED TO ASSERT THE PER-SET GREY BADGES, WHICH NO LONGER EXIST (7 Sept 2026).
+// The badge column came off the set row and its numbers moved into the overload panel. The rule it
+// was protecting is unchanged and is the important part: switching variation must repaint, or
+// Machine's numbers sit under a DB heading — the 14 Aug bug, in the new home.
+//
+// Only repaints when the panel is OPEN. A closed panel is filled from scratch on the way in, so
+// repainting one nobody is looking at is work for nothing.
+{
+  const h = build();
+  h.setOverloadOpen('Shoulder Press');
+
+  h.applyVariation('Shoulder Press', 'DB');
+  const db = h.els['ol-Shoulder Press'].innerHTML;
+  ok(db.includes('>10<'), 'the panel shows the DB history — 20×10, one set of it');
+  ok(!db.includes('>8<'), 'and not the machine history, which has an 8 on set 2');
+
+  h.applyVariation('Shoulder Press', 'Machine');
+  const machine = h.els['ol-Shoulder Press'].innerHTML;
+  ok(machine.includes('>10<') && machine.includes('>8<'),
+     'switching back repaints from the machine history — 10 on set 1, 8 on set 2');
+  eq((machine.match(/—/g) || []).length >= 1, true,
+     'set 3 has no machine history and shows an em dash rather than borrowing set 1');
+}
+// A variation switch with the panel shut must not build one behind his back.
 {
   const h = build();
   h.applyVariation('Shoulder Press', 'DB');
-  eq(h.els['badge-Shoulder Press-1'].textContent, '20×10', 'the badge shows the DB history, not the machine history');
-  h.applyVariation('Shoulder Press', 'Machine');
-  eq(h.els['badge-Shoulder Press-1'].textContent, '40×10', 'switching back repaints from the machine history');
-  eq(h.els['badge-Shoulder Press-2'].textContent, '42×8', 'set 2 gets the second machine set');
+  eq(h.els['ol-Shoulder Press'].innerHTML, '', 'a closed panel is left alone');
 }
 
 // ── 6. guards ──────────────────────────────────────────────────────────────
