@@ -389,6 +389,75 @@ const PLANK_ROWS = [
   ok(!html.includes('ol-eq'), 'and nothing goes green on a lift that has never been done');
 }
 
+// ── A TAP SENDS IT BACK (8 Sept 2026) ──────────────────────────────────────
+// Del, after the first session with the panel in a gym: "the new modal returns to side on screen
+// touch". The panel sits on top of the boxes he types into and had two ways out, both small.
+//
+// The real work here is the exception list, so these run the actual function against real targets
+// rather than grepping for the listener: a test that only proved the handler was attached would
+// have passed just as happily with the tab in the list or out of it.
+function tapHarness() {
+  const el = { setAttribute: () => {}, classList: { remove: () => {} } };
+  return load({
+    functions: ['overloadDismissTap', 'closeOverload'],
+    decls: ['openOverloadFor', 'OVERLOAD_KEEPS_IT_OPEN'],
+    deps: { document: { getElementById: () => el } },
+    accessors: {
+      openWith: '(n) => { openOverloadFor = n; }',
+      openNow: '() => openOverloadFor',
+    },
+  });
+}
+
+// A tap target: which .exercise-block it sits inside (null = somewhere else on the page entirely),
+// and which of the four keep-open controls it is, if any.
+function tapOn(blockId, control) {
+  return {
+    closest(q) {
+      if (q === '.exercise-block') return blockId ? { id: blockId } : null;
+      return control && q.includes(control) ? { control } : null;
+    },
+  };
+}
+
+{
+  const h = tapHarness();
+
+  h.openWith('Seated Calf Raise');
+  h.overloadDismissTap(tapOn('block-Seated Calf Raise', null));
+  eq(h.openNow(), null, 'a tap on the tile itself puts the panel away — the reps box under it is the point');
+
+  h.openWith('Seated Calf Raise');
+  h.overloadDismissTap(tapOn(null, null));
+  eq(h.openNow(), null, 'and so does a tap anywhere else on the page');
+
+  // Each of these four already repaints an open panel somewhere in app.js. Closing on them would
+  // make that code unreachable.
+  ['.var-btn', '.sets-step', '.ex-name-display', '.overload-tab'].forEach(control => {
+    h.openWith('Seated Calf Raise');
+    h.overloadDismissTap(tapOn('block-Seated Calf Raise', control));
+    eq(h.openNow(), 'Seated Calf Raise', `${control} on the open tile leaves the panel open — it changes what the panel says`);
+  });
+
+  // ⚠️ THE ONE THAT WOULD BREAK THE FEATURE OUTRIGHT. This listener runs AFTER the tab's own
+  // onclick, so on the tap that opens a panel openOverloadFor is already set — if the exception
+  // did not hold, every open would be undone by the click that made it.
+  h.openWith(null);
+  h.openWith('Lying Leg Curl');           // as toggleOverload leaves it, mid-click
+  h.overloadDismissTap(tapOn('block-Lying Leg Curl', '.overload-tab'));
+  eq(h.openNow(), 'Lying Leg Curl', 'the tab that just opened a panel does not immediately close it again');
+
+  // Same four controls, different exercise: by now openOverloadFor names the OTHER block, which is
+  // exactly what the id check is for.
+  h.openWith('Seated Calf Raise');
+  h.overloadDismissTap(tapOn('block-Hack Squat', '.var-btn'));
+  eq(h.openNow(), null, 'a variation button on another exercise still closes this one');
+
+  h.openWith(null);
+  h.overloadDismissTap(tapOn('block-Hack Squat', null));
+  eq(h.openNow(), null, 'and with nothing open it is a no-op rather than a throw');
+}
+
 // ── source guards ──────────────────────────────────────────────────────────
 // No behavioural test can notice a fourth column being helpfully reinstated on the set row next
 // month, and that column is the whole point of the change.
@@ -411,6 +480,14 @@ const PLANK_ROWS = [
   ok(/\.ol-beat\s*\{\s*color:\s*var\(--sc\);/.test(CSS),
      'the BEAT column takes the SESSION colour, the same token as the rep-target tag: it states, it never invites a tap');
   ok(/\.ol-last\s*\{\s*color:\s*var\(--muted\);/.test(CSS), 'and LAST is muted — no verdict');
+
+  // The dismiss must hang off `click`. On `pointerdown` a scroll gesture would count as a touch and
+  // the panel would vanish the moment he moved the page — behaviour no behavioural test above can
+  // see, because a stubbed target has no idea which event delivered it.
+  ok(/addEventListener\('click', \(e\) => overloadDismissTap\(e\.target\)\)/.test(SRC),
+     'the dismiss is a click listener, so scrolling past an open panel leaves it alone');
+  ok(!/addEventListener\('pointerdown',[^)]*overloadDismissTap/.test(SRC),
+     'and nothing dismisses it on pointerdown');
 
   // Rounds one to three were rejected for looking cluttered, and the cause was borders on
   // read-only figures. Nothing inside the panel may carry one.

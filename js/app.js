@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-07-1817';
+const APP_BUILD = '2026-09-08-1702';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -5327,11 +5327,20 @@ const TIMED_EXERCISES = {
   'deadhangs': '30–45s',
   'dead hang': '30–45s',
   'dead hangs': '30–45s',
-  // Added 18 Aug 2026 with the programme review. Side Plank is a pure hold; Farmers Walk is a hold
+  // Added 18 Aug 2026 with the programme review. A plank is a pure hold; Farmers Walk is a hold
   // that is also loaded, so it appears in OPTIONAL_WEIGHT_EXERCISES too — timed alone would force
   // the weight to null and the kg you carried would never be saved.
+  //
+  // 8 Sept 2026: "Side Plank" became "Plank" with Side / Normal as variations — Del had been doing
+  // front planks under a name that said side. The catalogue row was renamed with it and is what
+  // actually answers; the old spellings stay here because this list is the fallback for a name the
+  // catalogue has never heard of, and someone typing "Side Plank" by hand still means a hold.
+  'plank': '30–45s',
+  'planks': '30–45s',
   'side plank': '30–45s',
   'side planks': '30–45s',
+  'front plank': '30–45s',
+  'front planks': '30–45s',
   'farmers walk': '40s',
   'farmers walks': '40s',
   'farmer walk': '40s'
@@ -6138,6 +6147,36 @@ function closeOverload() {
   document.getElementById(`ol-${exName}`)?.setAttribute('aria-hidden', 'true');
   document.getElementById(`block-${exName}`)?.classList.remove('overload-open');
 }
+
+// ── A TAP ANYWHERE SENDS IT BACK (8 Sept 2026) ────────────────────────────────────────────────
+// Del, after the first session with the panel in a gym: "the new modal returns to side on screen
+// touch". It has no scrim and no ✕ by design, so until now the only ways out were the 16px tab and
+// the exercise name — two small targets, found with a thumb, while the panel is sitting on top of
+// the weight and reps boxes he wants to type into. Every other tap did nothing at all.
+//
+// The four controls below are the exception, and they are not an arbitrary list: each one changes
+// what the panel SAYS, and each already has code that repaints it while it is open (toggleOverload,
+// selectVariation, addOpenSetRow, removeOpenSetRow). Closing on those taps would make three
+// deliberate repaint paths dead code — and on the tab it would be worse than that, because this
+// listener runs after the tab's own onclick, so it would cancel the open the tap had just done and
+// the panel could never be opened at all.
+const OVERLOAD_KEEPS_IT_OPEN = '.overload-tab, .ex-name-display, .var-btn, .sets-step';
+
+// ⚠️ SCOPED TO THE OPEN BLOCK. The same four controls on a DIFFERENT exercise must still close this
+// panel — and they do, because by the time this runs their own onclick has already moved
+// openOverloadFor to their block, so the id check below is what tells the two cases apart.
+function overloadDismissTap(target) {
+  if (!openOverloadFor) return;
+  const inOpenBlock = target?.closest?.('.exercise-block')?.id === `block-${openOverloadFor}`;
+  if (inOpenBlock && target.closest(OVERLOAD_KEEPS_IT_OPEN)) return;
+  closeOverload();
+}
+
+// ⚠️ `click`, NOT `pointerdown`, AND THAT IS THE WHOLE POINT OF THE CHOICE. A scroll gesture starts
+// with a pointerdown and never produces a click, so scrolling past an open panel leaves it alone and
+// only a real tap puts it away — which is how a native sheet behaves, and Del's standard for this
+// screen is "slick", not literal.
+document.addEventListener('click', (e) => overloadDismissTap(e.target));
 
 // How far back a "last time" lookup reaches. It bounds the single query below — without a bound it
 // grows with the training history forever — and an exercise untouched for six months is not a
