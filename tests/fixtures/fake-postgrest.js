@@ -212,6 +212,11 @@ function runQuery(data, path) {
 // The `sb()` the extracted app code is handed. Records every path so a test can assert on the
 // number of round trips, which is the entire point of the change being tested.
 function makeSb(data = db()) {
+  // `workout_sets.set_type` is `not null default 'working'` (8 Sept 2026), so a row inserted without
+  // one reads back as 'working' — including all 823 rows written before the column existed. Stamped
+  // here rather than onto every fixture row so `set_type=eq.working` behaves the way the live
+  // database behaves; a fixture that wants a warm-up sets the field explicitly.
+  (data.workout_sets || []).forEach(r => { if (r.set_type == null) r.set_type = 'working'; });
   const requests = [];
   const sb = async (path, method = 'GET') => {
     if (method !== 'GET') throw new Error('fake-postgrest: reads only');

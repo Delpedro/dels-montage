@@ -311,6 +311,55 @@ input[type="time"].field-input { -webkit-appearance: none; appearance: none; col
 /* One set left: removeOpenSetRow is a no-op, so the − says so rather than failing silently. */
 .sets-seg.at-min .sets-step:first-child { opacity: 0.3; }
 
+/* ─── WARM-UP SETS (8 Sept 2026) ──────────────────────────────────────────────
+   Del's ask: "i need warm up sets". Picked over four rounds of contact sheets — the control (cut C
+   of fourteen), what it displaced (cut 9 of twelve), and the highlight (cut C of seven).
+
+   THE SECOND STEPPER. Same object as .sets-seg, same neutral track, one thumb-width away: adding a
+   warm-up is the same gesture as adding a set. The thumb is wider because "2 warm-up" is a longer
+   word than "3 sets" and a track that resized as the count changed would jitter.
+   ⚠️ At zero it reads "warm-up", not "0 warm-up" — see warmupStepperHtml(). Every exercise in the
+   app opens with none, so a column of zeros would be the loudest thing on the logger. */
+.sets-seg.seg-warm .sets-step-count { min-width: 74px; }
+
+/* WHAT THE SECOND STEPPER DISPLACED. The rep target and rest used to be two .ex-tag pills on this
+   row; two steppers and two pills is 416px of content in a 330px row. They are a caption now, not
+   two objects — see targetRestLineHtml(). The session colour comes off them entirely, which is the
+   one thing to check before "restoring" it: --sc is still doing its job on the tile, in the panel's
+   BEAT column, and a caption is not a thing that states an identity. */
+.ex-target-line {
+  font-size: 10px; letter-spacing: 0.03em; color: var(--muted);
+  font-variant-numeric: tabular-nums; margin-bottom: 6px;
+}
+.ex-target-line b { color: var(--muted2); font-weight: 600; }
+
+/* ⭐ THE WARM-UP ROW WEARS THE SELECTED-VARIATION TREATMENT IN THE SESSION'S COLOUR.
+   Del picked it by pointing at the Smith button: "can we not do something similar to Smith
+   highlighted for the warm up sets? i need highlights". That treatment is four things at once —
+   tinted fill, matching border, matching text, 600 weight — and the only question was which token
+   it is drawn in. He was shown it in terracotta, in the session colour, and in neutral grey.
+
+   ⚠️ IT IS --sc AND NOT --accent, AND THAT IS THE WHOLE REASON IT IS ALLOWED TO EXIST.
+   Terracotta means "you can tap this" — the selected variation, the overload tab, the focused input
+   border. Spending it on a category would leave the logger with no colour that means "pressable".
+   --sc states what kind of thing you are looking at and never invites a tap, which is exactly the
+   job here, and it means a warm-up reads amber on an Upper day and violet on a Lower one.
+
+   ⛔ DO NOT ADD A SECOND SIGNAL. Round three drew seven of them — a chip, a rail, an indent, a
+   hairline, shorter rows — and all seven were rejected for being too quiet. This is the loud
+   version; anything stacked on top of it is the clutter that got three panel rounds thrown out. */
+.set-row.warm-row .set-num { color: var(--sc); font-weight: 600; }
+.set-row.warm-row .set-input,
+.set-row.warm-row .set-label {
+  border-color: color-mix(in srgb, var(--sc) 55%, transparent);
+  background: color-mix(in srgb, var(--sc) 15%, transparent);
+  color: var(--sc);
+}
+/* The focus ring still wins: the box you are typing in is terracotta whatever kind of row it is on,
+   because that is the one thing --accent has always meant. */
+.set-row.warm-row .set-input:focus { border-color: var(--accent); }
+.set-row.warm-row .set-input::placeholder { color: color-mix(in srgb, var(--sc) 45%, transparent); }
+
 /* ─── ADD TO THIS SESSION — EXERCISE | CARDIO (E24, 31 Aug 2026) ──────────────
    The same sunken-track/raised-thumb shape as .sets-seg above, on purpose: the app should have one
    idea of what "pick between two things" looks like. It replaced two identical cards four
@@ -1351,6 +1400,20 @@ html.ob-active #app { display: none; }
    right while the tab sat up at the pills row; the tab is centred on the set rows now and can never
    reach the pills, so the whole tile was holding a gap open for a collision that cannot happen. */
 .rows-band { position: relative; margin-right: -0.875rem; padding-right: 18px; }
+
+/* ─── AND ONE CONTAINER FURTHER IN, 8 Sept 2026 ───────────────────────────────
+   The band holds everything you type into, warm-up rows included. `.work-rows` holds only the
+   WORKING rows, and the overload panel is positioned against this — because a panel has to be
+   exactly as tall as the rows it prints LAST and BEAT for. That is the same fix as the one above,
+   one level in: the band was the right container right up until the band stopped being only working
+   sets, and two warm-ups later it is five rows tall around three rows of figures.
+   ⭐ It is also why the warm-ups stay reachable while the panel is open, which is correct — a
+   warm-up is what you do before you consult a target.
+   ⚠️ THE NEGATIVE MARGIN IS NOT DECORATION. An absolutely positioned child resolves `right: 0`
+   against its own container's PADDING BOX. Nested inside the band's 18px padding, the tab would
+   land 18px short — back in the middle of the reps box, which is exactly the bug fixed on 7 Sept.
+   .work-rows re-spans that lane and carries it itself, and the two row groups stay the same width. */
+.work-rows { position: relative; margin-right: -18px; padding-right: 18px; }
 .overload-panel {
   position: absolute; inset: 0 0 0 12%; z-index: 2;
   background: var(--bg3); border-left: 2px solid var(--accent);

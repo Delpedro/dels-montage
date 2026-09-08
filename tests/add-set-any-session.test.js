@@ -81,7 +81,11 @@ function harness({ sessionId, exercise = 'Lateral Raise', sets = 4 }) {
   const api = load({
     functions: ['esc', 'jsAttr', 'prevSetsForVariation', 'renderSetRow', 'setsStepperHtml',
                 'repTargetLabel', 'syncSetsStepper', 'renderExerciseBlock', 'addOpenSetRow',
-                'removeOpenSetRow'],
+                'removeOpenSetRow',
+                // The warm-up half of the same row (8 Sept 2026) — renderExerciseBlock calls all
+                // three, so they come along whether or not a given assertion is about them.
+                'warmupStepperHtml', 'warmupLabel', 'syncWarmupStepper', 'targetRestLineHtml',
+                'addWarmupRow', 'removeWarmupRow', 'persistWarmupCount'],
     decls: ['selectedSession', 'selectedVariations', 'previousSets', 'openOverloadFor'],
     deps,
     accessors: {

@@ -9,7 +9,7 @@
 // debugging sessions have been burned on features that were live all along. So the app now checks a
 // build stamp on the server whenever it comes back to the foreground and refreshes itself if it's
 // running old code.
-const APP_BUILD = '2026-09-08-1702';
+const APP_BUILD = '2026-09-08-1821';
 
 // What version.json says, once we have asked. Only ever used for the login readout: if this and
 // APP_BUILD disagree, the page is running code the server has already replaced - the stale-pair
@@ -315,7 +315,10 @@ async function loadSessionTemplates() {
   ]);
   const exByTemplate = {};
   (exercises || []).forEach(row => {
-    const ex = { name: row.name, sets: row.sets, reps: row.reps, rest: row.rest };
+    // `warmups` is the count of warm-up rows this exercise opens with (8 Sept 2026). It is a
+    // separate count from `sets` on purpose and never folds into it: `sets` is the number of
+    // WORKING sets and every per-set comparison in the app keys off it.
+    const ex = { name: row.name, sets: row.sets, reps: row.reps, rest: row.rest, warmups: row.warmups || 0 };
     if (row.note) ex.note = row.note;
     if (row.variations) ex.variations = row.variations;
     if (row.aliases) ex.aliases = row.aliases;
@@ -402,7 +405,7 @@ async function refreshSessionTemplates(force = false) {
 // membership, order, set counts, reps/rest, supersets, and the session name/focus on the tile.
 function templateFingerprint() {
   return SESSIONS.map(s => [s.id, s.name, s.focus, s.programme, s.sort_order,
-    (s.exercises || []).map(e => [e.name, e.sets, e.reps, e.rest, e.supersetGroup || ''].join('~')).join('|')
+    (s.exercises || []).map(e => [e.name, e.sets, e.warmups || 0, e.reps, e.rest, e.supersetGroup || ''].join('~')).join('|')
   ].join('~')).join('\n');
 }
 
@@ -4906,6 +4909,9 @@ async function saveSessionTemplate() {
     session_id: id, name: ex.name, ...exerciseIdFields(ex.name), sets: ex.sets, reps: ex.reps, rest: ex.rest,
     note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
     band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i,
+    // Carried through untouched — the ✎ editor has no warm-up field, and this is a DELETE-then-POST,
+    // so leaving it out would silently reset every warm-up count in the session to zero on any save.
+    warmups: ex.warmups || 0,
     superset_group: groupMap[ex.name] || null
   }));
   const res = await replaceRows('session_exercises', `session_id=eq.${id}`, () => rows);
@@ -5303,15 +5309,21 @@ function sessionDisplayName(sessionType) {
 // currently looks like. `metaByName` (optional) supplies per-exercise display metadata (variations,
 // bodyweight, band, reps/rest labels) keyed by exercise name/alias — falls back to the current
 // EXERCISE_LIBRARY, then to a bare shape if the exercise isn't known anywhere.
+// ⚠️ THE TWO KINDS ARE COUNTED SEPARATELY (8 Sept 2026). Both start at set_number 1, so a lift with
+// three warm-ups and two working sets used to come back as "3 sets" — the row count taken off the
+// highest number in a pile that now holds two different sequences. A row with no `set_type` is a
+// working set: that is what every one of the 823 rows written before this feature existed is.
 function reconstructSessionFromSets(sets, metaByName) {
-  const byExercise = {};
+  const work = {}, warm = {};
   (sets || []).forEach(s => {
-    if (!byExercise[s.exercise]) byExercise[s.exercise] = 0;
-    byExercise[s.exercise] = Math.max(byExercise[s.exercise], s.set_number);
+    const bucket = s.set_type === 'warmup' ? warm : work;
+    bucket[s.exercise] = Math.max(bucket[s.exercise] || 0, s.set_number);
   });
-  const exercises = Object.keys(byExercise).map(name => {
+  const names = Array.from(new Set([...Object.keys(work), ...Object.keys(warm)]));
+  const exercises = names.map(name => {
     const meta = (metaByName && metaByName[name]) || EXERCISE_LIBRARY[name];
-    return meta ? { ...meta, sets: byExercise[name] } : { name, sets: byExercise[name], reps: '', rest: '' };
+    const counts = { sets: work[name] || 0, warmups: warm[name] || 0 };
+    return meta ? { ...meta, ...counts } : { name, ...counts, reps: '', rest: '' };
   });
   return { exercises };
 }
@@ -5852,27 +5864,39 @@ async function persistSupersetGroups() {
 // infrastructure". Both inputs are about a third wider for it, which is the whole point: they are
 // tapped with a thumb, in a gym, between sets. The same numbers now live in the overload panel,
 // alongside the best you have ever done at that weight — which the badge could never show.
-function renderSetRow(ex, i, sessionId, defaultVar) {
+// `kind` is 'work' or 'warm' (8 Sept 2026). A warm-up row is the same three columns and the same
+// inputs — it has to be, you type into it exactly the same way — and differs in three things:
+//
+//   1. ITS IDS CARRY A `W`. `w-Incline Chest Press-W1` can never collide with `w-…-1`, which is
+//      what lets warm-ups have their own 1,2,3 without renumbering a single working set. The whole
+//      feature rests on that: every per-set comparison in the app keys off the working set number.
+//   2. IT GETS NO REST LINE. `pendingRest` is keyed by set number, the stopwatch PATCHes onto a row
+//      it finds by set number, and a warm-up rest is not a figure this app has ever wanted to
+//      average. Warm-ups count for nothing — a rest between them is part of that.
+//   3. IT WEARS THE SESSION COLOUR. See .warm-row in style.css for why that token and no other.
+function renderSetRow(ex, i, sessionId, defaultVar, kind = 'work') {
+  const warm = kind === 'warm';
+  const key = warm ? `W${i}` : `${i}`;
   const repPlaceholder = isTimed(ex) ? 'secs' : (ex.name === 'Walking Lunge' ? 'steps' : 'reps');
 
   let weightCol = '';
   if (isOptionalWeight(ex)) {
-    weightCol = bwCellHtml(`w-${esc(ex.name)}-${i}`, '', `oninput="saveDraft('${jsAttr(sessionId)}')"`);
+    weightCol = bwCellHtml(`w-${esc(ex.name)}-${key}`, '', `oninput="saveDraft('${jsAttr(sessionId)}')"`);
   } else if (ex.bodyweight || isTimed(ex)) {
-    weightCol = `<div class="set-label" id="w-${esc(ex.name)}-${i}">BW</div>`;
+    weightCol = `<div class="set-label" id="w-${esc(ex.name)}-${key}">BW</div>`;
   } else if (ex.variations && ex.band) {
     const currentVar = selectedVariations[ex.name] || defaultVar || ex.variations[0];
-    weightCol = `<div class="set-label" id="w-${esc(ex.name)}-${i}">${esc(currentVar)}</div>`;
+    weightCol = `<div class="set-label" id="w-${esc(ex.name)}-${key}">${esc(currentVar)}</div>`;
   } else {
-    weightCol = `<input type="text" class="set-input" id="w-${esc(ex.name)}-${i}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${jsAttr(sessionId)}')" />`;
+    weightCol = `<input type="text" class="set-input" id="w-${esc(ex.name)}-${key}" placeholder="kg" inputmode="decimal" oninput="saveDraft('${jsAttr(sessionId)}')" />`;
   }
 
-  return `<div class="set-row">
-      <div class="set-num">${i}</div>
+  return `<div class="set-row${warm ? ' warm-row' : ''}">
+      <div class="set-num">${warm ? 'W' + i : i}</div>
       ${weightCol}
-      <input type="number" class="set-input" id="r-${esc(ex.name)}-${i}" placeholder="${esc(repPlaceholder)}" inputmode="numeric" oninput="saveDraft('${jsAttr(sessionId)}')" />
-    </div>
-    <div class="rest-line" id="rest-${esc(ex.name)}-${i}"></div>`;
+      <input type="number" class="set-input" id="r-${esc(ex.name)}-${key}" placeholder="${esc(repPlaceholder)}" inputmode="numeric" oninput="saveDraft('${jsAttr(sessionId)}')" />
+    </div>` + (warm ? '' : `
+    <div class="rest-line" id="rest-${esc(ex.name)}-${i}"></div>`);
     // ↑ empty by default — filled in with "↳ Rest 2:45" after the watch is stopped for this set
 }
 
@@ -5917,6 +5941,48 @@ function syncSetsStepper(exName, sets) {
   document.getElementById(`sets-step-${exName}`)?.classList.toggle('at-min', sets <= 1);
 }
 
+// ─── WARM-UP SETS (8 Sept 2026) ───────────────────────────
+// Del: "i need warm up sets" — lower weight, higher reps, to warm the muscle. Picked off four rounds
+// of contact sheets: cut C for the control, cut 9 for what it displaced, cut C again for the colour.
+//
+// ⭐ THE CONTROL IS THE SETS STEPPER SAID TWICE, AND THAT IS THE WHOLE PICK. Adding a warm-up is the
+// same gesture as adding a set, in the same shape, one thumb-width away. Nothing new had to be
+// learned and nothing new had to be designed — Del picked it off a sheet of fourteen where the
+// alternatives were a tag, a dashed button, a hidden long-press and a segmented track.
+//
+// ⚠️ AT ZERO IT SAYS "WARM-UP", NOT "0 WARM-UP". Every exercise in the app opens with none, so the
+// resting state of this control is on every tile of every session — a column of zeros would be the
+// loudest thing on the logger and it would be reporting nothing.
+function warmupStepperHtml(ex) {
+  const n = ex.warmups || 0;
+  return `<span class="sets-seg seg-warm${n <= 0 ? ' at-min' : ''}" id="warm-step-${esc(ex.name)}">
+      <button type="button" class="sets-step" onclick="removeWarmupRow('${jsAttr(ex.name)}')" aria-label="Remove a warm-up set from ${esc(ex.name)}">−</button>
+      <span class="sets-step-count" id="warm-pill-${esc(ex.name)}">${warmupLabel(n)}</span>
+      <button type="button" class="sets-step" onclick="addWarmupRow('${jsAttr(ex.name)}')" aria-label="Add a warm-up set to ${esc(ex.name)}">+</button>
+    </span>`;
+}
+function warmupLabel(n) { return n > 0 ? `${n} warm-up` : 'warm-up'; }
+function syncWarmupStepper(exName, n) {
+  const count = document.getElementById(`warm-pill-${exName}`);
+  if (count) count.textContent = warmupLabel(n);
+  document.getElementById(`warm-step-${exName}`)?.classList.toggle('at-min', n <= 0);
+}
+
+// ── WHAT THE SECOND STEPPER DISPLACED, AND WHY IT IS A LINE OF TEXT NOW (cut 9) ────────────────
+// The rep target and the rest used to be two `.ex-tag` pills beside the sets stepper. Two steppers
+// and two pills is 416px of content in a 330px row, so the pills wrapped to a line of their own and
+// Del rejected every arrangement of them on a sheet of twelve. The measurement is the argument: at
+// his 390px phone the tile is 358px and this row has 330px, of which the two steppers take 276.
+//
+// ⚠️ THE TAGS DID NOT MOVE — THEY STOPPED BEING TAGS. A pill is a shape that says "object"; two
+// numbers that state what the exercise is are a caption, and a caption fits. `--muted2` on the
+// figures, `--muted` on the words, and the session colour comes off them entirely.
+// 📐 The real finding underneath it is written up in FEATURE-DESIGN.md: the app has no width
+// breakpoint at all, so every control is being fitted into a phone column on a laptop too.
+function targetRestLineHtml(ex) {
+  return `<div class="ex-target-line">TARGET <b>${esc(repTargetLabel(ex))}</b> · REST <b>${esc(ex.rest)}</b></div>`;
+}
+
 // Builds the HTML for one exercise block (header, variation toggle, set rows, Mark Done).
 // Reused for fixed-session rendering, Open Workout's initial render, and dynamic append via the Add Exercise dropdown.
 function renderExerciseBlock(ex, session) {
@@ -5953,9 +6019,9 @@ function renderExerciseBlock(ex, session) {
         </div>
         <div class="ex-pills">
           ${setsStepperHtml(ex)}
-          <span class="ex-tag">${esc(repTargetLabel(ex))}</span>
-          <span class="ex-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${esc(ex.rest)}</span>
+          ${warmupStepperHtml(ex)}
         </div>
+        ${targetRestLineHtml(ex)}
         ${ex.note ? `<div class="ex-note-text">${esc(ex.note)}</div>` : ''}
       </div>`;
 
@@ -5976,15 +6042,32 @@ function renderExerciseBlock(ex, session) {
   // ~160px of numbers, and he photographed the result. Against the rows band the height is
   // structural — one panel row per set row — so a two-set lift gets a short panel and a five-set
   // lift a tall one, and neither can be padded or clipped to suit the other.
+  // ⚠️ TWO CONTAINERS NOW, AND THE INNER ONE IS THE PANEL'S (8 Sept 2026).
+  // `.rows-band` holds everything you type into and keeps the bleed to the tile's edge, so warm-up
+  // and working rows are the same width. `.work-rows` holds ONLY the working rows, and the overload
+  // panel is positioned against THAT.
+  //
+  // This is the same fix as 7 Sept, one level in. The panel moved off `.exercise-block` and onto the
+  // band because a panel has to be exactly as tall as the rows it describes, and it describes the
+  // sets it prints LAST and BEAT for. The band was the right container right up until the band
+  // stopped being only working sets — two warm-ups later it is five rows tall around three rows of
+  // figures, which is the 470px-of-panel bug again in miniature.
+  // ⭐ AND IT IS THE REASON THE WARM-UPS STAY REACHABLE WITH THE PANEL OPEN, which is correct: a
+  // warm-up is what you do BEFORE you consult a target, and they are the two rows the panel has
+  // nothing to say about.
   html += `<div class="rows-band" id="rows-${esc(ex.name)}">`;
+  for (let i = 1; i <= (ex.warmups || 0); i++) {
+    html += renderSetRow(ex, i, session.id, defaultVar, 'warm');
+  }
+  html += `<div class="work-rows" id="work-${esc(ex.name)}">`;
   for (let i = 1; i <= ex.sets; i++) {
     html += renderSetRow(ex, i, session.id, defaultVar);
   }
   // Painted empty; filled on open, so a session of eleven exercises does not build eleven panels
-  // nobody opened. The tab sits inside the band too, centred against what it opens.
+  // nobody opened. The tab sits inside the working rows too, centred against what it opens.
   html += `<div class="overload-panel" id="ol-${esc(ex.name)}" aria-hidden="true"></div>`;
   html += `<button type="button" class="overload-tab" id="ol-tab-${esc(ex.name)}" onclick="toggleOverload('${jsAttr(ex.name)}')" aria-label="Overload for ${esc(ex.name)}"><span class="overload-chev">‹</span></button>`;
-  html += `</div>`;
+  html += `</div></div>`;
 
   // The + / − pair used to live down here as two full-width outline buttons, the same weight as
   // Mark Done — four stacked bars under three cramped inputs. Del's first gym note on 24 Aug was
@@ -6252,7 +6335,12 @@ async function fetchSetHistoryFor(exNames) {
   // on the row (so no second lookup is needed to work out which occurrence is most recent), and
   // `!inner` makes the date bound filter the *sets* rather than merely blanking the embedded object.
   const exFilter = encodeURIComponent(`in.(${names.map(n => `"${n.replace(/"/g, '\\"')}"`).join(',')})`);
-  const rows = await sb(`workout_sets?exercise=${exFilter}`
+  // ⚠️ `set_type=eq.working` IS LOAD-BEARING (8 Sept 2026). This one query feeds both halves of the
+  // overload panel — LAST and BEAT — and a warm-up is deliberately a lighter weight for more reps.
+  // Let one in and "last time, set 1" becomes 40kg on a lift he presses 70 with, and BEAT would
+  // offer a rep count set while warming up. Warm-ups count for nothing, and this is the first of
+  // the places that has to say so.
+  const rows = await sb(`workout_sets?exercise=${exFilter}&set_type=eq.working`
     + `&select=exercise,set_number,weight,reps,variation,workout_id,workouts!inner(date)`
     + `&workouts.date=gte.${dateStr(since)}&order=set_number.asc`);
   // The session in progress is dropped after the fetch rather than excluded in the filter — one
@@ -6355,14 +6443,16 @@ async function fetchLastSessionSnapshot(session) {
   // with its own test file (ghost-workout-row.test.js); this function's job is only to answer "what
   // did I actually do last time", and a row with no sets and no cardio is not an answer to that.
   const last = await sb(`workouts?session_type=eq.${session.id}&completed_at=not.is.null&order=date.desc&limit=8`
-    + `&select=id,date,workout_sets(exercise,set_number,weight,reps,variation,rest_seconds,superset_group),cardio_logs(activity,duration_mins,distance,floors,incline,speed_kmh)`
+    + `&select=id,date,workout_sets(exercise,set_number,set_type,weight,reps,variation,rest_seconds,superset_group),cardio_logs(activity,duration_mins,distance,floors,incline,speed_kmh)`
     + `&workout_sets.order=set_number.asc`);
   const candidates = (last || []).filter(w =>
     w.id !== currentWorkoutId && ((w.workout_sets || []).length || (w.cardio_logs || []).length));
   if (!candidates.length) return null;
   const workout = candidates[0];
   const byExercise = {};
-  (workout.workout_sets || []).forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
+  // Working sets only: "what did I do last time" means the work, not the warm-up that preceded it.
+  (workout.workout_sets || []).filter(s => s.set_type !== 'warmup')
+    .forEach(s => { (byExercise[s.exercise] ||= []).push(s); });
   return { date: workout.date, exercises: byExercise, cardio: workout.cardio_logs || [] };
 }
 
@@ -6541,6 +6631,20 @@ function peekDraftSetCounts(sessionId) {
   } catch (e) { return {}; }
 }
 
+// The same, for warm-up rows. Applied straight rather than through the template stamp: the stepper
+// writes `session_exercises.warmups` as well as today's session, so the two cannot drift the way a
+// set count could (C14), and if they ever briefly do, the draft is the more recent record of a tap.
+function peekDraftWarmupCounts(sessionId) {
+  try {
+    const raw = localStorage.getItem('workout_draft');
+    if (!raw) return {};
+    const draft = JSON.parse(raw);
+    if (draft.sessionId !== sessionId) return {};
+    if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) return {};
+    return draft.warmupCounts || {};
+  } catch (e) { return {}; }
+}
+
 // The template as it stood when the draft was written — `{ name: setCount }` — or null for a draft
 // that predates the stamp, and for Open Workout, which has no template to stamp. See
 // reconcileDraftAgainstTemplate for what it is for.
@@ -6620,6 +6724,10 @@ async function buildWorkoutLogger(session) {
       session.exercises.push({ ...(EXERCISE_LIBRARY[name] || { name, sets: 3, reps: '8–12', rest: '90s' }) });
     });
     session.exercises.forEach(ex => { if (merged.sets[ex.name]) ex.sets = merged.sets[ex.name]; });
+    const draftWarmups = peekDraftWarmupCounts(session.id);
+    session.exercises.forEach(ex => {
+      if (Object.prototype.hasOwnProperty.call(draftWarmups, ex.name)) ex.warmups = draftWarmups[ex.name];
+    });
 
     const draftSs = peekDraftSupersets(session.id);
     if (draftSs.groups.length) { supersetGroups = draftSs.groups; supersetsTouched = true; }
@@ -6691,7 +6799,7 @@ async function buildWorkoutLogger(session) {
 
   // Restore already-saved sets on resume: paint rest times, fill empty inputs, mark exercises done
   if (currentWorkoutId) {
-    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,rest_seconds,weight,reps,superset_group,variation`);
+    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,set_type,rest_seconds,weight,reps,superset_group,variation`);
     // Rebuild the groups from what's already saved (covers resuming a workout after the draft has
     // gone) — everything sharing a group tag was one superset.
     if (!supersetGroups.length) {
@@ -6745,7 +6853,7 @@ async function startOpenWorkout() {
   if (!ok) return;
 
   if (currentWorkoutId) {
-    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number`);
+    const savedSets = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&select=exercise,set_number,set_type`);
     if (savedSets && savedSets.length > 0) {
       openSession.exercises = reconstructSessionFromSets(savedSets).exercises;
     }
@@ -6800,6 +6908,7 @@ async function offerSaveOpenAsTemplate(exercises, supersetTags = {}) {
     sets: ex.sets || 3, reps: ex.reps || '8–12', rest: ex.rest || '90s',
     note: ex.note ?? null, variations: ex.variations ?? null, aliases: ex.aliases ?? null,
     band: !!ex.band, bodyweight: !!ex.bodyweight, sort_order: i,
+    warmups: ex.warmups || 0,
     superset_group: supersetTags[ex.name] || null
   }));
   const exRes = await sb('session_exercises', 'POST', rows, { quiet: true });
@@ -7053,6 +7162,61 @@ function removeOpenSetRow(exName) {
   saveDraft(selectedSession.id);
 }
 
+// ─── WARM-UP ROWS (8 Sept 2026) ───────────────────────────
+// The mirror of the two above, and shorter than them for one reason: the overload panel describes
+// working sets, so adding or removing a warm-up cannot change what it says and it is never
+// repainted here. `.work-rows` is the anchor — a warm-up appended after it would sit inside the
+// panel's container and get covered.
+//
+// ⚠️ `ex.warmups` IS TODAY'S COUNT AND `session_exercises.warmups` IS THE TEMPLATE'S. These are the
+// same split `ex.sets` already has: the stepper moves the live session, the ✎ editor moves the
+// template, and the draft remembers today's so a mid-session refresh does not snap back.
+function addWarmupRow(exName) {
+  const ex = selectedSession?.exercises.find(e => e.name === exName);
+  if (!ex) return;
+  ex.warmups = (ex.warmups || 0) + 1;
+  const anchor = document.getElementById(`work-${exName}`);
+  if (anchor) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = renderSetRow(ex, ex.warmups, selectedSession.id, selectedVariations[exName], 'warm');
+    while (wrapper.firstChild) anchor.parentNode.insertBefore(wrapper.firstChild, anchor);
+  }
+  syncWarmupStepper(exName, ex.warmups);
+  saveDraft(selectedSession.id);
+  persistWarmupCount(exName, ex.warmups);
+}
+
+function removeWarmupRow(exName) {
+  const ex = selectedSession?.exercises.find(e => e.name === exName);
+  if (!ex || !(ex.warmups > 0)) return;
+  const i = ex.warmups;
+  document.getElementById(`w-${exName}-W${i}`)?.closest('.set-row')?.remove();
+  ex.warmups -= 1;
+  syncWarmupStepper(exName, ex.warmups);
+  saveDraft(selectedSession.id);
+  persistWarmupCount(exName, ex.warmups);
+}
+
+// ⚠️ THIS IS THE ONE STEPPER THAT WRITES THE TEMPLATE, AND THE ASYMMETRY IS DELIBERATE.
+// The sets stepper is today-only by design: three sets instead of two is a decision about this
+// morning. A warm-up count is not — you warm up the same lift the same way every week, and a
+// today-only count would mean tapping + twice on every big lift of every session forever. The cost
+// of being wrong is one tap on − next week; the cost of the other choice is a tap a week for good.
+//
+// Open Workout has no template row, so it is skipped and the draft is the only record — which is
+// the same deal its exercise list has always had. Quiet and fire-and-forget: a warm-up count that
+// fails to save is not worth a toast in the middle of a set, and the draft has it either way.
+function persistWarmupCount(exName, n) {
+  const sessionId = selectedSession?.id;
+  if (!sessionId || sessionId === 'open') return;
+  // Keep the in-memory template in step, or the next foreground's templateFingerprint() sees a
+  // difference it did not make and rebuilds the grid under his thumb.
+  const tpl = getSessionById(sessionId)?.exercises.find(e => e.name === exName);
+  if (tpl) tpl.warmups = n;
+  sb(`session_exercises?session_id=eq.${encodeURIComponent(sessionId)}&name=eq.${encodeURIComponent(exName)}`,
+     'PATCH', { warmups: n }, { quiet: true });
+}
+
 // ─── CARDIO SECTION ───────────────────────────────────────
 // Optional cardio logged after the weights, at the bottom of any workout logger (not CV + Pump,
 // which never reaches buildWorkoutLogger). Multiple entries allowed, including repeats of the
@@ -7184,14 +7348,18 @@ function saveDraft(sessionId) {
     variations: { ...selectedVariations },
     timestamp: Date.now()
   };
+  // Warm-up rows are keyed `<name>-W1`, working rows `<name>-1`, so the two can share one map with
+  // no chance of a warm-up's 40kg landing in a working set's box on the way back in.
   selectedSession.exercises.forEach(ex => {
-    for (let i = 1; i <= ex.sets; i++) {
-      const wEl = document.getElementById(`w-${ex.name}-${i}`);
-      const rEl = document.getElementById(`r-${ex.name}-${i}`);
+    const stash = (key, suffix) => {
+      const wEl = document.getElementById(`w-${ex.name}-${suffix}`);
+      const rEl = document.getElementById(`r-${ex.name}-${suffix}`);
       const w = wEl && wEl.tagName === 'INPUT' ? wEl.value : null;
       const r = rEl ? rEl.value : null;
-      if (w || r) draft.sets[`${ex.name}-${i}`] = { w, r };
-    }
+      if (w || r) draft.sets[key] = { w, r };
+    };
+    for (let i = 1; i <= (ex.warmups || 0); i++) stash(`${ex.name}-W${i}`, `W${i}`);
+    for (let i = 1; i <= ex.sets; i++) stash(`${ex.name}-${i}`, `${i}`);
   });
   // Open Workout's exercise list is per-workout, not a fixed template; fixed sessions now also allow
   // a one-off today-only add/remove (see selectSession/removeOpenExercise) — remember both so a
@@ -7203,6 +7371,12 @@ function saveDraft(sessionId) {
     // refresh mid-session doesn't shrink it back to the exercise library's default.
     draft.openSetCounts = {};
     selectedSession.exercises.forEach(e => { draft.openSetCounts[e.name] = e.sets; });
+    // Warm-ups get their own map rather than joining openSetCounts: that one goes through the
+    // template-stamp reconcile (C14), and a warm-up count cannot drift from its template because
+    // the stepper writes both. This is only the record for Open Workout and for a refresh landing
+    // before the PATCH does.
+    draft.warmupCounts = {};
+    selectedSession.exercises.forEach(e => { draft.warmupCounts[e.name] = e.warmups || 0; });
     draft.removedExercises = removedSessionExercises;
     draft.supersetGroups = supersetGroups;
     draft.supersetBaseOrder = supersetBaseOrder;
@@ -7246,15 +7420,15 @@ function restoreDraft(session) {
     if (draft.sessionId !== session.id) return restoredVariations;
     if (draft.timestamp && Date.now() - draft.timestamp > 24*60*60*1000) { localStorage.removeItem('workout_draft'); return restoredVariations; }  // Expire drafts after 24hrs
     session.exercises.forEach(ex => {
-      for (let i = 1; i <= ex.sets; i++) {
-        const key = `${ex.name}-${i}`;
-        if (draft.sets[key]) {
-          const wEl = document.getElementById(`w-${ex.name}-${i}`);
-          const rEl = document.getElementById(`r-${ex.name}-${i}`);
-          if (wEl && wEl.tagName === 'INPUT' && draft.sets[key].w) wEl.value = draft.sets[key].w;
-          if (rEl && draft.sets[key].r) rEl.value = draft.sets[key].r;
-        }
-      }
+      const put = (key, suffix) => {
+        if (!draft.sets[key]) return;
+        const wEl = document.getElementById(`w-${ex.name}-${suffix}`);
+        const rEl = document.getElementById(`r-${ex.name}-${suffix}`);
+        if (wEl && wEl.tagName === 'INPUT' && draft.sets[key].w) wEl.value = draft.sets[key].w;
+        if (rEl && draft.sets[key].r) rEl.value = draft.sets[key].r;
+      };
+      for (let i = 1; i <= (ex.warmups || 0); i++) put(`${ex.name}-W${i}`, `W${i}`);
+      for (let i = 1; i <= ex.sets; i++) put(`${ex.name}-${i}`, `${i}`);
     });
     bwSyncAll();   // same, for a weight typed before the refresh
     if (draft.notes) document.getElementById('workout-notes').value = draft.notes;
@@ -7301,6 +7475,12 @@ function applyVariation(exName, variation) {
   if (btns) btns.forEach((b, i) => b.classList.toggle('selected', i === idx));
 
   if (ex.band) {
+    // Warm-up rows carry the same band label and are numbered W1, W2 — miss them and a banded lift
+    // keeps showing the old variation on the rows above set 1.
+    for (let i = 1; i <= (ex.warmups || 0); i++) {
+      const wEl = document.getElementById(`w-${exName}-W${i}`);
+      if (wEl) wEl.textContent = variation;
+    }
     for (let i = 1; i <= ex.sets; i++) {
       const wEl = document.getElementById(`w-${exName}-${i}`);
       if (wEl) wEl.textContent = variation;
@@ -7325,34 +7505,45 @@ function selectVariation(exName, variation) {
 // ─── COMPLETE EXERCISE ────────────────────────────────────
 // Reads the filled-in rows for one exercise off the DOM. Pure — no DB, no button repainting — so
 // completeExercise() can collect a whole superset before writing any of it.
+// ⚠️ WARM-UPS AND WORKING SETS COME BACK IN ONE LIST, EACH STAMPED WITH ITS OWN `set_type`
+// (8 Sept 2026). They are written by the same Mark Done, into the same table, in the same
+// replaceRows() call — the unique key is `(workout_id, exercise, set_type, set_number)`, so a
+// warm-up 1 and a working 1 are two different rows and neither renumbers the other.
+// **Everything that reads these rows back for a comparison filters `set_type=eq.working`.**
 function collectExerciseSets(ex, supersetGroup) {
   const exName = ex.name;
   const sets = [];
-  for (let i = 1; i <= ex.sets; i++) {
-    const wEl = document.getElementById(`w-${exName}-${i}`);
-    const rEl = document.getElementById(`r-${exName}-${i}`);
+  const collect = (i, kind) => {
+    const key = kind === 'warmup' ? `W${i}` : `${i}`;
+    const wEl = document.getElementById(`w-${exName}-${key}`);
+    const rEl = document.getElementById(`r-${exName}-${key}`);
     const wVal = wEl ? (wEl.tagName === 'DIV' ? wEl.textContent : wEl.value) : '';
     const rVal = rEl ? rEl.value : '';
-    if (wVal || rVal) {
-      const isBodyweight = (ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex);
-      const setObj = {
-        workout_id: currentWorkoutId,
-        exercise: exName,
-        ...exerciseIdFields(exName),
-        set_number: i,
-        weight: isBodyweight ? null : optionalWeightValue(ex, wVal),
-        reps: parseInt(rVal) || null,
-        variation: selectedVariations[exName] || null,
-        // Groups made *after* this exercise was marked done are backfilled by persistSupersetGroups()
-        // on Save Workout, so the two orderings agree.
-        superset_group: supersetGroup
-      };
-      const restSecs = (pendingRest[exName] && pendingRest[exName][i]) ? pendingRest[exName][i] : 0;
-      if (restSecs > 0) swPaintRestLine(exName, i, restSecs);
-      setObj.rest_seconds = restSecs;
-      sets.push(setObj);
-    }
-  }
+    if (!wVal && !rVal) return;
+    const isBodyweight = (ex.bodyweight || ex.band || isTimed(ex)) && !isOptionalWeight(ex);
+    const setObj = {
+      workout_id: currentWorkoutId,
+      exercise: exName,
+      ...exerciseIdFields(exName),
+      set_number: i,
+      set_type: kind,
+      weight: isBodyweight ? null : optionalWeightValue(ex, wVal),
+      reps: parseInt(rVal) || null,
+      variation: selectedVariations[exName] || null,
+      // Groups made *after* this exercise was marked done are backfilled by persistSupersetGroups()
+      // on Save Workout, so the two orderings agree.
+      superset_group: supersetGroup
+    };
+    // A warm-up banks no rest: it has no rest line to paint and `pendingRest` is keyed by working
+    // set number, so reading it here would hand a working set's rest to a warm-up of the same index.
+    const restSecs = (kind === 'working' && pendingRest[exName] && pendingRest[exName][i]) ? pendingRest[exName][i] : 0;
+    if (restSecs > 0) swPaintRestLine(exName, i, restSecs);
+    setObj.rest_seconds = restSecs;
+    sets.push(setObj);
+  };
+
+  for (let i = 1; i <= (ex.warmups || 0); i++) collect(i, 'warmup');
+  for (let i = 1; i <= ex.sets; i++) collect(i, 'working');
 
   return sets;
 }
@@ -7363,15 +7554,19 @@ function collectExerciseSets(ex, supersetGroup) {
 // deleted the rows holding those rests and re-inserted them as 0, silently blanking that exercise's
 // "avg rest" in History. Pure, so it can be tested without a DB.
 // A set that carries its own rest wins; the existing value only fills a gap.
+// ⚠️ KEYED BY set_type AND set_number, NOT set_number ALONE (8 Sept 2026). Since warm-ups have
+// their own 1,2,3, a bare set_number key would hand working set 1's banked rest to warm-up 1 on
+// every re-save — and warm-ups are the one kind of row that must never carry a rest.
 function mergeExistingRests(sets, existingRows) {
   const byNum = {};
+  const keyOf = r => `${r.set_type || 'working'}#${r.set_number}`;
   (existingRows || []).forEach(r => {
     const secs = parseInt(r.rest_seconds);
-    if (!isNaN(secs) && secs > 0) byNum[r.set_number] = secs;
+    if (!isNaN(secs) && secs > 0) byNum[keyOf(r)] = secs;
   });
-  return sets.map(s => (s.rest_seconds > 0 || !byNum[s.set_number])
+  return sets.map(s => (s.rest_seconds > 0 || !byNum[keyOf(s)])
     ? s
-    : { ...s, rest_seconds: byNum[s.set_number] });
+    : { ...s, rest_seconds: byNum[keyOf(s)] });
 }
 
 // Replaces one exercise's rows wholesale. Returns null on success, or { status, lost } on failure.
@@ -9305,7 +9500,7 @@ async function loadHistory() {
   const [logs, workouts] = await Promise.all([
     sb(`daily_logs?order=date.desc&select=*`),
     sb(`workouts?order=date.desc&select=id,date,session_type,notes`
-      + `,workout_sets(workout_id,exercise,weight,reps,rest_seconds,set_number,variation,superset_group,created_at)`
+      + `,workout_sets(workout_id,exercise,weight,reps,rest_seconds,set_number,set_type,variation,superset_group,created_at)`
       + `,cardio_logs(workout_id,activity,duration_mins,distance,floors,incline,speed_kmh)`
       + `&workout_sets.order=created_at.asc,set_number.asc`)
   ]);
@@ -9314,8 +9509,16 @@ async function loadHistory() {
   // (workout_sets has no explicit sequence column). rest_seconds drives the rest display.
   window._setsByWorkout = {};
   window._cardioByWorkout = {};
+  // ⚠️ WARM-UPS ARE STRIPPED HERE, ONCE, AND THAT IS ON PURPOSE (8 Sept 2026).
+  // `_setsByWorkout` is the single source every History consumer reads — the workout cards, the set
+  // counts, the tonnage, and computeExerciseProgress() with its PB flags and deltas. Filtering at
+  // the door means none of them has to know warm-ups exist, and none of them can forget to.
+  // A 40kg×12 warm-up landing in the PB comparison for a lift he presses 70 with would set a
+  // "best reps" nothing could ever beat honestly, and it would inflate every set count on the feed.
+  // Rows written before this feature carry no `set_type` and are working sets.
   (workouts || []).forEach(w => {
-    if ((w.workout_sets || []).length) window._setsByWorkout[w.id] = w.workout_sets;
+    const sets = (w.workout_sets || []).filter(s => s.set_type !== 'warmup');
+    if (sets.length) window._setsByWorkout[w.id] = sets;
     if ((w.cardio_logs || []).length) window._cardioByWorkout[w.id] = w.cardio_logs;
   });
   // The embedded arrays are lifted out above and dropped here: allHistoryWorkouts is filtered,
@@ -10108,7 +10311,7 @@ async function saveEditWorkout() {
 
   track(await sb(`workouts?id=eq.${editingWorkoutId}`, 'PATCH', { notes }, { quiet: true }));
 
-  const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&select=*&order=exercise.asc,set_number.asc`);
+  const existingSets = await sb(`workout_sets?workout_id=eq.${editingWorkoutId}&set_type=eq.working&select=*&order=exercise.asc,set_number.asc`);
 
   // The SAME reconstruction the form was drawn from — not a copy of it. This loop walks exercises
   // and set numbers looking for the boxes openEditWorkout() rendered, so anything it reconstructs
@@ -10404,7 +10607,7 @@ function swPaintRestLine(exName, setNum, seconds) {
 // ─── SAVE REST TO DB (or buffer if workout not created yet) ──
 async function swSaveRest(exName, setNum, seconds) {
   if (currentWorkoutId) {
-    const existing = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}&set_number=eq.${setNum}&select=id`);
+    const existing = await sb(`workout_sets?workout_id=eq.${currentWorkoutId}&exercise=eq.${encodeURIComponent(exName)}&set_type=eq.working&set_number=eq.${setNum}&select=id`);
     if (existing && existing.length > 0) {
       // quiet: a lost rest time is cosmetic next to the set itself, and a toast the moment you tap
       // the watch mid-set would be worse than the missing number. Console-logged either way.

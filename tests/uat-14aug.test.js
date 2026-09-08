@@ -226,7 +226,10 @@ console.log('Last Time card carries rest');
   // superset_group joined it on 28 Aug (C3) for the same reason: the card cannot mark a pair it
   // never fetched. Both columns are named here on purpose — a tidy-up of this select that drops
   // either one empties a line of the card in silence.
-  ok(SRC.includes('workout_sets(exercise,set_number,weight,reps,variation,rest_seconds,superset_group)'),
+  // set_type joined it on 8 Sept for a third reason: the card filters warm-ups out, and a select
+  // that drops the column makes that filter read `undefined !== 'warmup'` on every row — true for
+  // warm-ups too, so they would silently reappear as "what I did last time".
+  ok(SRC.includes('workout_sets(exercise,set_number,set_type,weight,reps,variation,rest_seconds,superset_group)'),
     'fetchLastSessionSnapshot actually asks the database for rest_seconds and superset_group — the card cannot show what it never fetched');
 }
 

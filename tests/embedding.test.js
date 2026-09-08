@@ -72,13 +72,23 @@ function sortKeys(o) {
 // The ADDED key is stripped and nothing else is — every other field, and every array order, is still
 // compared exactly, so this stays a test of "same data" rather than becoming a test of "some data".
 // ⚠️ Delete this the day the baseline is re-captured against a ref that has the column.
+// Warm-up sets (8 Sept 2026) added `set_type` to both selects for the same reason and with the same
+// consequence — it is stripped here alongside superset_group. The rows the baseline holds are all
+// working sets, so nothing it asserts is weakened by dropping a column that reads 'working' on every
+// one of them. What warm-ups actually do to these screens is tested in warmup-sets.test.js, against
+// behaviour rather than against a snapshot of a shape that predates them.
 const stripAddedKeys = r => ({
   ...r,
   exercises: Object.fromEntries(Object.entries(r.exercises || {})
-    .map(([name, sets]) => [name, sets.map(({ superset_group, ...rest }) => rest)])),
+    .map(([name, sets]) => [name, sets.map(({ superset_group, set_type, ...rest }) => rest)])),
 });
 const NORMALISE = {
-  loadHistory: r => ({ ...r, setsByWorkout: sortKeys(r.setsByWorkout), cardioByWorkout: sortKeys(r.cardioByWorkout) }),
+  loadHistory: r => ({
+    ...r,
+    setsByWorkout: Object.fromEntries(Object.entries(sortKeys(r.setsByWorkout))
+      .map(([id, sets]) => [id, sets.map(({ set_type, ...rest }) => rest)])),
+    cardioByWorkout: sortKeys(r.cardioByWorkout),
+  }),
   'fetchLastSessionSnapshot: sets only': stripAddedKeys,
   'fetchLastSessionSnapshot: skips an abandoned session': stripAddedKeys,
 };
@@ -144,8 +154,13 @@ runScenarios(APP).then(actual => {
   // ── 4. the embeds still ask for the columns the screens render ────────────
   // A dropped column in an embed select is silent: the row still comes back, the field is just
   // undefined, and the screen renders a blank where a number should be.
-  ok(SRC.includes('workout_sets(workout_id,exercise,weight,reps,rest_seconds,set_number,variation,superset_group,created_at)'),
+  ok(SRC.includes('workout_sets(workout_id,exercise,weight,reps,rest_seconds,set_number,set_type,variation,superset_group,created_at)'),
     'the History embed still selects rest_seconds, variation and superset_group');
+  // set_type joins the list for a harder reason than the rest of it: History strips warm-ups by
+  // reading this field, so dropping it from the select would not blank a number on screen — it
+  // would silently fold every warm-up back into the set counts, the tonnage and the PB flags.
+  ok(/workout_sets\([^)]*\bset_type\b[^)]*\)/.test(SRC),
+    'every workout_sets embed carries set_type, or the warm-up filter downstream reads undefined');
   ok(SRC.includes('cardio_logs(workout_id,activity,duration_mins,distance,floors,incline,speed_kmh)'),
     'the History cardio embed still selects every field formatCardioEntry prints');
   ok(SRC.includes('&workout_sets.order=created_at.asc,set_number.asc'),
